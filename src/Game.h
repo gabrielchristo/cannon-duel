@@ -11,9 +11,13 @@
 #include "Localization.h"
 #include "Platform.h"
 
-enum class GameMode { PvP, PvAI };
+#include "net/PlayerIdentity.h"
+#include "net/OnlineLobby.h"
+#include "net/NetMatch.h"
+
+enum class GameMode { PvP, PvAI, Online };
 enum class GameVersion { Classic, Plus };
-enum class GameState { MainMenu, About, Instructions, Aiming, ProjectileFlying, TurnTransition, RoundOver };
+enum class GameState { MainMenu, About, Instructions, OnlineLobby, Aiming, ProjectileFlying, TurnTransition, RoundOver };
 enum class AimPhase { Angle, Power };
 
 class Game {
@@ -34,6 +38,15 @@ private:
     void UpdateInstructions();
     void DrawInstructions();
 
+    // --- multiplayer online (lobby público via Supabase) ---
+    PlayerIdentity playerIdentity;
+    OnlineLobby onlineLobby;
+    NetMatch netMatch;
+    void UpdateOnlineLobby();
+    void DrawOnlineLobby();
+    void StartOnlineMatch(const MatchStart& ms);
+    void ApplyRemoteTurn(const RemoteTurnResult& remote);
+
     void StartMatch(GameMode mode);
     void UpdateAiming();
     void UpdateProjectileFlight(float dt);
@@ -42,6 +55,7 @@ private:
     void CheckRoundEnd();
 
     void DrawHUD();
+    bool IsLocalHumanTurn() const; // true se devo mostrar/controlar a UI de mira agora
     void DrawWindIndicator() const;
     void DrawMenuButton() const;
     bool HandleMenuButtonClick(); // retorna true se o clique foi consumido pelo botão
@@ -74,7 +88,8 @@ private:
     // --- áudio ---
     Sound sndFire{};
     Sound sndExplosion{};
-    Music music{};
+    Music musicTracks[2]{};
+    int currentMusicIndex = 0;
     bool audioReady = false;
 
     // --- sprites placeholder ---

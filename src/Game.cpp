@@ -44,10 +44,11 @@ Game::Game() {
         sndFire      = LoadSound(AssetPath("sounds/fire.ogg").c_str());
         sndExplosion = LoadSound(AssetPath("sounds/explosion.ogg").c_str());
 
-        music = LoadMusicStream(AssetPath("sounds/music.ogg").c_str());
-        music.looping = true;
-        if (music.frameCount > 0) {
-            SetMusicVolume(music, 0.5f);
+        musicTracks[0] = LoadMusicStream(AssetPath("sounds/music.ogg").c_str());
+        musicTracks[1] = LoadMusicStream(AssetPath("sounds/music2.ogg").c_str());
+        for (Music& m : musicTracks) {
+            m.looping = true;
+            if (m.frameCount > 0) SetMusicVolume(m, 0.5f);
         }
     }
 
@@ -62,13 +63,17 @@ Game::Game() {
     srand(static_cast<unsigned int>(time(nullptr)));
 
     InitDustMotes();
+
+    playerIdentity.LoadOrCreate();
+    onlineLobby.Init(&playerIdentity);
 }
 
 Game::~Game() {
     if (audioReady) {
         UnloadSound(sndFire);
         UnloadSound(sndExplosion);
-        UnloadMusicStream(music);
+        UnloadMusicStream(musicTracks[0]);
+        UnloadMusicStream(musicTracks[1]);
         CloseAudioDevice();
     }
     UnloadTexture(texCannonLeft);
@@ -183,9 +188,11 @@ void Game::StartMatch(GameMode m) {
     if (mode == GameMode::PvAI) ai.SetDifficulty(0.55f);
     ResetRound(static_cast<unsigned int>(time(nullptr)) ^ rand());
 
-    // Música toca em loop só durante a partida (não no menu).
-    if (audioReady && music.frameCount > 0) {
-        PlayMusicStream(music);
+    // Música toca em loop só durante a partida (não no menu) — faixa
+    // sorteada aleatoriamente a cada partida.
+    currentMusicIndex = rand() % 2;
+    if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
+        PlayMusicStream(musicTracks[currentMusicIndex]);
     }
 }
 
@@ -207,8 +214,19 @@ const char* Game::ResolveRoundMessage() const {
 void Game::Update(float dt) {
     // Precisa ser chamado todo frame pro streaming da música avançar (e
     // fazer o loop) — independe de qualquer outro estado/painel.
-    if (audioReady && music.frameCount > 0) {
-        UpdateMusicStream(music);
+    if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
+        UpdateMusicStream(musicTracks[currentMusicIndex]);
+    }
+
+    // Multiplayer online: enquanto não é minha vez, faz polling do próximo
+    // turno do adversário e aplica assim que chegar.
+    if (mode == GameMode::Online && !netMatch.IsMyTurn() &&
+        (state == GameState::Aiming || state == GameState::TurnTransition)) {
+        RemoteTurnResult remote;
+        if (netMatch.PollOpponentTurn(remote, dt)) {
+            ApplyRemoteTurn(remote);
+            return;
+        }
     }
 
 #if !CANNON_DUEL_ANDROID_BUILD
@@ -232,7 +250,8 @@ void Game::Update(float dt) {
 
     // Botão "voltar ao menu" abre o diálogo de confirmação em vez de sair
     // direto — evita perder uma partida em andamento por clique acidental.
-    if (state != GameState::MainMenu && state != GameState::About && state != GameState::Instructions && HandleMenuButtonClick()) {
+    if (state != GameState::MainMenu && state != GameState::About && state != GameState::Instructions &&
+        state != GameState::OnlineLobby && HandleMenuButtonClick()) {
         showMenuConfirm = true;
         return;
     }
@@ -241,7 +260,7 @@ void Game::Update(float dt) {
     // mira de um jogador humano (não durante o turno da IA). Equivalente
     // touch-friendly do atalho de teclado B (PC), mas disponível nas duas
     // plataformas.
-    bool humanAimingTurn = (state == GameState::Aiming && !(mode == GameMode::PvAI && currentPlayer == 2));
+    bool humanAimingTurn = IsLocalHumanTurn();
     if (humanAimingTurn && HandleResetAngleButtonClick()) {
         if (aimPhase == AimPhase::Angle) {
             aimOscTimer = 0.0f;
@@ -280,6 +299,9 @@ void Game::Update(float dt) {
         case GameState::Instructions:
             UpdateInstructions();
             break;
+        case GameState::OnlineLobby:
+            UpdateOnlineLobby();
+            break;
         case GameState::Aiming:
             UpdateAiming();
             break;
@@ -293,7 +315,11 @@ void Game::Update(float dt) {
         case GameState::RoundOver:
             stateTimer -= dt;
             if (stateTimer <= 0.0f && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                if (audioReady) StopMusicStream(music);
+                if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+                if (mode == GameMode::Online) {
+                    netMatch.LeaveMatch();
+                    onlineLobby.LeaveLobby();
+                }
                 state = GameState::MainMenu;
             }
             break;
@@ -309,12 +335,14 @@ void Game::UpdateMainMenu() {
     Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
     Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
     Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 558, 280, 56 };
+    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 634, 280, 52 };
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (CheckCollisionPointRec(m, btn1P)) StartMatch(GameMode::PvAI);
         else if (CheckCollisionPointRec(m, btn2P)) StartMatch(GameMode::PvP);
         else if (CheckCollisionPointRec(m, btnAbout)) state = GameState::About;
         else if (CheckCollisionPointRec(m, btnInstructions)) state = GameState::Instructions;
+        else if (CheckCollisionPointRec(m, btnOnline)) state = GameState::OnlineLobby;
     }
 }
 
@@ -331,6 +359,215 @@ void Game::UpdateInstructions() {
     Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, backBtn)) {
         state = GameState::MainMenu;
+    }
+}
+
+namespace {
+// Layout compartilhado entre Update/Draw do lobby, pra garantir que a área
+// clicável e a área desenhada do botão "DESAFIAR" de cada card batem certinho.
+Rectangle OnlineCardRect(int index, float startY) {
+    return { cfg::SCREEN_WIDTH / 2.0f - 350.0f, startY + index * 74.0f, 700.0f, 66.0f };
+}
+Rectangle OnlineChallengeBtnRect(int index, float startY) {
+    Rectangle card = OnlineCardRect(index, startY);
+    return { card.x + card.width - 150.0f, card.y + 10.0f, 130.0f, 46.0f };
+}
+} // namespace
+
+void Game::UpdateOnlineLobby() {
+    onlineLobby.Update(GetFrameTime());
+
+    MatchStart ms;
+    if (onlineLobby.PollMatchStart(ms)) {
+        StartOnlineMatch(ms);
+        return;
+    }
+
+    Vector2 m = GetVirtualMouse();
+    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, backBtn)) {
+        onlineLobby.LeaveLobby();
+        state = GameState::MainMenu;
+        return;
+    }
+
+    const auto& incoming = onlineLobby.IncomingChallenges();
+    float listStartY = 150.0f;
+    if (!incoming.empty()) {
+        listStartY = 226.0f;
+        Rectangle acceptBtn = { cfg::SCREEN_WIDTH / 2.0f - 160, 160, 150, 46 };
+        Rectangle declineBtn = { cfg::SCREEN_WIDTH / 2.0f + 10, 160, 150, 46 };
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+            if (CheckCollisionPointRec(m, acceptBtn)) onlineLobby.AcceptChallenge(incoming[0], version == GameVersion::Plus);
+            else if (CheckCollisionPointRec(m, declineBtn)) onlineLobby.DeclineChallenge(incoming[0]);
+        }
+    }
+
+    const auto& players = onlineLobby.Players();
+    int maxCards = 6;
+    if (!onlineLobby.HasPendingOutgoingChallenge() && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        for (int i = 0; i < static_cast<int>(players.size()) && i < maxCards; ++i) {
+            Rectangle btn = OnlineChallengeBtnRect(i, listStartY);
+            if (CheckCollisionPointRec(m, btn)) {
+                onlineLobby.SendChallenge(players[i]);
+                break;
+            }
+        }
+    }
+}
+
+void Game::DrawOnlineLobby() {
+    ClearBackground(Color{ 235, 214, 190, 255 });
+
+    const char* title = T(TK::OnlineTitle, language);
+    int fs = 40;
+    int tw = MeasureText(title, fs);
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 30, fs, Color{40, 30, 20, 255});
+
+    std::string myLine = std::string(T(TK::OnlineYourName, language)) + " " + playerIdentity.DisplayName()
+        + "  [" + (version == GameVersion::Plus ? T(TK::PlusLabel, language) : T(TK::ClassicLabel, language)) + "]";
+    int myTw = MeasureText(myLine.c_str(), 18);
+    DrawText(myLine.c_str(), cfg::SCREEN_WIDTH / 2 - myTw / 2, 84, 18, Color{80, 65, 45, 255});
+
+    if (onlineLobby.HasPendingOutgoingChallenge()) {
+        const char* waiting = T(TK::OnlineChallengeSent, language);
+        int ww = MeasureText(waiting, 18);
+        DrawText(waiting, cfg::SCREEN_WIDTH / 2 - ww / 2, 108, 18, Color{200, 120, 30, 255});
+    }
+
+    Vector2 m = GetVirtualMouse();
+    const auto& incoming = onlineLobby.IncomingChallenges();
+    float listStartY = 150.0f;
+
+    if (!incoming.empty()) {
+        listStartY = 226.0f;
+        const IncomingChallenge& c = incoming[0];
+        std::string msg = c.fromDisplayName + " " + T(TK::OnlineIncomingChallenge, language);
+        int mw = MeasureText(msg.c_str(), 20);
+        DrawText(msg.c_str(), cfg::SCREEN_WIDTH / 2 - mw / 2, 130, 20, Color{40, 30, 20, 255});
+
+        Rectangle acceptBtn = { cfg::SCREEN_WIDTH / 2.0f - 160, 160, 150, 46 };
+        Rectangle declineBtn = { cfg::SCREEN_WIDTH / 2.0f + 10, 160, 150, 46 };
+
+        bool hoverA = CheckCollisionPointRec(m, acceptBtn);
+        DrawRectangleRec(acceptBtn, hoverA ? Color{100, 190, 110, 255} : Color{70, 160, 85, 255});
+        DrawRectangleLinesEx(acceptBtn, 2, Color{20, 45, 25, 255});
+        const char* acceptLbl = T(TK::OnlineAcceptButton, language);
+        int alw = MeasureText(acceptLbl, 18);
+        DrawText(acceptLbl, static_cast<int>(acceptBtn.x + acceptBtn.width / 2 - alw / 2),
+                 static_cast<int>(acceptBtn.y + 14), 18, WHITE);
+
+        bool hoverD = CheckCollisionPointRec(m, declineBtn);
+        DrawRectangleRec(declineBtn, hoverD ? Color{210, 90, 80, 255} : Color{180, 65, 55, 255});
+        DrawRectangleLinesEx(declineBtn, 2, Color{50, 15, 10, 255});
+        const char* declineLbl = T(TK::OnlineDeclineButton, language);
+        int dlw = MeasureText(declineLbl, 18);
+        DrawText(declineLbl, static_cast<int>(declineBtn.x + declineBtn.width / 2 - dlw / 2),
+                 static_cast<int>(declineBtn.y + 14), 18, WHITE);
+    }
+
+    const auto& players = onlineLobby.Players();
+    if (players.empty()) {
+        const char* none = T(TK::OnlineNoPlayers, language);
+        int nw = MeasureText(none, 18);
+        DrawText(none, cfg::SCREEN_WIDTH / 2 - nw / 2, static_cast<int>(listStartY) + 20, 18, Color{100, 85, 65, 255});
+    } else {
+        int maxCards = 6;
+        for (int i = 0; i < static_cast<int>(players.size()) && i < maxCards; ++i) {
+            const LobbyPlayerCard& p = players[i];
+            Rectangle card = OnlineCardRect(i, listStartY);
+            DrawRectangleRec(card, Color{250, 240, 225, 255});
+            DrawRectangleLinesEx(card, 2, Color{60, 45, 30, 200});
+
+            DrawText(p.displayName.c_str(), static_cast<int>(card.x + 16), static_cast<int>(card.y + 10), 20,
+                     Color{35, 25, 15, 255});
+
+            char recordBuf[64];
+            snprintf(recordBuf, sizeof(recordBuf), T(TK::OnlineRecordFmt, language), p.wins, p.losses);
+            DrawText(recordBuf, static_cast<int>(card.x + 16), static_cast<int>(card.y + 36), 15,
+                     Color{100, 85, 65, 255});
+
+            Rectangle btn = OnlineChallengeBtnRect(i, listStartY);
+            bool disabled = onlineLobby.HasPendingOutgoingChallenge();
+            bool hover = !disabled && CheckCollisionPointRec(m, btn);
+            Color btnColor = disabled ? Color{160, 150, 135, 255}
+                            : hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255};
+            DrawRectangleRec(btn, btnColor);
+            DrawRectangleLinesEx(btn, 2, Color{60, 40, 20, 255});
+            const char* lbl = T(TK::OnlineChallengeButton, language);
+            int lw = MeasureText(lbl, 16);
+            DrawText(lbl, static_cast<int>(btn.x + btn.width / 2 - lw / 2),
+                     static_cast<int>(btn.y + 14), 16, Color{40, 25, 10, 255});
+        }
+    }
+
+    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
+    bool hoverBack = CheckCollisionPointRec(m, backBtn);
+    DrawRectangleRec(backBtn, hoverBack ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
+    DrawRectangleLinesEx(backBtn, 2, Color{60, 40, 20, 255});
+    const char* backLabel = T(TK::OnlineBack, language);
+    int blw = MeasureText(backLabel, 22);
+    DrawText(backLabel, static_cast<int>(backBtn.x + backBtn.width / 2 - blw / 2),
+             static_cast<int>(backBtn.y + backBtn.height / 2 - 11), 22, Color{40, 25, 10, 255});
+}
+
+void Game::StartOnlineMatch(const MatchStart& ms) {
+    mode = GameMode::Online;
+    // A versão (Classic/Plus) da partida é decidida por quem ACEITA o
+    // desafio, e transmitida via a linha de "matches" pro desafiante ler de
+    // volta — assim os dois lados sempre concordam na mesma versão.
+    //
+    // NOTA: na versão Plus, o spawn de power-ups usa RNG local de cada
+    // cliente (não sincronizado por rede ainda), então os dois lados podem
+    // ver um power-up aparecer no mesmo turno em posições/tipos diferentes.
+    // O RESULTADO de cada tiro (dano, cratera, vitória) continua correto e
+    // sincronizado de qualquer forma — só a exibição do ícone do power-up
+    // no mapa pode divergir visualmente entre os dois clientes por ora.
+    version = ms.isPlus ? GameVersion::Plus : GameVersion::Classic;
+
+    netMatch.Begin(ms.matchId, ms.myPlayerNumber, ms.opponentId, ms.opponentName);
+    ResetRound(ms.terrainSeed);
+
+    currentMusicIndex = rand() % 2;
+    if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
+        PlayMusicStream(musicTracks[currentMusicIndex]);
+    }
+}
+
+void Game::ApplyRemoteTurn(const RemoteTurnResult& remote) {
+    Vector2 impactPos = { remote.impactX, remote.impactY };
+
+    particles.EmitExplosion(impactPos, 50);
+    terrain.Explode(impactPos.x, impactPos.y, remote.craterRadius);
+
+    player1.TakeDamage(remote.damageP1);
+    player2.TakeDamage(remote.damageP2);
+
+    player1.groundY = terrain.HeightAt(player1.x);
+    player2.groundY = terrain.HeightAt(player2.x);
+
+    windForce = remote.nextWind;
+    currentPlayer = remote.nextTurnPlayer;
+    aimPhase = AimPhase::Angle;
+    aimOscTimer = 0.0f;
+    prevProjectilePos = {0, 0};
+
+    if (remote.matchOver) {
+        bool iWon = (remote.winnerPlayer == netMatch.MyPlayerNumber());
+        bool draw = (remote.winnerPlayer == 0);
+        if (draw) {
+            roundOutcome = RoundOutcome::Draw;
+        } else {
+            roundOutcome = iWon
+                ? (netMatch.MyPlayerNumber() == 1 ? RoundOutcome::P1Wins : RoundOutcome::P2Wins)
+                : (netMatch.MyPlayerNumber() == 1 ? RoundOutcome::P2Wins : RoundOutcome::P1Wins);
+        }
+        if (!draw) onlineLobby.ReportMatchResult(iWon);
+        state = GameState::RoundOver;
+        stateTimer = 1.0f;
+    } else {
+        state = GameState::TurnTransition;
+        stateTimer = 0.4f;
     }
 }
 
@@ -715,7 +952,21 @@ void Game::DrawDustMotes() const {
     }
 }
 
+bool Game::IsLocalHumanTurn() const {
+    if (state != GameState::Aiming) return false;
+    if (mode == GameMode::PvAI && currentPlayer == 2) return false;
+    if (mode == GameMode::Online && !netMatch.IsMyTurn()) return false;
+    return true;
+}
+
 void Game::UpdateAiming() {
+    // Multiplayer online: se não é minha vez, não processo nenhum input
+    // local — o polling em Update() cuida de aplicar o turno do adversário
+    // assim que ele chegar.
+    if (mode == GameMode::Online && !netMatch.IsMyTurn()) {
+        return;
+    }
+
     Cannon& active = (currentPlayer == 1) ? player1 : player2;
     Cannon& other  = (currentPlayer == 1) ? player2 : player1;
 
@@ -996,6 +1247,7 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
     (void)wasGuided;
 
     // dano em área para os dois canhões, ponderado pela distância
+    float dmgAppliedP1 = 0.0f, dmgAppliedP2 = 0.0f;
     Cannon* cannons[2] = { &player1, &player2 };
     for (Cannon* c : cannons) {
         Vector2 base = { c->x, c->groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
@@ -1009,6 +1261,7 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
             if (c->shieldTurnsLeft > 0) dmg = 0.0f;
 
             c->TakeDamage(dmg);
+            if (c == &player1) dmgAppliedP1 = dmg; else dmgAppliedP2 = dmg;
         }
     }
 
@@ -1029,10 +1282,42 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
                        : (p1Buried ? RoundOutcome::P2WinsBuried : RoundOutcome::P1WinsBuried);
         state = GameState::RoundOver;
         stateTimer = 1.0f;
-        return;
+    } else {
+        CheckRoundEnd(); // pode terminar a partida (RoundOver) ou chamar EndTurn()
     }
 
-    CheckRoundEnd();
+    // Multiplayer online: eu (o atirador) sou sempre quem manda o RESULTADO
+    // já resolvido pro adversário — ele nunca recalcula a física, só aplica
+    // (ver ApplyRemoteTurn). Isso evita depender de simulação bit-a-bit
+    // idêntica entre plataformas/compiladores diferentes.
+    if (mode == GameMode::Online) {
+        bool matchOver = (state == GameState::RoundOver);
+        int winnerPlayer = 0;
+        if (matchOver) {
+            switch (roundOutcome) {
+                case RoundOutcome::P1Wins: case RoundOutcome::P1WinsBuried: winnerPlayer = 1; break;
+                case RoundOutcome::P2Wins: case RoundOutcome::P2WinsBuried: winnerPlayer = 2; break;
+                default: winnerPlayer = 0; break; // empate
+            }
+        }
+
+        float nextWind = matchOver ? windForce
+            : ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) *
+              std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
+
+        netMatch.SubmitMyTurn(impactPos.x, impactPos.y, craterRadius,
+                               dmgAppliedP1, dmgAppliedP2, nextWind, matchOver, winnerPlayer);
+
+        if (matchOver) {
+            if (winnerPlayer != 0) {
+                onlineLobby.ReportMatchResult(winnerPlayer == netMatch.MyPlayerNumber());
+            }
+        } else {
+            // usa o MESMO vento que acabei de mandar pro adversário, pra
+            // ambos os lados verem o mesmo valor no próximo turno
+            windForce = nextWind;
+        }
+    }
 }
 
 void Game::CheckRoundEnd() {
@@ -1119,6 +1404,19 @@ void Game::Draw() {
         return;
     }
 
+    if (state == GameState::OnlineLobby) {
+        DrawOnlineLobby();
+#if !CANNON_DUEL_ANDROID_BUILD
+        if (devMode) DrawDevPanel();
+#endif
+        EndTextureMode();
+        BeginDrawing();
+        ClearBackground(BLACK);
+        DrawVirtualScreenScaled();
+        EndDrawing();
+        return;
+    }
+
     // ---- background (sprite gerado: dia com sol/nuvens, ou noite com estrelas/lua) ----
     Texture2D& bgTex = nightMode ? texBackgroundNight : texBackground;
     if (spritesReady && bgTex.id != 0) {
@@ -1173,7 +1471,7 @@ void Game::Draw() {
     }
 
     // mecanismo de mira: linha oscilando (fase ângulo) ou barra de força (fase potência)
-    if (state == GameState::Aiming && !(mode == GameMode::PvAI && currentPlayer == 2)) {
+    if (IsLocalHumanTurn()) {
         Cannon& active = (currentPlayer == 1) ? player1 : player2;
         Vector2 base = { active.x, active.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
 
@@ -1229,6 +1527,11 @@ void Game::Draw() {
                           4, static_cast<int>(barH) + 8, WHITE);
         }
     }
+    else if (mode == GameMode::Online && !netMatch.IsMyTurn() && state == GameState::Aiming) {
+        std::string waitMsg = std::string(netMatch.OpponentName()) + T(TK::OnlineWaitingSuffix, language);
+        int ww = MeasureText(waitMsg.c_str(), 20);
+        DrawText(waitMsg.c_str(), cfg::SCREEN_WIDTH / 2 - ww / 2, 90, 20, HudTextColor());
+    }
 
     if (version == GameVersion::Plus) {
         DrawPowerupMessage();
@@ -1251,7 +1554,7 @@ void Game::Draw() {
 
     DrawMenuButton();
 
-    if (state == GameState::Aiming && !(mode == GameMode::PvAI && currentPlayer == 2)) {
+    if (IsLocalHumanTurn()) {
         DrawResetAngleButton();
     }
 
@@ -1411,6 +1714,15 @@ void Game::DrawMainMenu() {
     drawButton(btn2P, T(TK::TwoPlayers, language));
     drawButton(btnAbout, T(TK::AboutButton, language));
     drawButton(btnInstructions, T(TK::InstructionsButton, language));
+
+    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 634, 280, 52 };
+    bool onlineHover = CheckCollisionPointRec(m, btnOnline);
+    DrawRectangleRec(btnOnline, onlineHover ? Color{100, 190, 110, 255} : Color{70, 160, 85, 255});
+    DrawRectangleLinesEx(btnOnline, 2, Color{20, 45, 25, 255});
+    const char* onlineLabel = T(TK::OnlineButton, language);
+    int olw = MeasureText(onlineLabel, 22);
+    DrawText(onlineLabel, static_cast<int>(btnOnline.x + btnOnline.width / 2 - olw / 2),
+             static_cast<int>(btnOnline.y + btnOnline.height / 2 - 11), 22, WHITE);
 }
 
 void Game::DrawInstructions() {
@@ -1490,7 +1802,11 @@ void Game::UpdateMenuConfirmDialog() {
         if (CheckCollisionPointRec(m, yesBtn)) {
             showMenuConfirm = false;
             projectile.Destroy();
-            if (audioReady) StopMusicStream(music);
+            if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+            if (mode == GameMode::Online) {
+                netMatch.LeaveMatch();
+                onlineLobby.LeaveLobby();
+            }
             state = GameState::MainMenu;
         } else if (CheckCollisionPointRec(m, noBtn)) {
             showMenuConfirm = false;

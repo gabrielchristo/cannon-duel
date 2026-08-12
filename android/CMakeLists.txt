@@ -40,6 +40,94 @@ if(TARGET box2d)
 endif()
 
 # ---------------------------------------------------------------------------
+# nlohmann/json (header-only) — cliente Supabase (src/net/).
+# ---------------------------------------------------------------------------
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+# ---------------------------------------------------------------------------
+# curl + mbedTLS — o Android não tem libcurl de sistema como o Linux
+# desktop, então compilamos os dois do zero com o toolchain do NDK. Usamos
+# mbedTLS como backend de TLS (em vez de OpenSSL/BoringSSL) porque o build
+# dele via CMake cross-compila de primeira com o NDK — o do OpenSSL usa um
+# sistema de build próprio (Perl/Configure), e o do BoringSSL usa
+# Bazel/GN — nenhum dos dois se dá bem com toolchain files do CMake sem
+# ferramental extra. Trocar de backend de TLS não evitaria o problema
+# abaixo, então ficamos com mbedTLS mesmo.
+#
+# AVISO: esta é a parte menos testada de todo o pipeline Android — não
+# tive como validar isso rodando de verdade neste ambiente. Se der erro de
+# build aqui, é o primeiro lugar a investigar.
+# ---------------------------------------------------------------------------
+set(ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+set(ENABLE_PROGRAMS OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(
+    mbedtls
+    GIT_REPOSITORY https://github.com/Mbed-TLS/mbedtls.git
+    GIT_TAG        v3.6.2
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(mbedtls)
+
+set(CURL_USE_MBEDTLS ON CACHE BOOL "" FORCE)
+set(CURL_USE_OPENSSL OFF CACHE BOOL "" FORCE)
+set(BUILD_CURL_EXE OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(CURL_DISABLE_LDAP ON CACHE BOOL "" FORCE)
+set(CURL_DISABLE_LDAPS ON CACHE BOOL "" FORCE)
+set(CURL_ZLIB OFF CACHE STRING "" FORCE)
+set(HTTP_ONLY ON CACHE BOOL "" FORCE)
+set(CMAKE_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
+# O curl, por padrão, tenta gerar um export() de CURL::libcurl (pra permitir
+# find_package(CURL) direto na árvore de build, sem instalar nada) — isso
+# falha porque exige que TODAS as dependências linkadas (inclusive o
+# mbedTLS que linkamos manualmente mais abaixo) também estejam num "export
+# set", o que não é o nosso caso. Essa opção desliga exatamente esse
+# export(), feita pelo próprio curl para cenários como o nosso (consumo via
+# FetchContent, sem instalação).
+set(CURL_ENABLE_EXPORT_TARGET OFF CACHE BOOL "" FORCE)
+
+# O CMakeLists.txt do próprio curl chama find_package(MbedTLS REQUIRED)
+# internamente pra decidir se o mbedTLS está disponível — esse é um "Find
+# module" clássico baseado em variável, que procura bibliotecas JÁ
+# INSTALADAS no sistema, não os alvos que o FetchContent acima criou em
+# memória. Pré-preencher as variáveis nem sempre é suficiente (o próprio
+# find_package pode ignorá-las e procurar de novo), então a forma confiável
+# é neutralizar essa chamada diretamente no código-fonte baixado do curl
+# (via patch automático) e linkar os alvos reais do mbedTLS manualmente
+# logo depois — assim nunca dependemos do find_package funcionar.
+FetchContent_Declare(
+    curl
+    GIT_REPOSITORY https://github.com/curl/curl.git
+    GIT_TAG        curl-8_9_1
+    GIT_SHALLOW    TRUE
+    PATCH_COMMAND sed -i "s/find_package(MbedTLS REQUIRED.*/# &/" CMakeLists.txt
+)
+FetchContent_MakeAvailable(curl)
+
+if(TARGET libcurl)
+    # Versões recentes do curl fazem de "libcurl" um alvo ALIAS apontando
+    # pro alvo real (ex: "libcurl_static"), dependendo de BUILD_SHARED_LIBS.
+    # Não dá pra chamar target_link_libraries/target_include_directories
+    # diretamente num ALIAS — resolvemos pro alvo real primeiro, de forma
+    # genérica (sem fixar um nome específico que pode mudar entre versões
+    # do curl).
+    get_target_property(_libcurl_aliased libcurl ALIASED_TARGET)
+    if(_libcurl_aliased)
+        set(_libcurl_real_target ${_libcurl_aliased})
+    else()
+        set(_libcurl_real_target libcurl)
+    endif()
+    target_link_libraries(${_libcurl_real_target} PRIVATE mbedtls mbedx509 mbedcrypto)
+    target_include_directories(${_libcurl_real_target} PRIVATE ${mbedtls_SOURCE_DIR}/include)
+endif()
+
+# ---------------------------------------------------------------------------
 # Nosso código + android_native_app_glue (do próprio NDK) → libCannonDuel.so
 # ---------------------------------------------------------------------------
 set(NATIVE_APP_GLUE_DIR ${ANDROID_NDK}/sources/android/native_app_glue)
@@ -71,6 +159,8 @@ set_target_properties(raylib_prebuilt PROPERTIES IMPORTED_LOCATION ${RAYLIB_A})
 target_link_libraries(CannonDuel PRIVATE
     raylib_prebuilt
     box2d
+    libcurl
+    nlohmann_json::nlohmann_json
     log android EGL GLESv2 OpenSLES
 )
 

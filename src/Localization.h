@@ -40,6 +40,19 @@ enum class TK {
     InstructionsBody,
     InstructionsBack,
 
+    OnlineButton,
+    OnlineTitle,
+    OnlineYourName,
+    OnlineNoPlayers,
+    OnlineChallengeSent,
+    OnlineChallengeButton,
+    OnlineIncomingChallenge,
+    OnlineAcceptButton,
+    OnlineDeclineButton,
+    OnlineBack,
+    OnlineRecordFmt,
+    OnlineWaitingSuffix,
+
     PowerupDoubleDamage,
     PowerupTrajectory,
     PowerupGuided,
@@ -144,6 +157,21 @@ inline const char* T(TK key, Lang lang) {
               "Hit it with your shot to activate: double damage, trajectory\n"
               "preview, guided shot, heal, or shield.";
         case TK::InstructionsBack: return pt ? "VOLTAR" : "BACK";
+
+        case TK::OnlineButton: return pt ? "MULTIPLAYER ONLINE" : "ONLINE MULTIPLAYER";
+        case TK::OnlineTitle: return pt ? "LOBBY ONLINE" : "ONLINE LOBBY";
+        case TK::OnlineYourName: return pt ? "Voce:" : "You:";
+        case TK::OnlineNoPlayers: return pt
+            ? "Nenhum jogador online no momento. Espere um pouco ou chame um amigo!"
+            : "No players online right now. Wait a bit or invite a friend!";
+        case TK::OnlineChallengeSent: return pt ? "Desafio enviado! Aguardando resposta..." : "Challenge sent! Waiting for response...";
+        case TK::OnlineChallengeButton: return pt ? "DESAFIAR" : "CHALLENGE";
+        case TK::OnlineIncomingChallenge: return pt ? "te desafiou!" : "challenged you!";
+        case TK::OnlineAcceptButton: return pt ? "ACEITAR" : "ACCEPT";
+        case TK::OnlineDeclineButton: return pt ? "RECUSAR" : "DECLINE";
+        case TK::OnlineBack: return pt ? "VOLTAR" : "BACK";
+        case TK::OnlineRecordFmt: return pt ? "%d vitorias / %d derrotas" : "%d wins / %d losses";
+        case TK::OnlineWaitingSuffix: return pt ? " esta jogando..." : " is playing...";
 
         case TK::PowerupDoubleDamage: return pt ? "DANO EM DOBRO no proximo tiro!" : "DOUBLE DAMAGE on the next shot!";
         case TK::PowerupTrajectory: return pt ? "Trajetoria revelada por 2 rodadas!" : "Trajectory revealed for 2 rounds!";

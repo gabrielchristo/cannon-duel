@@ -39,7 +39,23 @@ FetchContent_Declare(
     GIT_SHALLOW    TRUE
 )
 
-FetchContent_MakeAvailable(raylib box2d)
+# ---------------------------------------------------------------------------
+# nlohmann/json (header-only) — usado pelo cliente Supabase (src/net/),
+# que agora compila em ambas as plataformas (desktop e Android).
+# ---------------------------------------------------------------------------
+FetchContent_Declare(
+    nlohmann_json
+    GIT_REPOSITORY https://github.com/nlohmann/json.git
+    GIT_TAG        v3.11.3
+    GIT_SHALLOW    TRUE
+)
+
+FetchContent_MakeAvailable(raylib box2d nlohmann_json)
+
+# libcurl — usado pelas requisições HTTP do cliente Supabase. Geralmente já
+# vem instalado no sistema em distros Linux comuns; se não tiver, instale o
+# pacote de desenvolvimento (ex: `sudo apt install libcurl4-openssl-dev`).
+find_package(CURL REQUIRED)
 
 # O box2d define -Werror internamente no seu CMakeLists (dependendo da
 # versão/toolchain) e a 3.1.0 dispara falsos-positivos de
@@ -62,7 +78,7 @@ add_executable(CannonDuel ${CANNON_DUEL_SOURCES})
 
 target_include_directories(CannonDuel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-target_link_libraries(CannonDuel PRIVATE raylib box2d)
+target_link_libraries(CannonDuel PRIVATE raylib box2d nlohmann_json::nlohmann_json CURL::libcurl)
 
 if(APPLE)
     target_link_libraries(CannonDuel PRIVATE "-framework IOKit" "-framework Cocoa" "-framework OpenGL")

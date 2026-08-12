@@ -17,7 +17,7 @@ void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
 }
 
 void Cannon::SetAim(float pAngleDeg, float pPower01) {
-    angleDeg = std::clamp(pAngleDeg, 0.0f, 175.0f); // nunca mira pra baixo demais
+    angleDeg = std::clamp(pAngleDeg, -90.0f, 90.0f); // de reto pra baixo a reto pra cima
     power01  = std::clamp(pPower01, 0.0f, 1.0f);
 }
 

@@ -8,6 +8,7 @@
 #include "ParticleSystem.h"
 #include "AI.h"
 #include "Powerup.h"
+#include "Localization.h"
 
 enum class GameMode { PvP, PvAI };
 enum class GameVersion { Classic, Plus };
@@ -54,6 +55,7 @@ private:
     GameState state = GameState::MainMenu;
     GameMode  mode  = GameMode::PvAI;
     GameVersion version = GameVersion::Classic;
+    Lang language = Lang::PT_BR;
 
     // --- física / mundo ---
     PhysicsWorld physics;
@@ -87,7 +89,9 @@ private:
 
     // --- transições ---
     float stateTimer = 0.0f;
-    const char* roundMessage = nullptr;
+    enum class RoundOutcome { None, Draw, DrawBuried, P1Wins, P2Wins, P1WinsBuried, P2WinsBuried };
+    RoundOutcome roundOutcome = RoundOutcome::None;
+    const char* ResolveRoundMessage() const;
 
     // --- diálogo de confirmação "voltar ao menu" ---
     bool showMenuConfirm = false;
@@ -125,6 +129,10 @@ private:
     // --- menu: alternância Classic/Plus ---
     void DrawVersionSwitch(Vector2 mouse);
     void UpdateVersionSwitch(Vector2 mouse);
+
+    // --- menu: alternância de idioma (bandeiras BR/EUA) ---
+    void DrawLanguageFlags(Vector2 mouse);
+    void UpdateLanguageFlags(Vector2 mouse);
 
     // --- painel de desenvolvedor oculto (F9) ---
     bool devMode = false;

@@ -1,5 +1,6 @@
 #pragma once
 #include <raylib.h>
+#include "Localization.h"
 
 enum class PowerupType {
     DoubleDamage,   // 1. dano em dobro no próximo acerto (projétil em chamas)
@@ -27,13 +28,13 @@ inline const char* PowerupLabel(PowerupType t) {
     }
 }
 
-inline const char* PowerupDescription(PowerupType t) {
+inline const char* PowerupDescription(PowerupType t, Lang lang) {
     switch (t) {
-        case PowerupType::DoubleDamage:      return "DANO EM DOBRO no proximo tiro!";
-        case PowerupType::TrajectoryPreview: return "Trajetoria revelada por 2 rodadas!";
-        case PowerupType::Guided:            return "Proximo tiro TELEGUIADO (dano menor)!";
-        case PowerupType::Heal:              return "Vida recuperada!";
-        case PowerupType::Shield:            return "ESCUDO ativo por 2 rodadas!";
+        case PowerupType::DoubleDamage:      return T(TK::PowerupDoubleDamage, lang);
+        case PowerupType::TrajectoryPreview: return T(TK::PowerupTrajectory, lang);
+        case PowerupType::Guided:            return T(TK::PowerupGuided, lang);
+        case PowerupType::Heal:              return T(TK::PowerupHeal, lang);
+        case PowerupType::Shield:            return T(TK::PowerupShield, lang);
         default: return "";
     }
 }

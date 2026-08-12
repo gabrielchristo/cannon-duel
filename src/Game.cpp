@@ -122,6 +122,18 @@ void Game::StartMatch(GameMode m) {
 // ---------------------------------------------------------------------------
 // Update
 // ---------------------------------------------------------------------------
+const char* Game::ResolveRoundMessage() const {
+    switch (roundOutcome) {
+        case RoundOutcome::Draw: return T(TK::RoundDraw, language);
+        case RoundOutcome::DrawBuried: return T(TK::RoundDrawBuried, language);
+        case RoundOutcome::P1Wins: return T(TK::RoundP1Wins, language);
+        case RoundOutcome::P2Wins: return T(TK::RoundP2Wins, language);
+        case RoundOutcome::P1WinsBuried: return T(TK::RoundP1WinsBuried, language);
+        case RoundOutcome::P2WinsBuried: return T(TK::RoundP2WinsBuried, language);
+        default: return "";
+    }
+}
+
 void Game::Update(float dt) {
     // Painel de desenvolvedor oculto: F9 alterna a visibilidade. Não é
     // exposto em nenhum menu/UI normal — é só um atalho de teclado para
@@ -188,6 +200,7 @@ void Game::Update(float dt) {
 void Game::UpdateMainMenu() {
     Vector2 m = GetMousePosition();
     UpdateVersionSwitch(m);
+    UpdateLanguageFlags(m);
 
     Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
     Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
@@ -280,7 +293,7 @@ void Game::DrawPowerupTooltip() const {
         float dist = std::sqrt(std::pow(mouse.x - center.x, 2) + std::pow(mouse.y - center.y, 2));
         if (dist > cfg::POWERUP_RADIUS_PX + 10.0f) continue;
 
-        const char* desc = PowerupDescription(pu.type);
+        const char* desc = PowerupDescription(pu.type, language);
         int fs = 15;
         int tw = MeasureText(desc, fs);
         float boxW = tw + 16.0f, boxH = fs + 12.0f;
@@ -366,7 +379,7 @@ void Game::ApplyPowerupEffect(Cannon& picker, PowerupType type) {
     }
 
     Vector2 base = { picker.x, picker.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f - 40.0f };
-    ShowPowerupMessage(PowerupDescription(type), base);
+    ShowPowerupMessage(PowerupDescription(type, language), base);
 }
 
 void Game::TickPowerupTurnEffects(Cannon& startingTurnCannon) {
@@ -558,31 +571,44 @@ void Game::UpdateAiming() {
     aimOscTimer += GetFrameTime();
 
     if (aimPhase == AimPhase::Angle) {
-        // 0° a 90° na direção do oponente, oscilando continuamente (onda triangular).
-        float period = cfg::ANGLE_OSC_PERIOD_SEC;
+        // -90° (reto pra baixo) a 90° (reto pra cima), oscilando continuamente
+        // (onda triangular), na direção do oponente. Com "trajetória
+        // prevista" ativa, oscila mais devagar também — senão o preview não
+        // ajuda muito, já que o timing fica apertado demais em ambas as fases.
+        float period = cfg::ANGLE_OSC_PERIOD_SEC *
+            ((version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0)
+                ? cfg::POWERUP_TRAJECTORY_POWER_SLOWDOWN : 1.0f);
         float t = fmodf(aimOscTimer, period) / period; // 0..1
         float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
-        float angle = tri * 90.0f;
+        float angle = -90.0f + tri * 180.0f;
         active.SetAim(angle, active.power01);
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsKeyPressed(KEY_SPACE)) {
             aimPhase = AimPhase::Power;
             aimOscTimer = 0.0f;
         }
+        if (IsKeyPressed(KEY_B)) {
+            // reseta a linha de ângulo, reiniciando a oscilação do começo
+            aimOscTimer = 0.0f;
+        }
     } else { // AimPhase::Power
-        float period = cfg::POWER_OSC_PERIOD_SEC;
+        // Com "trajetória prevista" ativa, a barra oscila mais devagar —
+        // senão o preview não ajuda muito, já que o timing fica apertado demais.
+        float period = cfg::POWER_OSC_PERIOD_SEC *
+            ((version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0)
+                ? cfg::POWERUP_TRAJECTORY_POWER_SLOWDOWN : 1.0f);
         float t = fmodf(aimOscTimer, period) / period; // 0..1
         float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
         active.SetAim(active.angleDeg, tri);
 
-        if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
+        if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || IsKeyPressed(KEY_B)) {
             // volta para a seleção de ângulo, começando a oscilação do zero
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
             return;
         }
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsKeyPressed(KEY_SPACE)) {
             Vector2 muzzle = active.MuzzlePosition();
             Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
                 ? active.DirectionAtAngle(std::max(active.angleDeg, 55.0f))
@@ -641,18 +667,38 @@ void Game::UpdateProjectileFlight(float dt) {
         return;
     }
 
-    // colisão com terreno (heightmap)
-    if (terrain.IsPointInside(pos.x, pos.y)) {
-        ResolveImpact(pos, false, nullptr);
-        return;
-    }
-
-    // colisão com canhão adversário (círculo simples)
+    // Colisão com o canhão adversário é checada ANTES do terreno: se o
+    // canhão estiver parcialmente afundado (terreno destruído ao redor),
+    // um acerto direto deve continuar contando como acerto direto, não como
+    // um simples impacto de terreno (senão perderíamos, por exemplo, o
+    // bônus de dano em dobro em impacto direto).
     Cannon& target = (currentPlayer == 1) ? player2 : player1;
     Vector2 targetBase = { target.x, target.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
     float distToTarget = std::sqrt(std::pow(pos.x - targetBase.x, 2) + std::pow(pos.y - targetBase.y, 2));
+
+    // Teleguiado: raio de acerto um pouco mais generoso e, se o projétil já
+    // está bem próximo do adversário (mesmo que ele esteja afundado no
+    // terreno e o ponto tecnicamente "bata" no terreno primeiro), garante
+    // que o resultado seja sempre um acerto direto no canhão — é o próprio
+    // propósito do power-up ("sempre acerta").
+    bool guidedForcedHit = false;
+    if (version == GameVersion::Plus && shooter.pendingGuided) {
+        float guidedHitRadius = cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + 10.0f;
+        guidedForcedHit = (distToTarget <= guidedHitRadius);
+    }
+
+    if (guidedForcedHit) {
+        ResolveImpact(targetBase, true, &target);
+        return;
+    }
     if (distToTarget <= cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX) {
         ResolveImpact(pos, true, &target);
+        return;
+    }
+
+    // colisão com terreno (heightmap)
+    if (terrain.IsPointInside(pos.x, pos.y)) {
+        ResolveImpact(pos, false, nullptr);
         return;
     }
 }
@@ -727,9 +773,8 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         if (p1Buried) player1.health = 0.0f;
         if (p2Buried) player2.health = 0.0f;
 
-        roundMessage = (p1Buried && p2Buried) ? "EMPATE! (ambos soterrados)"
-                       : (p1Buried ? "JOGADOR 2 VENCEU! (canhao 1 soterrado)"
-                                   : "JOGADOR 1 VENCEU! (canhao 2 soterrado)");
+        roundOutcome = (p1Buried && p2Buried) ? RoundOutcome::DrawBuried
+                       : (p1Buried ? RoundOutcome::P2WinsBuried : RoundOutcome::P1WinsBuried);
         state = GameState::RoundOver;
         stateTimer = 1.0f;
         return;
@@ -740,8 +785,8 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
 
 void Game::CheckRoundEnd() {
     if (!player1.IsAlive() || !player2.IsAlive()) {
-        roundMessage = (!player1.IsAlive() && !player2.IsAlive()) ? "EMPATE!"
-                       : (!player1.IsAlive() ? "JOGADOR 2 VENCEU!" : "JOGADOR 1 VENCEU!");
+        roundOutcome = (!player1.IsAlive() && !player2.IsAlive()) ? RoundOutcome::Draw
+                       : (!player1.IsAlive() ? RoundOutcome::P2Wins : RoundOutcome::P1Wins);
         state = GameState::RoundOver;
         stateTimer = 1.0f; // pequena trava antes de aceitar clique para voltar ao menu
         return;
@@ -909,10 +954,11 @@ void Game::Draw() {
 
     if (state == GameState::RoundOver) {
         DrawRectangle(0, 0, cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, Fade(BLACK, 0.55f));
+        const char* msg = ResolveRoundMessage();
         int fs = 48;
-        int tw = MeasureText(roundMessage, fs);
-        DrawText(roundMessage, cfg::SCREEN_WIDTH / 2 - tw / 2, cfg::SCREEN_HEIGHT / 2 - 60, fs, WHITE);
-        const char* hint = "clique para voltar ao menu";
+        int tw = MeasureText(msg, fs);
+        DrawText(msg, cfg::SCREEN_WIDTH / 2 - tw / 2, cfg::SCREEN_HEIGHT / 2 - 60, fs, WHITE);
+        const char* hint = T(TK::RoundOverHint, language);
         int hw = MeasureText(hint, 20);
         DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 10, 20, LIGHTGRAY);
     }
@@ -957,8 +1003,8 @@ void Game::DrawVersionSwitch(Vector2 mouse) {
     DrawLineEx({cx, full.y}, {cx, full.y + full.height}, 2, Color{30, 22, 12, 255});
 
     int fs = 20;
-    const char* lbl1 = "CLASSIC";
-    const char* lbl2 = "PLUS";
+    const char* lbl1 = T(TK::ClassicLabel, language);
+    const char* lbl2 = T(TK::PlusLabel, language);
     int w1 = MeasureText(lbl1, fs);
     int w2 = MeasureText(lbl2, fs);
     DrawText(lbl1, static_cast<int>(leftHalf.x + leftHalf.width / 2 - w1 / 2),
@@ -971,14 +1017,84 @@ void Game::DrawVersionSwitch(Vector2 mouse) {
     (void)mouse;
 }
 
+// ---------------------------------------------------------------------------
+// Bandeiras de idioma (canto superior direito do menu principal)
+// Desenhadas de forma procedural (retângulos/formas simples) — sem depender
+// de nenhum arquivo de imagem, sempre nítidas em qualquer resolução.
+// ---------------------------------------------------------------------------
+namespace {
+Rectangle BrazilFlagRect() { return { cfg::SCREEN_WIDTH - 180.0f, 20.0f, 64.0f, 44.0f }; }
+Rectangle UsaFlagRect()    { return { cfg::SCREEN_WIDTH - 100.0f, 20.0f, 64.0f, 44.0f }; }
+
+void DrawBrazilFlag(Rectangle r) {
+    DrawRectangleRec(r, Color{0, 155, 58, 255}); // verde
+    Vector2 c = { r.x + r.width / 2, r.y + r.height / 2 };
+    Vector2 diamond[4] = {
+        { c.x, r.y + 5 }, { r.x + r.width - 6, c.y }, { c.x, r.y + r.height - 5 }, { r.x + 6, c.y }
+    };
+    DrawTriangle(diamond[0], diamond[3], diamond[1], Color{255, 223, 0, 255});
+    DrawTriangle(diamond[1], diamond[3], diamond[2], Color{255, 223, 0, 255});
+    DrawCircleV(c, 9.0f, Color{0, 39, 118, 255}); // "globo" central simplificado
+}
+
+void DrawUsaFlag(Rectangle r) {
+    DrawRectangleRec(r, Color{178, 34, 52, 255}); // fundo vermelho (listras ímpares)
+    // Usa aritmética em ponto flutuante (não inteiro) para as listras,
+    // garantindo que a soma exata das 7 faixas não ultrapasse a altura da
+    // bandeira — arredondamento com "+1" antes fazia a última faixa branca
+    // vazar para fora do retângulo/realce de seleção.
+    float stripeH = r.height / 7.0f;
+    for (int i = 0; i < 7; i += 2) {
+        Rectangle stripe = { r.x, r.y + i * stripeH, r.width, stripeH };
+        DrawRectangleRec(stripe, WHITE);
+    }
+    Rectangle canton = { r.x, r.y, r.width * 0.42f, r.height * 0.55f };
+    DrawRectangleRec(canton, Color{60, 59, 110, 255});
+    // pontinhos brancos representando as estrelas, simplificado
+    for (int row = 0; row < 3; ++row) {
+        for (int col = 0; col < 3; ++col) {
+            float sx = canton.x + canton.width * (0.2f + col * 0.3f);
+            float sy = canton.y + canton.height * (0.22f + row * 0.32f);
+            DrawCircleV({sx, sy}, 1.6f, WHITE);
+        }
+    }
+}
+} // namespace
+
+void Game::UpdateLanguageFlags(Vector2 mouse) {
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(mouse, BrazilFlagRect())) language = Lang::PT_BR;
+        else if (CheckCollisionPointRec(mouse, UsaFlagRect())) language = Lang::EN;
+    }
+}
+
+void Game::DrawLanguageFlags(Vector2 mouse) {
+    Rectangle br = BrazilFlagRect();
+    Rectangle us = UsaFlagRect();
+
+    bool brSel = (language == Lang::PT_BR);
+    bool usSel = (language == Lang::EN);
+
+    DrawBrazilFlag(br);
+    DrawRectangleLinesEx(br, brSel ? 3.0f : 1.5f, brSel ? Color{255, 210, 60, 255} : Color{30, 22, 12, 200});
+
+    DrawUsaFlag(us);
+    DrawRectangleLinesEx(us, usSel ? 3.0f : 1.5f, usSel ? Color{255, 210, 60, 255} : Color{30, 22, 12, 200});
+
+    // leve destaque de hover
+    if (CheckCollisionPointRec(mouse, br) && !brSel) DrawRectangleLinesEx(br, 2.0f, Color{255, 255, 255, 180});
+    if (CheckCollisionPointRec(mouse, us) && !usSel) DrawRectangleLinesEx(us, 2.0f, Color{255, 255, 255, 180});
+}
+
 void Game::DrawMainMenu() {
-    const char* title = "CANNON DUEL";
+    const char* title = T(TK::Title, language);
     int fs = 64;
     int tw = MeasureText(title, fs);
     DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 160, fs, Color{40, 30, 20, 255});
 
     Vector2 m = GetMousePosition();
     DrawVersionSwitch(m);
+    DrawLanguageFlags(m);
 
     Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
     Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
@@ -994,13 +1110,11 @@ void Game::DrawMainMenu() {
                  static_cast<int>(r.y + r.height / 2 - fs2 / 2), fs2, Color{40, 25, 10, 255});
     };
 
-    drawButton(btn1P, "1 JOGADOR (vs IA)");
-    drawButton(btn2P, "2 JOGADORES");
-    drawButton(btnAbout, "SOBRE");
+    drawButton(btn1P, T(TK::OnePlayer, language));
+    drawButton(btn2P, T(TK::TwoPlayers, language));
+    drawButton(btnAbout, T(TK::AboutButton, language));
 
-    const char* hint = (version == GameVersion::Plus)
-        ? "PLUS: power-ups aparecem no mapa a cada 2 rodadas!"
-        : "Clique para travar o angulo e a forca (botao direito volta ao angulo)";
+    const char* hint = (version == GameVersion::Plus) ? T(TK::HintPlus, language) : T(TK::HintClassic, language);
     int hw = MeasureText(hint, 18);
     DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, 562, 18, Color{70, 55, 40, 255});
 }
@@ -1008,32 +1122,23 @@ void Game::DrawMainMenu() {
 void Game::DrawAbout() {
     ClearBackground(Color{ 235, 214, 190, 255 });
 
-    const char* title = "SOBRE O JOGO";
+    const char* title = T(TK::AboutTitle, language);
     int fs = 44;
     int tw = MeasureText(title, fs);
     DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 80, fs, Color{40, 30, 20, 255});
 
-    const char* paragraphs[] = {
-        "Cannon Duel e uma releitura moderna, feita do zero, do jogo",
-        "\"Canhao\", lancado originalmente pela TecToy/Devworks para o",
-        "Mega Drive em 2005. O objetivo aqui foi recriar a essencia da",
-        "jogabilidade classica de artilharia por turnos - mira, forca,",
-        "vento e destruicao de terreno - com fisica realista (Box2D),",
-        "renderizacao propria (raylib) e uma identidade visual nova.",
-        "",
-        "Nenhum grafico, som ou dado original da ROM foi utilizado:",
-        "toda a arte deste jogo foi criada do zero.",
-    };
+    int lineCount = 0;
+    const char** lines = TextSplit(T(TK::AboutBody, language), '\n', &lineCount);
 
     int y = 160;
     int fs2 = 20;
-    for (const char* line : paragraphs) {
-        int lw = MeasureText(line, fs2);
-        DrawText(line, cfg::SCREEN_WIDTH / 2 - lw / 2, y, fs2, Color{60, 45, 30, 255});
+    for (int i = 0; i < lineCount; ++i) {
+        int lw = MeasureText(lines[i], fs2);
+        DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, y, fs2, Color{60, 45, 30, 255});
         y += 30;
     }
 
-    const char* credit = "Desenvolvido por Gabriel Christo";
+    const char* credit = T(TK::AboutCredit, language);
     int fsC = 26;
     int cw = MeasureText(credit, fsC);
     DrawText(credit, cfg::SCREEN_WIDTH / 2 - cw / 2, y + 20, fsC, Color{200, 120, 40, 255});
@@ -1043,7 +1148,7 @@ void Game::DrawAbout() {
     bool hover = CheckCollisionPointRec(m, backBtn);
     DrawRectangleRec(backBtn, hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
     DrawRectangleLinesEx(backBtn, 2, Color{60, 40, 20, 255});
-    const char* backLabel = "VOLTAR";
+    const char* backLabel = T(TK::AboutBack, language);
     int blw = MeasureText(backLabel, 22);
     DrawText(backLabel, static_cast<int>(backBtn.x + backBtn.width / 2 - blw / 2),
              static_cast<int>(backBtn.y + backBtn.height / 2 - 11), 22, Color{40, 25, 10, 255});
@@ -1074,12 +1179,12 @@ void Game::DrawMenuConfirmDialog() const {
     DrawRectangleRec(panel, Color{245, 240, 230, 255});
     DrawRectangleLinesEx(panel, 3, Color{30, 25, 20, 255});
 
-    const char* msg = "Voltar ao menu inicial?";
+    const char* msg = T(TK::ConfirmTitle, language);
     int fs = 24;
     int tw = MeasureText(msg, fs);
     DrawText(msg, static_cast<int>(cx - tw / 2), static_cast<int>(cy - 60), fs, Color{30, 25, 20, 255});
 
-    const char* sub = "A partida atual sera perdida.";
+    const char* sub = T(TK::ConfirmSub, language);
     int fs2 = 16;
     int tw2 = MeasureText(sub, fs2);
     DrawText(sub, static_cast<int>(cx - tw2 / 2), static_cast<int>(cy - 28), fs2, Color{90, 80, 70, 255});
@@ -1093,14 +1198,14 @@ void Game::DrawMenuConfirmDialog() const {
 
     DrawRectangleRec(yesBtn, hoverYes ? Color{220, 90, 80, 255} : Color{200, 70, 60, 255});
     DrawRectangleLinesEx(yesBtn, 2, Color{30, 25, 20, 255});
-    const char* yesLabel = "SIM, SAIR";
+    const char* yesLabel = T(TK::ConfirmYes, language);
     int ytw = MeasureText(yesLabel, 18);
     DrawText(yesLabel, static_cast<int>(yesBtn.x + yesBtn.width / 2 - ytw / 2),
              static_cast<int>(yesBtn.y + 15), 18, WHITE);
 
     DrawRectangleRec(noBtn, hoverNo ? Color{140, 190, 130, 255} : Color{120, 170, 110, 255});
     DrawRectangleLinesEx(noBtn, 2, Color{30, 25, 20, 255});
-    const char* noLabel = "CONTINUAR";
+    const char* noLabel = T(TK::ConfirmNo, language);
     int ntw = MeasureText(noLabel, 18);
     DrawText(noLabel, static_cast<int>(noBtn.x + noBtn.width / 2 - ntw / 2),
              static_cast<int>(noBtn.y + 15), 18, WHITE);
@@ -1114,7 +1219,7 @@ void Game::DrawMenuButton() const {
     DrawRectangleRec(r, hover ? Color{235, 235, 235, 235} : Color{20, 20, 20, 170});
     DrawRectangleLinesEx(r, 2, hover ? Color{20, 20, 20, 255} : Color{235, 235, 235, 200});
 
-    const char* label = "MENU";
+    const char* label = T(TK::MenuButton, language);
     int fs = 20;
     int tw = MeasureText(label, fs);
     Color textColor = hover ? Color{20, 20, 20, 255} : Color{240, 240, 240, 255};
@@ -1133,7 +1238,7 @@ bool Game::HandleMenuButtonClick() {
 void Game::DrawWindIndicator() const {
     int cx = cfg::SCREEN_WIDTH / 2;
     int cy = 40;
-    DrawText("VENTO", cx - 30, cy - 22, 16, HudTextColor());
+    DrawText(T(TK::WindLabel, language), cx - 30, cy - 22, 16, HudTextColor());
 
     float ratio = windForce / cfg::WIND_MAX_ACCEL; // -1..1
     int arrowLen = static_cast<int>(std::fabs(ratio) * 60.0f) + 10;
@@ -1151,12 +1256,14 @@ void Game::DrawWindIndicator() const {
 void Game::DrawHUD() {
     DrawWindIndicator();
 
-    std::string turnLabel = "Vez do Jogador " + std::to_string(currentPlayer);
-    if (mode == GameMode::PvAI && currentPlayer == 2) turnLabel = "Vez da IA";
-    DrawText(turnLabel.c_str(), 20, 20, 22, HudTextColor());
+    const char* turnLabel = (mode == GameMode::PvAI && currentPlayer == 2)
+        ? T(TK::TurnAI, language)
+        : (currentPlayer == 1 ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language));
+    DrawText(turnLabel, 20, 20, 22, HudTextColor());
 
     // ângulo/potência do jogador ativo (útil para jogar só com mouse)
     Cannon& active = (currentPlayer == 1) ? player1 : player2;
-    std::string info = TextFormat("Angulo: %.0f  Forca: %.0f%%", active.angleDeg, active.power01 * 100.0f);
+    const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
+    std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
     DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
 }

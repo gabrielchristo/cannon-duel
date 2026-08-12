@@ -36,8 +36,12 @@ constexpr float EXPLOSION_RADIUS_PX  = 60.0f;   // raio de dano em área
 // Fase 1: uma linha oscila continuamente entre 0° e 90° na direção do
 // oponente; clique trava o ângulo. Fase 2: uma barra de força oscila de
 // verde (fraco) a vermelho (forte); clique trava a força e dispara.
-constexpr float ANGLE_OSC_PERIOD_SEC = 2.4f; // tempo para ir de 0 a 90 e voltar (mais lento)
+constexpr float ANGLE_OSC_PERIOD_SEC = 2.4f; // tempo para ir de -90 a 90 e voltar (mais lento)
 constexpr float POWER_OSC_PERIOD_SEC = 1.1f;
+// Enquanto a "trajetória prevista" está ativa, a barra de força oscila mais
+// devagar (multiplicador aplicado ao período) — o preview só ajuda de fato
+// se o jogador conseguir mirar o timing com calma.
+constexpr float POWERUP_TRAJECTORY_POWER_SLOWDOWN = 2.6f;
 
 // ---- Power-ups (versão Plus) ----
 constexpr float POWERUP_RADIUS_PX          = 16.0f;

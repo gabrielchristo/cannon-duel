@@ -13,7 +13,7 @@
 
 enum class GameMode { PvP, PvAI };
 enum class GameVersion { Classic, Plus };
-enum class GameState { MainMenu, About, Aiming, ProjectileFlying, TurnTransition, RoundOver };
+enum class GameState { MainMenu, About, Instructions, Aiming, ProjectileFlying, TurnTransition, RoundOver };
 enum class AimPhase { Angle, Power };
 
 class Game {
@@ -31,6 +31,8 @@ private:
     void DrawMainMenu();
     void UpdateAbout();
     void DrawAbout();
+    void UpdateInstructions();
+    void DrawInstructions();
 
     void StartMatch(GameMode mode);
     void UpdateAiming();
@@ -99,6 +101,18 @@ private:
     bool showMenuConfirm = false;
     void DrawMenuConfirmDialog() const;
     void UpdateMenuConfirmDialog(); // consome cliques enquanto o diálogo está aberto
+
+    // --- poeira ambiente (reage à força/direção do vento) ---
+    struct DustMote {
+        Vector2 pos;
+        float depth;   // 0..1: motas "mais perto" são maiores/rápidas/opacas
+        float size;
+        float alpha;
+    };
+    std::vector<DustMote> dustMotes;
+    void InitDustMotes();
+    void UpdateDustMotes(float dt);
+    void DrawDustMotes() const;
 
     void ResetRound(unsigned int seed);
 

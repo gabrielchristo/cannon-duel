@@ -20,15 +20,15 @@ constexpr float TERRAIN_MAX_HEIGHT   = 380.0f;
 constexpr float CRATER_RADIUS_PX     = 42.0f;         // raio da cratera de explosão
 
 // ---- Canhão ----
-constexpr float CANNON_MAX_HEALTH    = 220.0f;
+constexpr float CANNON_MAX_HEALTH    = 180.0f; // = 3x EXPLOSION_DAMAGE_MAX (3 acertos diretos derrubam o canhão)
 constexpr float CANNON_BODY_RADIUS_PX = 18.0f;
 constexpr float CANNON_MARGIN_PX     = 70.0f;   // distância mínima da borda da tela
 
 // ---- Projétil ----
 constexpr float PROJECTILE_RADIUS_PX = 5.0f;
 constexpr float PROJECTILE_DENSITY   = 1.0f;
-constexpr float MIN_POWER            = 6.0f;    // m/s
-constexpr float MAX_POWER            = 26.0f;   // m/s
+constexpr float MIN_POWER            = 2.0f;    // m/s — bem baixo, pra dar tiros curtos (ex: pegar um power-up bem próximo)
+constexpr float MAX_POWER            = 30.0f;   // m/s
 constexpr float EXPLOSION_DAMAGE_MAX = 60.0f;   // dano no impacto direto
 constexpr float EXPLOSION_RADIUS_PX  = 60.0f;   // raio de dano em área
 
@@ -81,6 +81,11 @@ constexpr float SHAKE_MAGNITUDE_TERRAIN_PX = 7.0f;
 // Mantido bem menor que a gravidade (9.8 m/s²) para ter influência
 // perceptível sem dominar a trajetória.
 constexpr float WIND_MAX_ACCEL       = 1.7f;
+
+// ---- Poeira ambiente ----
+constexpr int   DUST_MOTE_COUNT           = 45;
+constexpr float DUST_BASE_DRIFT_SPEED_PX  = 6.0f;   // deriva mínima mesmo sem vento
+constexpr float DUST_WIND_SPEED_SCALE_PX  = 90.0f;  // px/s por unidade de aceleração de vento
 
 // ---- Física ----
 constexpr float GRAVITY_MPS2         = 9.8f;

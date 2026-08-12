@@ -60,6 +60,8 @@ Game::Game() {
     spritesReady = (texCannonLeft.id != 0 && texCannonRight.id != 0);
 
     srand(static_cast<unsigned int>(time(nullptr)));
+
+    InitDustMotes();
 }
 
 Game::~Game() {
@@ -230,7 +232,7 @@ void Game::Update(float dt) {
 
     // Botão "voltar ao menu" abre o diálogo de confirmação em vez de sair
     // direto — evita perder uma partida em andamento por clique acidental.
-    if (state != GameState::MainMenu && state != GameState::About && HandleMenuButtonClick()) {
+    if (state != GameState::MainMenu && state != GameState::About && state != GameState::Instructions && HandleMenuButtonClick()) {
         showMenuConfirm = true;
         return;
     }
@@ -259,6 +261,12 @@ void Game::Update(float dt) {
         particles.Update(dt);
     }
 
+    // Poeira ambiente: atualiza durante o jogo (não no menu, onde não é
+    // mais desenhada).
+    if (state != GameState::MainMenu) {
+        UpdateDustMotes(dt);
+    }
+
     if (shakeTimer > 0.0f) shakeTimer = std::max(0.0f, shakeTimer - dt);
     if (powerupMessageTimer > 0.0f) powerupMessageTimer = std::max(0.0f, powerupMessageTimer - dt);
 
@@ -268,6 +276,9 @@ void Game::Update(float dt) {
             break;
         case GameState::About:
             UpdateAbout();
+            break;
+        case GameState::Instructions:
+            UpdateInstructions();
             break;
         case GameState::Aiming:
             UpdateAiming();
@@ -296,18 +307,28 @@ void Game::UpdateMainMenu() {
 
     Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
     Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
+    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
+    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 558, 280, 56 };
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (CheckCollisionPointRec(m, btn1P)) StartMatch(GameMode::PvAI);
         else if (CheckCollisionPointRec(m, btn2P)) StartMatch(GameMode::PvP);
         else if (CheckCollisionPointRec(m, btnAbout)) state = GameState::About;
+        else if (CheckCollisionPointRec(m, btnInstructions)) state = GameState::Instructions;
     }
 }
 
 void Game::UpdateAbout() {
     Vector2 m = GetVirtualMouse();
     Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 100.0f, 200, 52 };
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, backBtn)) {
+        state = GameState::MainMenu;
+    }
+}
+
+void Game::UpdateInstructions() {
+    Vector2 m = GetVirtualMouse();
+    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, backBtn)) {
         state = GameState::MainMenu;
     }
@@ -651,6 +672,48 @@ void Game::DrawDevPanel() const {
     }
 }
 #endif // !CANNON_DUEL_ANDROID_BUILD
+
+// ---------------------------------------------------------------------------
+// Poeira ambiente — pequenas partículas flutuando pela tela, cuja velocidade
+// horizontal acompanha a força/direção do vento atual (mais vento = poeira
+// voando mais rápido). Puramente estético, sem interação com o jogo.
+// ---------------------------------------------------------------------------
+void Game::InitDustMotes() {
+    dustMotes.clear();
+    dustMotes.reserve(cfg::DUST_MOTE_COUNT);
+    for (int i = 0; i < cfg::DUST_MOTE_COUNT; ++i) {
+        DustMote m;
+        m.pos = { RandF(0.0f, cfg::SCREEN_WIDTH), RandF(0.0f, cfg::SCREEN_HEIGHT * 0.75f) };
+        m.depth = RandF(0.15f, 1.0f); // 0 = fundo (lenta, pequena, sutil), 1 = frente
+        m.size = 1.0f + m.depth * 2.5f;
+        m.alpha = 0.15f + m.depth * 0.35f;
+        dustMotes.push_back(m);
+    }
+}
+
+void Game::UpdateDustMotes(float dt) {
+    for (auto& m : dustMotes) {
+        // velocidade horizontal: uma deriva mínima constante (pra nunca ficar
+        // parado mesmo com vento zero) + termo proporcional à força do vento
+        // atual, escalado pela "profundidade" (motas mais à frente reagem mais)
+        float speed = cfg::DUST_BASE_DRIFT_SPEED_PX + windForce * cfg::DUST_WIND_SPEED_SCALE_PX;
+        m.pos.x += speed * (0.4f + m.depth * 0.6f) * dt;
+
+        // leve bobbing vertical, só pra não parecer uma linha reta
+        m.pos.y += std::sin(static_cast<float>(GetTime()) * 0.6f + m.pos.x * 0.01f) * 4.0f * dt;
+
+        // "wrap" nas bordas horizontais, na direção de onde a poeira está indo
+        if (m.pos.x > cfg::SCREEN_WIDTH + 5.0f) m.pos.x = -5.0f;
+        if (m.pos.x < -5.0f) m.pos.x = cfg::SCREEN_WIDTH + 5.0f;
+    }
+}
+
+void Game::DrawDustMotes() const {
+    for (const auto& m : dustMotes) {
+        Color c = { 255, 250, 235, static_cast<unsigned char>(m.alpha * 255) };
+        DrawCircleV(m.pos, m.size, c);
+    }
+}
 
 void Game::UpdateAiming() {
     Cannon& active = (currentPlayer == 1) ? player1 : player2;
@@ -1043,6 +1106,19 @@ void Game::Draw() {
         return;
     }
 
+    if (state == GameState::Instructions) {
+        DrawInstructions();
+#if !CANNON_DUEL_ANDROID_BUILD
+        if (devMode) DrawDevPanel();
+#endif
+        EndTextureMode();
+        BeginDrawing();
+        ClearBackground(BLACK);
+        DrawVirtualScreenScaled();
+        EndDrawing();
+        return;
+    }
+
     // ---- background (sprite gerado: dia com sol/nuvens, ou noite com estrelas/lua) ----
     Texture2D& bgTex = nightMode ? texBackgroundNight : texBackground;
     if (spritesReady && bgTex.id != 0) {
@@ -1051,6 +1127,11 @@ void Game::Draw() {
         DrawCircle(cfg::SCREEN_WIDTH - 140, 110, 60, Color{255, 221, 130, 255});
         DrawRectangle(0, cfg::SCREEN_HEIGHT - 460, cfg::SCREEN_WIDTH, 40, Color{225, 200, 175, 180});
     }
+
+    // Poeira ambiente: desenhada logo após o céu, antes do terreno/canhões —
+    // fica como uma neblina atmosférica atrás da ação, sem atrapalhar a
+    // leitura do jogo.
+    DrawDustMotes();
 
     // Screen shake (versão Plus): tudo dentro do "mundo do jogo" (terreno,
     // canhões, projétil, partículas, power-up, indicadores de mira) é
@@ -1313,7 +1394,8 @@ void Game::DrawMainMenu() {
 
     Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
     Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
+    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
+    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 558, 280, 56 };
 
     auto drawButton = [&](Rectangle r, const char* label) {
         bool hover = CheckCollisionPointRec(m, r);
@@ -1328,10 +1410,39 @@ void Game::DrawMainMenu() {
     drawButton(btn1P, T(TK::OnePlayer, language));
     drawButton(btn2P, T(TK::TwoPlayers, language));
     drawButton(btnAbout, T(TK::AboutButton, language));
+    drawButton(btnInstructions, T(TK::InstructionsButton, language));
+}
 
-    const char* hint = (version == GameVersion::Plus) ? T(TK::HintPlus, language) : T(TK::HintClassic, language);
-    int hw = MeasureText(hint, 18);
-    DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, 562, 18, Color{70, 55, 40, 255});
+void Game::DrawInstructions() {
+    ClearBackground(Color{ 235, 214, 190, 255 });
+
+    const char* title = T(TK::InstructionsTitle, language);
+    int fs = 40;
+    int tw = MeasureText(title, fs);
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 40, fs, Color{40, 30, 20, 255});
+
+    int lineCount = 0;
+    const char** lines = TextSplit(T(TK::InstructionsBody, language), '\n', &lineCount);
+
+    int y = 108;
+    int fs2 = 17;
+    for (int i = 0; i < lineCount; ++i) {
+        if (lines[i][0] != '\0') {
+            int lw = MeasureText(lines[i], fs2);
+            DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, y, fs2, Color{60, 45, 30, 255});
+        }
+        y += 24;
+    }
+
+    Vector2 m = GetVirtualMouse();
+    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
+    bool hover = CheckCollisionPointRec(m, backBtn);
+    DrawRectangleRec(backBtn, hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
+    DrawRectangleLinesEx(backBtn, 2, Color{60, 40, 20, 255});
+    const char* backLabel = T(TK::InstructionsBack, language);
+    int blw = MeasureText(backLabel, 22);
+    DrawText(backLabel, static_cast<int>(backBtn.x + backBtn.width / 2 - blw / 2),
+             static_cast<int>(backBtn.y + backBtn.height / 2 - 11), 22, Color{40, 25, 10, 255});
 }
 
 void Game::DrawAbout() {

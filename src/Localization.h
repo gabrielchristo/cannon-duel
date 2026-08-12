@@ -9,8 +9,6 @@ enum class TK {
     AboutButton,
     ClassicLabel,
     PlusLabel,
-    HintClassic,
-    HintPlus,
 
     TurnPlayer1,
     TurnPlayer2,
@@ -37,6 +35,11 @@ enum class TK {
     AboutCredit,
     AboutBack,
 
+    InstructionsButton,
+    InstructionsTitle,
+    InstructionsBody,
+    InstructionsBack,
+
     PowerupDoubleDamage,
     PowerupTrajectory,
     PowerupGuided,
@@ -53,12 +56,6 @@ inline const char* T(TK key, Lang lang) {
         case TK::AboutButton: return pt ? "SOBRE" : "ABOUT";
         case TK::ClassicLabel: return pt ? "CLASSIC" : "CLASSIC";
         case TK::PlusLabel: return pt ? "PLUS" : "PLUS";
-        case TK::HintClassic: return pt
-            ? "Clique para travar o angulo/forca. No PC: espaco atira, B reseta/volta."
-            : "Click to lock angle/power. On PC: space fires, B resets/goes back.";
-        case TK::HintPlus: return pt
-            ? "PLUS: power-ups aparecem no mapa a cada 2 rodadas!"
-            : "PLUS: power-ups appear on the map every 2 rounds!";
 
         case TK::TurnPlayer1: return pt ? "Vez do Jogador 1" : "Player 1's turn";
         case TK::TurnPlayer2: return pt ? "Vez do Jogador 2" : "Player 2's turn";
@@ -102,6 +99,51 @@ inline const char* T(TK key, Lang lang) {
               "all the art in this game was created from scratch.";
         case TK::AboutCredit: return pt ? "Desenvolvido por Gabriel Christo" : "Developed by Gabriel Christo";
         case TK::AboutBack: return pt ? "VOLTAR" : "BACK";
+
+        case TK::InstructionsButton: return pt ? "COMO JOGAR" : "HOW TO PLAY";
+        case TK::InstructionsTitle: return pt ? "COMO JOGAR" : "HOW TO PLAY";
+        case TK::InstructionsBody: return pt
+            ? "MIRA: uma linha oscila entre -90 e 90 graus. Clique (ou\n"
+              "espaco no PC) para travar o angulo.\n"
+              "\n"
+              "FORCA: em seguida, uma barra oscila de fraco (verde) a\n"
+              "forte (vermelho). Clique de novo pra travar a forca e atirar.\n"
+              "Botao direito (ou B no PC) volta pra selecao de angulo.\n"
+              "\n"
+              "VENTO: indicado no topo da tela, empurra o projetil durante\n"
+              "o voo — sempre existe uma combinacao de angulo/forca capaz\n"
+              "de acertar o adversario, mesmo com vento forte.\n"
+              "\n"
+              "TERRENO: e destrutivel. Cada explosao cava uma cratera.\n"
+              "Se o chao embaixo de um canhao for totalmente destruido,\n"
+              "esse jogador perde na hora.\n"
+              "\n"
+              "3 acertos diretos derrubam um canhao.\n"
+              "\n"
+              "VERSAO PLUS: a cada 2 rodadas aparece um power-up no mapa.\n"
+              "Acerte com o seu tiro pra ativar: dano em dobro, trajetoria\n"
+              "prevista, tiro teleguiado, cura ou escudo."
+            : "AIM: a line oscillates between -90 and 90 degrees. Click\n"
+              "(or spacebar on PC) to lock the angle.\n"
+              "\n"
+              "POWER: next, a bar oscillates from weak (green) to strong\n"
+              "(red). Click again to lock the power and fire. Right-click\n"
+              "(or B on PC) goes back to angle selection.\n"
+              "\n"
+              "WIND: shown at the top of the screen, pushes the projectile\n"
+              "during flight — there's always some angle/power combo that\n"
+              "can hit the opponent, even in strong wind.\n"
+              "\n"
+              "TERRAIN: fully destructible. Every explosion carves a\n"
+              "crater. If the ground under a cannon is completely\n"
+              "destroyed, that player loses instantly.\n"
+              "\n"
+              "3 direct hits take down a cannon.\n"
+              "\n"
+              "PLUS VERSION: a power-up appears on the map every 2 rounds.\n"
+              "Hit it with your shot to activate: double damage, trajectory\n"
+              "preview, guided shot, heal, or shield.";
+        case TK::InstructionsBack: return pt ? "VOLTAR" : "BACK";
 
         case TK::PowerupDoubleDamage: return pt ? "DANO EM DOBRO no proximo tiro!" : "DOUBLE DAMAGE on the next shot!";
         case TK::PowerupTrajectory: return pt ? "Trajetoria revelada por 2 rodadas!" : "Trajectory revealed for 2 rounds!";

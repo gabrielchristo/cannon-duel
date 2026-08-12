@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.gabrielchristo.cannonduel"
+    android:versionCode="1"
+    android:versionName="1.0">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="30" />
+
+    <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="true" />
+
+    <application
+        android:label="Cannon Duel"
+        android:hasCode="false"
+        android:screenOrientation="landscape">
+
+        <!--
+          NativeActivity: o Android carrega a nossa biblioteca compartilhada
+          (libCannonDuel.so) e delega o ciclo de vida da Activity pra ela via
+          android_native_app_glue.c (do próprio NDK). Não existe nenhum
+          código Java/Kotlin no app — tudo roda em C++.
+        -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="Cannon Duel"
+            android:screenOrientation="landscape"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:exported="true">
+
+            <meta-data android:name="android.app.lib_name" android:value="CannonDuel" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

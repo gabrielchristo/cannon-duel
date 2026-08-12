@@ -8,6 +8,13 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+# NOTA: este CMakeLists.txt é usado apenas para a build DESKTOP (Linux/macOS/
+# Windows). A build Android usa um pipeline separado (ver android/CMakeLists.txt
+# + android/build_android.sh) porque o CMakeLists.txt genérico do próprio
+# raylib tem suporte a Android historicamente instável — o caminho oficial e
+# testado pra Android é o Makefile dedicado dele (src/Makefile), não este
+# CMakeLists.txt. Ver ANDROID.md para detalhes.
+
 include(FetchContent)
 
 # ---------------------------------------------------------------------------

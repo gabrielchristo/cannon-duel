@@ -1,4 +1,5 @@
 #include "OnlineLobby.h"
+#include "../DebugLog.h"
 #include <raylib.h>
 
 using json = nlohmann::json;
@@ -11,7 +12,7 @@ void OnlineLobby::Init(PlayerIdentity* id) {
     pendingChallengeId.clear();
     pendingChallengeOpponentId.clear();
     pendingChallengeOpponentName.clear();
-    TraceLog(LOG_INFO, "LOBBY: inicializado com player_id=%s nome=%s",
+    DebugLogf(LOG_INFO, "LOBBY: inicializado com player_id=%s nome=%s",
              id ? id->Id().c_str() : "(nulo)", id ? id->DisplayName().c_str() : "(nulo)");
 }
 
@@ -33,9 +34,9 @@ void OnlineLobby::EnsurePlayerRegistered() {
     // lados ficavam "conectados" mas nenhum via o outro no lobby.
     if (client.LastRequestOk()) {
         registeredPlayer = true;
-        TraceLog(LOG_INFO, "LOBBY: jogador registrado com sucesso em 'players'");
+        DebugLogf(LOG_INFO, "LOBBY: jogador registrado com sucesso em 'players'");
     } else {
-        TraceLog(LOG_WARNING, "LOBBY: falha ao registrar jogador em 'players' — tentando de novo no próximo ciclo");
+        DebugLogf(LOG_WARNING, "LOBBY: falha ao registrar jogador em 'players' — tentando de novo no próximo ciclo");
     }
 }
 
@@ -63,7 +64,7 @@ void OnlineLobby::UpsertPresence() {
         { "status", "idle" }
     };
     client.Upsert("lobby_presence", body, "player_id");
-    TraceLog(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
+    DebugLogf(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
              "LOBBY: upsert de presença %s", client.LastRequestOk() ? "OK" : "FALHOU");
 }
 
@@ -80,7 +81,7 @@ void OnlineLobby::RefreshPlayerList() {
 
     players.clear();
     if (!rows.is_array()) {
-        TraceLog(LOG_WARNING, "LOBBY: RefreshPlayerList não recebeu um array (requisição falhou?)");
+        DebugLogf(LOG_WARNING, "LOBBY: RefreshPlayerList não recebeu um array (requisição falhou?)");
         return;
     }
 
@@ -94,7 +95,7 @@ void OnlineLobby::RefreshPlayerList() {
         card.losses = row.value("losses", 0);
         players.push_back(card);
     }
-    TraceLog(LOG_INFO, "LOBBY: %d linha(s) em lobby_presence, %d jogador(es) na lista (excluindo eu mesmo)",
+    DebugLogf(LOG_INFO, "LOBBY: %d linha(s) em lobby_presence, %d jogador(es) na lista (excluindo eu mesmo)",
              static_cast<int>(rows.size()), static_cast<int>(players.size()));
 }
 
@@ -147,6 +148,13 @@ void OnlineLobby::RefreshIncomingChallenges() {
 }
 
 void OnlineLobby::Update(float dt) {
+    static bool loggedOnce = false;
+    if (!loggedOnce) {
+        loggedOnce = true;
+        DebugLogf(LOG_INFO, "LOBBY: OnlineLobby::Update() alcançado pela primeira vez (identity=%s)",
+                  identity ? "ok" : "NULO");
+    }
+
     if (!identity) return;
 
     EnsurePlayerRegistered();

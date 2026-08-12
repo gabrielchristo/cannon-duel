@@ -1,10 +1,14 @@
 #include "Game.h"
 #include "Platform.h"
 #include "AssetPath.h"
+#include "DebugLog.h"
 #include <cmath>
 #include <cstdlib>
+#include <cstdio>
+#include <cstdarg>
 #include <ctime>
 #include <string>
+#include <vector>
 #include <algorithm>
 
 namespace {
@@ -44,6 +48,17 @@ Game::Game() {
     texBackgroundNight = LoadTexture(AssetPath("sprites/background_night.png").c_str());
     texTerrainTile  = LoadTexture(AssetPath("sprites/terrain_tile.png").c_str());
     texProjectile   = LoadTexture(AssetPath("sprites/projectile.png").c_str());
+
+    // Fonte mais legível que a padrão do raylib. Carregada num tamanho
+    // base alto (48px) e depois desenhada em vários tamanhos via
+    // DrawTextEx — assim mantém boa nitidez tanto em textos grandes
+    // (título) quanto pequenos (HUD, log).
+    uiFont = LoadFontEx(AssetPath("fonts/main.ttf").c_str(), 48, nullptr, 0);
+    if (uiFont.texture.id > 0) {
+        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
+    } else {
+        uiFont = GetFontDefault(); // não achou o arquivo — cai pra fonte padrão sem quebrar nada
+    }
     spritesReady = (texCannonLeft.id != 0 && texCannonRight.id != 0);
 
     srand(static_cast<unsigned int>(time(nullptr)));
@@ -68,6 +83,9 @@ Game::~Game() {
     UnloadTexture(texBackgroundNight);
     UnloadTexture(texTerrainTile);
     UnloadTexture(texProjectile);
+    if (uiFont.texture.id > 0 && uiFont.texture.id != GetFontDefault().texture.id) {
+        UnloadFont(uiFont);
+    }
     UnloadRenderTexture(virtualScreen);
     CloseWindow();
 }
@@ -110,6 +128,126 @@ void Game::DrawVirtualScreenScaled() const {
         cfg::SCREEN_HEIGHT * scale
     };
     DrawTexturePro(virtualScreen.texture, src, dst, {0, 0}, 0.0f, WHITE);
+}
+
+void Game::DrawDebugLogOverlay() const {
+    const int fs = 12;
+    const int lineH = 15;
+    const int panelW = 480;
+    const int visibleLines = 16;
+    const int headerH = 42;
+    const Rectangle reopenBtn = { 8, 8, 70, 24 };
+
+    if (!debugLogVisible) {
+        bool hover = CheckCollisionPointRec(GetMousePosition(), reopenBtn);
+        DrawRectangleRec(reopenBtn, Fade(hover ? YELLOW : Color{40, 40, 40, 255}, 0.85f));
+        DrawRectangleLinesEx(reopenBtn, 2, YELLOW);
+        DrawTextEx(uiFont, "LOG", {reopenBtn.x + 16, reopenBtn.y + 5}, fs + 2, 1.0f,
+                 hover ? BLACK : YELLOW);
+        return;
+    }
+
+    int totalLines = static_cast<int>(DebugLog::Lines().size());
+    if (totalLines == 0) return;
+    int shown = std::min(totalLines, visibleLines);
+    int panelH = headerH + lineH * shown;
+    Rectangle panel = { 8, 8, static_cast<float>(panelW), static_cast<float>(panelH) };
+    Rectangle closeBtn = { panel.x + panel.width - 44, panel.y + 2, 40, 36 };
+
+    DrawRectangleRec(panel, Fade(BLACK, 0.82f));
+    DrawRectangleLinesEx(panel, 2, Fade(YELLOW, 0.9f));
+    DrawTextEx(uiFont, "LOG TEMPORARIO (multiplayer)", {panel.x + 6, panel.y + 4}, fs, 1.0f, YELLOW);
+    DrawTextEx(uiFont, "arraste p/ rolar", {panel.x + 6, panel.y + 4 + fs + 2}, fs - 2, 1.0f, Fade(YELLOW, 0.75f));
+
+    bool hoverClose = CheckCollisionPointRec(GetMousePosition(), closeBtn);
+    DrawRectangleRec(closeBtn, hoverClose ? RED : Color{80, 20, 20, 255});
+    DrawRectangleLinesEx(closeBtn, 2, WHITE);
+    int xFs = 22;
+    float xw = MeasureTextEx(uiFont, "X", xFs, 1.0f).x;
+    DrawTextEx(uiFont, "X", {closeBtn.x + closeBtn.width / 2 - xw / 2,
+               closeBtn.y + closeBtn.height / 2 - xFs / 2}, xFs, 1.0f, WHITE);
+
+    int y = static_cast<int>(panel.y) + headerH;
+    int start = std::clamp(debugLogScrollIndex, 0, std::max(0, totalLines - visibleLines));
+    for (int i = start; i < std::min(totalLines, start + visibleLines); ++i) {
+        DrawTextEx(uiFont, DebugLog::Lines()[i].c_str(), {panel.x + 6, static_cast<float>(y)}, fs, 1.0f, WHITE);
+        y += lineH;
+    }
+
+    // indicador simples de posição do scroll (se tiver mais linhas que cabem)
+    if (totalLines > visibleLines) {
+        int maxScroll = totalLines - visibleLines;
+        float ratio = maxScroll > 0 ? static_cast<float>(start) / maxScroll : 0.0f;
+        float barH = panel.height - headerH;
+        float barY = panel.y + headerH + ratio * (barH - 20.0f);
+        DrawRectangle(static_cast<int>(panel.x + panel.width - 4), static_cast<int>(barY), 3, 20, YELLOW);
+    }
+}
+
+bool Game::UpdateDebugLogOverlay() {
+    Vector2 m = GetMousePosition(); // espaço de tela REAL — este overlay não usa a resolução virtual
+
+    const int lineH = 15;
+    const int panelW = 480;
+    const int visibleLines = 16;
+    const int headerH = 42;
+    const Rectangle reopenBtn = { 8, 8, 70, 24 };
+
+    if (!debugLogVisible) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, reopenBtn)) {
+            debugLogVisible = true;
+            return true;
+        }
+        return false;
+    }
+
+    int totalLines = static_cast<int>(DebugLog::Lines().size());
+    int shown = std::min(totalLines, visibleLines);
+    int panelH = headerH + lineH * shown;
+    Rectangle panel = { 8, 8, static_cast<float>(panelW), static_cast<float>(panelH) };
+    Rectangle closeBtn = { panel.x + panel.width - 44, panel.y + 2, 40, 36 };
+    int maxScroll = std::max(0, totalLines - visibleLines);
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, closeBtn)) {
+        debugLogVisible = false;
+        debugLogDragging = false;
+        return true;
+    }
+
+    bool overPanel = CheckCollisionPointRec(m, panel);
+
+    float wheel = GetMouseWheelMove();
+    if (wheel != 0.0f && overPanel) {
+        debugLogFollowTail = false;
+        debugLogScrollIndex = std::clamp(debugLogScrollIndex - static_cast<int>(wheel * 2), 0, maxScroll);
+    }
+
+    // arrastar funciona tanto com mouse (desktop) quanto toque (Android — o
+    // raylib mapeia toque de tela pra "mouse" automaticamente).
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && overPanel) {
+        debugLogDragging = true;
+        debugLogDragStartY = m.y;
+        debugLogDragStartScroll = debugLogScrollIndex;
+    }
+    if (debugLogDragging && IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+        float deltaY = m.y - debugLogDragStartY;
+        int deltaLines = static_cast<int>(deltaY / lineH);
+        if (deltaLines != 0) debugLogFollowTail = false;
+        debugLogScrollIndex = std::clamp(debugLogDragStartScroll - deltaLines, 0, maxScroll);
+    }
+    if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
+        debugLogDragging = false;
+    }
+
+    // continua acompanhando as linhas mais novas até o usuário rolar manualmente
+    if (debugLogFollowTail) {
+        debugLogScrollIndex = maxScroll;
+    } else {
+        debugLogScrollIndex = std::clamp(debugLogScrollIndex, 0, maxScroll);
+    }
+
+    // consome o clique se ele começou (ou o arrasto continua) dentro do painel
+    return overPanel || debugLogDragging;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +336,13 @@ const char* Game::ResolveRoundMessage() const {
 }
 
 void Game::Update(float dt) {
+    // Painel de log temporário — prioridade máxima, consome o clique antes
+    // de qualquer outra lógica do jogo (evita que interagir com o log
+    // também trave um ângulo/dispare um tiro por trás).
+    if (UpdateDebugLogOverlay()) {
+        return;
+    }
+
     // Precisa ser chamado todo frame pro streaming da música avançar (e
     // fazer o loop) — independe de qualquer outro estado/painel.
     if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
@@ -1360,6 +1505,7 @@ void Game::Draw() {
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+        DrawDebugLogOverlay();
         EndDrawing();
         return;
     }
@@ -1373,6 +1519,7 @@ void Game::Draw() {
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+        DrawDebugLogOverlay();
         EndDrawing();
         return;
     }
@@ -1386,6 +1533,7 @@ void Game::Draw() {
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+        DrawDebugLogOverlay();
         EndDrawing();
         return;
     }
@@ -1399,6 +1547,7 @@ void Game::Draw() {
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+        DrawDebugLogOverlay();
         EndDrawing();
         return;
     }
@@ -1558,6 +1707,7 @@ void Game::Draw() {
     BeginDrawing();
     ClearBackground(BLACK);
     DrawVirtualScreenScaled();
+    DrawDebugLogOverlay();
     EndDrawing();
 }
 
@@ -1674,8 +1824,8 @@ void Game::DrawLanguageFlags(Vector2 mouse) {
 void Game::DrawMainMenu() {
     const char* title = T(TK::Title, language);
     int fs = 64;
-    int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 95, fs, Color{40, 30, 20, 255});
+    float tw = MeasureTextEx(uiFont, title, static_cast<float>(fs), 2.0f).x;
+    DrawTextEx(uiFont, title, {cfg::SCREEN_WIDTH / 2.0f - tw / 2, 95.0f}, static_cast<float>(fs), 2.0f, Color{40, 30, 20, 255});
 
     Vector2 m = GetVirtualMouse();
     DrawVersionSwitch(m);
@@ -1887,7 +2037,7 @@ bool Game::HandleResetAngleButtonClick() {
 void Game::DrawWindIndicator() const {
     int cx = cfg::SCREEN_WIDTH / 2;
     int cy = 40;
-    DrawText(T(TK::WindLabel, language), cx - 30, cy - 22, 16, HudTextColor());
+    DrawTextEx(uiFont, T(TK::WindLabel, language), {static_cast<float>(cx - 30), static_cast<float>(cy - 22)}, 16, 1.0f, HudTextColor());
 
     float ratio = windForce / cfg::WIND_MAX_ACCEL; // -1..1
     int arrowLen = static_cast<int>(std::fabs(ratio) * 60.0f) + 10;
@@ -1908,11 +2058,11 @@ void Game::DrawHUD() {
     const char* turnLabel = (mode == GameMode::PvAI && currentPlayer == 2)
         ? T(TK::TurnAI, language)
         : (currentPlayer == 1 ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language));
-    DrawText(turnLabel, 20, 20, 22, HudTextColor());
+    DrawTextEx(uiFont, turnLabel, {20, 20}, 22, 1.0f, HudTextColor());
 
     // ângulo/potência do jogador ativo (útil para jogar só com mouse)
     Cannon& active = (currentPlayer == 1) ? player1 : player2;
     const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
     std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
-    DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
+    DrawTextEx(uiFont, info.c_str(), {20, 48}, 18, 1.0f, HudTextColorDim());
 }

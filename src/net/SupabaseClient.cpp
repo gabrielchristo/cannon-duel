@@ -2,6 +2,7 @@
 
 #include "SupabaseConfig.h"
 #include "../AssetPath.h"
+#include "../DebugLog.h"
 #include <curl/curl.h>
 #include <raylib.h>
 #include <cstring>
@@ -49,11 +50,11 @@ std::string ResolveCaBundlePath() {
             fwrite(data, 1, static_cast<size_t>(bytesRead), out);
             fclose(out);
             cachedPath = extractedName;
-            TraceLog(LOG_INFO, "SUPABASE: certificado CA extraído (%d bytes) -> %s", bytesRead, extractedName);
+            DebugLogf(LOG_INFO, "SUPABASE: certificado CA extraído (%d bytes) -> %s", bytesRead, extractedName);
         }
         UnloadFileData(data);
     } else {
-        TraceLog(LOG_WARNING, "SUPABASE: não encontrei assets/certs/cacert.pem empacotado no APK");
+        DebugLogf(LOG_WARNING, "SUPABASE: não encontrei assets/certs/cacert.pem empacotado no APK");
     }
     return cachedPath;
 #else
@@ -71,9 +72,9 @@ std::string ResolveCaBundlePath() {
         if (f) {
             fclose(f);
             path = candidate;
-            TraceLog(LOG_INFO, "SUPABASE: usando certificado CA em %s", candidate.c_str());
+            DebugLogf(LOG_INFO, "SUPABASE: usando certificado CA em %s", candidate.c_str());
         } else {
-            TraceLog(LOG_WARNING, "SUPABASE: %s não encontrado — usando repositório de confiança padrão do sistema", candidate.c_str());
+            DebugLogf(LOG_WARNING, "SUPABASE: %s não encontrado — usando repositório de confiança padrão do sistema", candidate.c_str());
         }
     }
     return path;
@@ -86,7 +87,7 @@ nlohmann::json SupabaseClient::Request(const std::string& method, const std::str
     lastOk = false;
     CURL* curl = curl_easy_init();
     if (!curl) {
-        TraceLog(LOG_WARNING, "SUPABASE: curl_easy_init() falhou");
+        DebugLogf(LOG_WARNING, "SUPABASE: curl_easy_init() falhou");
         return nlohmann::json();
     }
 
@@ -138,7 +139,7 @@ nlohmann::json SupabaseClient::Request(const std::string& method, const std::str
     errorBuf[0] = '\0';
     curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuf);
 
-    TraceLog(LOG_INFO, "SUPABASE: %s %s%s%s", method.c_str(), url.c_str(),
+    DebugLogf(LOG_INFO, "SUPABASE: %s %s%s%s", method.c_str(), url.c_str(),
              body ? " body=" : "", body ? bodyStr.c_str() : "");
 
     CURLcode res = curl_easy_perform(curl);
@@ -149,18 +150,18 @@ nlohmann::json SupabaseClient::Request(const std::string& method, const std::str
     curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
-        TraceLog(LOG_WARNING, "SUPABASE: falha de transporte (CURLcode=%d, %s) — %s",
+        DebugLogf(LOG_WARNING, "SUPABASE: falha de transporte (CURLcode=%d, %s) — %s",
                  static_cast<int>(res), curl_easy_strerror(res), errorBuf);
         return nlohmann::json();
     }
 
     if (httpCode < 200 || httpCode >= 300) {
-        TraceLog(LOG_WARNING, "SUPABASE: HTTP %ld em %s — resposta: %s",
+        DebugLogf(LOG_WARNING, "SUPABASE: HTTP %ld em %s — resposta: %s",
                  httpCode, url.c_str(), responseBuffer.c_str());
         return nlohmann::json();
     }
 
-    TraceLog(LOG_INFO, "SUPABASE: HTTP %ld OK — resposta: %s", httpCode,
+    DebugLogf(LOG_INFO, "SUPABASE: HTTP %ld OK — resposta: %s", httpCode,
              responseBuffer.empty() ? "(vazia)" : responseBuffer.c_str());
 
     lastOk = true;
@@ -169,7 +170,7 @@ nlohmann::json SupabaseClient::Request(const std::string& method, const std::str
     try {
         return nlohmann::json::parse(responseBuffer);
     } catch (...) {
-        TraceLog(LOG_WARNING, "SUPABASE: resposta não é JSON válido: %s", responseBuffer.c_str());
+        DebugLogf(LOG_WARNING, "SUPABASE: resposta não é JSON válido: %s", responseBuffer.c_str());
         lastOk = false;
         return nlohmann::json();
     }

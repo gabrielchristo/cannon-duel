@@ -99,6 +99,7 @@ private:
     Texture2D texBackgroundNight{};
     Texture2D texTerrainTile{};
     Texture2D texProjectile{};
+    Font uiFont{}; // fonte mais legível (DejaVu Sans) — usada em partes da UI; ver Game.cpp
     bool spritesReady = false;
     bool nightMode = false; // sorteado a cada partida
 
@@ -141,6 +142,17 @@ private:
     RenderTexture2D virtualScreen{};
     Vector2 GetVirtualMouse() const;
     void DrawVirtualScreenScaled() const;
+
+    // Painel temporário de log na tela (Android sem logcat à mão) — ver
+    // implementação em Game.cpp pra detalhes/remoção futura.
+    void DrawDebugLogOverlay() const;
+    bool UpdateDebugLogOverlay(); // retorna true se consumiu o clique deste frame
+    bool debugLogVisible = true;
+    int debugLogScrollIndex = 0;      // índice da linha mais no topo visível
+    bool debugLogFollowTail = true;   // segue automaticamente as linhas mais novas até o usuário rolar manualmente
+    bool debugLogDragging = false;
+    float debugLogDragStartY = 0.0f;
+    int debugLogDragStartScroll = 0;
 
     // --- power-ups (versão Plus) ---
     std::vector<Powerup> activePowerups;

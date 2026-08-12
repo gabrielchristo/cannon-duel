@@ -1,0 +1,107 @@
+#include "Cannon.h"
+#include <cmath>
+#include <algorithm>
+
+void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
+    x = px;
+    groundY = pGroundY;
+    side = pSide;
+    health = cfg::CANNON_MAX_HEALTH;
+    angleDeg = 45.0f;
+    power01 = 0.5f;
+}
+
+void Cannon::SetAim(float pAngleDeg, float pPower01) {
+    angleDeg = std::clamp(pAngleDeg, 0.0f, 175.0f); // nunca mira pra baixo demais
+    power01  = std::clamp(pPower01, 0.0f, 1.0f);
+}
+
+void Cannon::TakeDamage(float dmg) {
+    health = std::max(0.0f, health - dmg);
+}
+
+Vector2 Cannon::AimDirection() const {
+    float rad = angleDeg * DEG2RAD;
+    float dirX = std::cos(rad);
+    float dirY = -std::sin(rad); // y cresce para baixo na tela
+    if (side == CannonSide::Right) dirX = -dirX;
+    return {dirX, dirY};
+}
+
+Vector2 Cannon::MuzzlePosition() const {
+    Vector2 dir = AimDirection();
+    float barrelLen = cfg::CANNON_BODY_RADIUS_PX + 22.0f;
+    return { x + dir.x * barrelLen, groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f + dir.y * barrelLen };
+}
+
+void Cannon::Draw(bool isCurrentTurn, Texture2D* sprite) const {
+    Vector2 base = { x, groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+
+    if (sprite && sprite->id != 0) {
+        // Sprite estático (o cano é desenhado separadamente por cima,
+        // rotacionado, já que a arte placeholder tem o cano em ângulo fixo).
+        float scale = (cfg::CANNON_BODY_RADIUS_PX * 2.6f) / sprite->width;
+        Vector2 origin = { sprite->width * scale * 0.5f, sprite->height * scale * 0.62f };
+        Rectangle src = { 0, 0, (float)sprite->width, (float)sprite->height };
+        Rectangle dst = { base.x, base.y, sprite->width * scale, sprite->height * scale };
+        DrawTexturePro(*sprite, src, dst, origin, 0.0f, WHITE);
+    } else {
+        Color bodyColor = (side == CannonSide::Left) ? Color{60, 120, 220, 255}
+                                                       : Color{220, 70, 60, 255};
+        // cano
+        Vector2 muzzle = MuzzlePosition();
+        DrawLineEx(base, muzzle, 7.0f, DARKGRAY);
+
+        // corpo (tanque)
+        DrawCircleV(base, cfg::CANNON_BODY_RADIUS_PX, bodyColor);
+        DrawCircleLines(static_cast<int>(base.x), static_cast<int>(base.y),
+                         cfg::CANNON_BODY_RADIUS_PX, BLACK);
+    }
+
+    // Indicador fino do ângulo real (sobreposto ao sprite, já que a arte
+    // placeholder tem o cano desenhado num ângulo fixo em vez de rotacionar
+    // dinamicamente com o corpo do tanque).
+    Vector2 muzzleReal = MuzzlePosition();
+    DrawLineEx(base, muzzleReal, 3.0f, Fade(BLACK, 0.55f));
+
+    // Fumaça de dano: quanto menor a vida, mais/maior as "baforadas" de
+    // fumaça saindo do corpo do tanque (puramente estético, animado com o
+    // tempo, sem depender de sprite extra).
+    float ratioForSmoke = HealthRatio();
+    if (ratioForSmoke < 0.6f) {
+        float intensity = 1.0f - (ratioForSmoke / 0.6f); // 0 (saudável) .. 1 (crítico)
+        float t = static_cast<float>(GetTime());
+        int puffCount = 1 + static_cast<int>(intensity * 3.0f);
+
+        for (int i = 0; i < puffCount; ++i) {
+            float phase = t * (0.8f + i * 0.35f) + i * 2.1f;
+            float bob = std::sin(phase) * 4.0f;
+            float rise = fmodf(phase * 6.0f, 30.0f); // sobe e "reinicia"
+            float px = base.x + std::sin(phase * 0.6f + i) * 8.0f;
+            float py = base.y - cfg::CANNON_BODY_RADIUS_PX * 0.4f - rise + bob * 0.2f;
+            float alpha = (1.0f - rise / 30.0f) * (0.25f + intensity * 0.45f);
+            float radius = 4.0f + intensity * 6.0f + (rise / 30.0f) * 4.0f;
+
+            Color smokeColor = { 60, 60, 60, static_cast<unsigned char>(alpha * 255) };
+            DrawCircleV({ px, py }, radius, smokeColor);
+        }
+    }
+
+    // indicador de turno
+    if (isCurrentTurn) {
+        DrawCircleLines(static_cast<int>(base.x), static_cast<int>(base.y - cfg::CANNON_BODY_RADIUS_PX - 14),
+                         5, YELLOW);
+    }
+
+    // barra de vida acima do canhão
+    float barW = 50.0f, barH = 7.0f;
+    Vector2 barPos = { x - barW / 2, groundY - cfg::CANNON_BODY_RADIUS_PX - 26 };
+    DrawRectangle(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
+                  static_cast<int>(barW), static_cast<int>(barH), Color{40, 40, 40, 220});
+    float ratio = HealthRatio();
+    Color hpColor = ratio > 0.5f ? GREEN : (ratio > 0.25f ? ORANGE : RED);
+    DrawRectangle(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
+                  static_cast<int>(barW * ratio), static_cast<int>(barH), hpColor);
+    DrawRectangleLines(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
+                        static_cast<int>(barW), static_cast<int>(barH), BLACK);
+}

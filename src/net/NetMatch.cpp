@@ -68,6 +68,8 @@ RemoteTurnResult NetMatch::TurnFromJson(const json& row) {
     turn.nextTurnPlayer = JsonInt(row, "next_turn_player", 1);
     turn.matchOver = JsonBool(row, "match_over", false);
     turn.winnerPlayer = JsonInt(row, "winner_player", 0);
+    turn.pickedPowerupType = JsonInt(row, "picked_powerup_type", -1);
+    turn.pickedPowerupX = JsonFloat(row, "picked_powerup_x", 0.0f);
     return turn;
 }
 
@@ -198,7 +200,6 @@ void NetMatch::ApplyBroadcast(const json& envelope) {
         liveShotEnded_ = true;
         liveShotEndX_ = JsonFloat(p, "x", 0.0f);
         liveShotEndY_ = JsonFloat(p, "y", 0.0f);
-        // Garante amostra final no buffer para interpolação chegar ao impacto.
         ProjSample s;
         s.seq = liveSamples_.empty() ? 1 : liveSamples_.back().seq + 1;
         s.t = liveSamples_.empty() ? 0.0f : liveSamples_.back().t + 0.02f;
@@ -206,6 +207,20 @@ void NetMatch::ApplyBroadcast(const json& envelope) {
         s.y = liveShotEndY_;
         if (JsonFloat(p, "t", -1.0f) >= 0.0f) s.t = JsonFloat(p, "t", s.t);
         liveSamples_.push_back(s);
+        return;
+    }
+
+    if (event == "powerup_picked") {
+        const int player = JsonInt(p, "player", 0);
+        if (player == 0 || player == myPlayerNumber) return;
+        LivePowerupPickup pu;
+        pu.type = JsonInt(p, "type", -1);
+        pu.x = JsonFloat(p, "x", 0.0f);
+        pu.valid = pu.type >= 0;
+        if (!pu.valid) return;
+        std::lock_guard lock(mu_);
+        pendingPowerupPickup_ = pu;
+        hasPendingPowerupPickup_ = true;
         return;
     }
 }
@@ -332,6 +347,8 @@ void NetMatch::Begin(const std::string& id, int myPlayerNum,
         liveSamples_.clear();
         liveShotEnded_ = false;
         liveShotId_ = 0;
+        hasPendingPowerupPickup_ = false;
+        pendingPowerupPickup_ = {};
     }
 
     DebugLogf(LOG_INFO, "NET: Begin match=%s eu=P%d adversario=%s",
@@ -444,10 +461,30 @@ void NetMatch::SchedulePoll() {
     });
 }
 
+void NetMatch::PublishPowerupPicked(int type, float x) {
+    if (!active_.load() || !realtime_.IsConnected()) return;
+    if (type < 0) return;
+    realtime_.SendBroadcast("powerup_picked", {
+        { "player", myPlayerNumber },
+        { "type", type },
+        { "x", x }
+    });
+}
+
+bool NetMatch::PollRemotePowerupPickup(LivePowerupPickup& out) {
+    std::lock_guard lock(mu_);
+    if (!hasPendingPowerupPickup_) return false;
+    out = pendingPowerupPickup_;
+    hasPendingPowerupPickup_ = false;
+    pendingPowerupPickup_ = {};
+    return out.valid;
+}
+
 void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot,
                              float impactX, float impactY, float craterRadius,
                              float damageP1, float damageP2, float nextWind,
-                             bool matchOver, int winnerPlayer) {
+                             bool matchOver, int winnerPlayer,
+                             int pickedPowerupType, float pickedPowerupX) {
     lastSeenTurnNumber++;
 
     const int nextTurnPlayer = matchOver ? myPlayerNumber : (myPlayerNumber == 1 ? 2 : 1);
@@ -464,10 +501,9 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
     const int turnNum = lastSeenTurnNumber;
     const int shooter = myPlayerNumber;
 
-    DebugLogf(LOG_INFO, "NET: SubmitMyTurn #%d atirador=P%d proximo=P%d",
-              turnNum, shooter, nextTurnPlayer);
+    DebugLogf(LOG_INFO, "NET: SubmitMyTurn #%d atirador=P%d proximo=P%d pickup=%d",
+              turnNum, shooter, nextTurnPlayer, pickedPowerupType);
 
-    // Avisa adversário via broadcast (além do CDC do INSERT).
     if (realtime_.IsConnected()) {
         realtime_.SendBroadcast("turn_submitted", {
             { "turn_number", turnNum },
@@ -491,7 +527,9 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
             { "next_wind", nextWind },
             { "next_turn_player", nextTurnPlayer },
             { "match_over", matchOver },
-            { "winner_player", winnerPlayer }
+            { "winner_player", winnerPlayer },
+            { "picked_powerup_type", pickedPowerupType },
+            { "picked_powerup_x", pickedPowerupX }
         };
         json inserted = client.Insert("match_turns", body);
         if (!inserted.is_array() || inserted.empty()) {
@@ -509,7 +547,6 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
         client.Update("matches", "id=eq." + matchIdCopy, matchUpdate);
     });
 
-    // Força um poll cedo só se Realtime estiver down.
     if (!realtime_.IsConnected()) {
         pollTimer = POLL_INTERVAL_FALLBACK_SEC;
         SchedulePoll();
@@ -585,4 +622,6 @@ void NetMatch::LeaveMatch() {
     liveSamples_.clear();
     liveShotEnded_ = false;
     liveShotId_ = 0;
+    hasPendingPowerupPickup_ = false;
+    pendingPowerupPickup_ = {};
 }

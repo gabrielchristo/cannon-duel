@@ -26,13 +26,28 @@ std::string UtcNowIso8601() {
 void OnlineLobby::Init(PlayerIdentity* id) {
     identity = id;
     pollTimer = 0.0f;
+    ghostCleanupTimer = 0.0f;
     registeredPlayer = false;
+    lobbyActive_ = false;
+    needsBootstrap_ = false;
+    wasRealtimeConnected_ = false;
     hasReadyMatch = false;
     pendingChallengeId.clear();
     pendingChallengeOpponentId.clear();
     pendingChallengeOpponentName.clear();
     DebugLogf(LOG_INFO, "LOBBY: inicializado com player_id=%s nome=%s",
              id ? id->Id().c_str() : "(nulo)", id ? id->DisplayName().c_str() : "(nulo)");
+}
+
+void OnlineLobby::EnterLobby() {
+    lobbyActive_ = true;
+    needsBootstrap_ = true;
+    pollTimer = PollIntervalSec();
+    ghostCleanupTimer = GHOST_CLEANUP_SEC;
+    wasRealtimeConnected_ = false;
+    players.clear();
+    incoming.clear();
+    DebugLogf(LOG_INFO, "LOBBY: EnterLobby — bootstrap imediato");
 }
 
 void OnlineLobby::EnsurePlayerRegistered() {
@@ -96,12 +111,16 @@ void OnlineLobby::HeartbeatInMatch(float dt) {
 
 void OnlineLobby::LeaveLobby() {
     if (!identity) return;
+    lobbyActive_ = false;
+    needsBootstrap_ = false;
+    wasRealtimeConnected_ = false;
     realtime_.Stop();
     realtimeStarted_ = false;
     client.Delete("lobby_presence", "player_id=eq." + identity->Id());
     client.Close();
-    registeredPlayer = false;
     matchHeartbeatTimer = 0.0f;
+    players.clear();
+    incoming.clear();
 }
 
 void OnlineLobby::PauseRealtime() {
@@ -175,10 +194,30 @@ void OnlineLobby::TryResolveAcceptedChallenge() {
     }
 }
 
+void OnlineLobby::MaybeCleanupGhostPresence() {
+    if (!identity) return;
+
+    const std::time_t cutoff = std::time(nullptr) - 25; // 25s
+    std::tm t {};
+#if defined(_WIN32)
+    gmtime_s(&t, &cutoff);
+#else
+    gmtime_r(&cutoff, &t);
+#endif
+    std::ostringstream cutoffOss;
+    cutoffOss << std::put_time(&t, "%Y-%m-%dT%H:%M:%SZ");
+    client.Delete("lobby_presence", "last_seen=lt." + cutoffOss.str());
+}
+
+void OnlineLobby::SyncLobbyData(bool upsertPresence) {
+    if (upsertPresence) UpsertPresence();
+    RefreshPlayerList();
+    RefreshIncomingChallenges();
+}
+
 void OnlineLobby::RefreshPlayerList() {
     if (!identity) return;
 
-    // Limpa fantasmas de installs antigas / apps mortos (last_seen velho).
     const std::time_t cutoff = std::time(nullptr) - 25; // 25s
     std::tm t {};
 #if defined(_WIN32)
@@ -189,7 +228,6 @@ void OnlineLobby::RefreshPlayerList() {
     std::ostringstream cutoffOss;
     cutoffOss << std::put_time(&t, "%Y-%m-%dT%H:%M:%SZ");
     const std::string cutoffIso = cutoffOss.str();
-    client.Delete("lobby_presence", "last_seen=lt." + cutoffIso);
 
     json rows = client.Select("lobby_presence",
         "select=player_id,display_name,wins,losses,last_seen&order=last_seen.desc&limit=30");
@@ -249,11 +287,33 @@ void OnlineLobby::Update(float dt) {
                   identity ? "ok" : "NULO");
     }
 
-    if (!identity) return;
+    if (!identity || !lobbyActive_) return;
 
     EnsurePlayerRegistered();
     EnsureRealtime();
     realtime_.Drain();
+
+    const bool rtConnected = realtime_.IsConnected();
+    if (rtConnected && !wasRealtimeConnected_) {
+        wasRealtimeConnected_ = true;
+        DebugLogf(LOG_INFO, "LOBBY: Realtime conectado — sync imediato");
+        SyncLobbyData(true);
+    } else if (!rtConnected) {
+        wasRealtimeConnected_ = false;
+    }
+
+    if (needsBootstrap_ && registeredPlayer) {
+        needsBootstrap_ = false;
+        pollTimer = 0.0f;
+        DebugLogf(LOG_INFO, "LOBBY: bootstrap — presença + lista");
+        SyncLobbyData(true);
+    }
+
+    ghostCleanupTimer += dt;
+    if (ghostCleanupTimer >= GHOST_CLEANUP_SEC) {
+        ghostCleanupTimer = 0.0f;
+        MaybeCleanupGhostPresence();
+    }
 
     const bool dirty = dirtyPresence_.exchange(false) || dirtyChallenges_.exchange(false);
 
@@ -262,12 +322,7 @@ void OnlineLobby::Update(float dt) {
     if (!duePoll && !dirty) return;
     if (duePoll) pollTimer = 0.0f;
 
-    // Presence upsert só no ciclo de poll (não a cada CDC).
-    if (duePoll) UpsertPresence();
-    if (duePoll || dirty) {
-        RefreshPlayerList();
-        RefreshIncomingChallenges();
-    }
+    SyncLobbyData(duePoll);
 }
 
 void OnlineLobby::SendChallenge(const LobbyPlayerCard& target) {

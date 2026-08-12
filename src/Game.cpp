@@ -327,6 +327,9 @@ void Game::ResetRound(unsigned int seed) {
 
     activePowerups.clear();
     turnsSincePowerupCheck = 0;
+    shotPickedPowerupType = -1;
+    shotPickedPowerupX = 0.0f;
+    remotePowerupEffectApplied = false;
     powerupMessageTimer = 0.0f;
     shakeTimer = 0.0f;
     remoteReplayT = 0.0f;
@@ -402,6 +405,11 @@ void Game::Update(float dt) {
                 BeginRemoteProjectileLive(liveShot);
                 return;
             }
+        }
+
+        // Coleta de power-up anunciada pelo adversário (some do mapa na hora).
+        if (version == GameVersion::Plus) {
+            ConsumeRemotePowerupPickups();
         }
 
         if (state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
@@ -566,7 +574,10 @@ void Game::UpdateMainMenu() {
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (CheckCollisionPointRec(m, btn1P)) StartMatch(GameMode::PvAI);
         else if (CheckCollisionPointRec(m, btn2P)) StartMatch(GameMode::PvP);
-        else if (CheckCollisionPointRec(m, btnOnline)) state = GameState::OnlineLobby;
+        else if (CheckCollisionPointRec(m, btnOnline)) {
+            onlineLobby.EnterLobby();
+            state = GameState::OnlineLobby;
+        }
         else if (CheckCollisionPointRec(m, btnAbout)) state = GameState::About;
         else if (CheckCollisionPointRec(m, btnInstructions)) state = GameState::Instructions;
     }
@@ -870,6 +881,7 @@ void Game::BeginRemoteProjectileLive(const LiveShotStart& shot) {
 
     if (audioReady) PlaySound(sndFire);
     state = GameState::RemoteProjectileLive;
+    remotePowerupEffectApplied = false;
     DebugLogf(LOG_INFO, "GAME: stream projétil ao vivo P%d", shot.shooterPlayer);
 }
 
@@ -1021,6 +1033,13 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     remoteLiveSamples.clear();
     netMatch.ClearLiveShot();
 
+    // Power-up coletado no tiro remoto (autoritativo).
+    if (version == GameVersion::Plus && remote.pickedPowerupType >= 0) {
+        ApplyRemotePowerupPickup(remote.pickedPowerupType, remote.pickedPowerupX,
+                                 remote.shooterPlayer, true);
+    }
+    remotePowerupEffectApplied = false;
+
     if (audioReady) PlaySound(sndExplosion);
     particles.EmitExplosion(impactPos, 50);
     terrain.Explode(impactPos.x, impactPos.y, remote.craterRadius);
@@ -1168,6 +1187,61 @@ void Game::DrawPowerupTooltip() const {
     }
 }
 
+void Game::ApplyRemotePowerupPickup(int type, float x, int shooterPlayer, bool applyEffect) {
+    if (type < 0 || type >= static_cast<int>(PowerupType::COUNT)) return;
+
+    const PowerupType puType = static_cast<PowerupType>(type);
+    bool removed = false;
+    for (auto& pu : activePowerups) {
+        if (!pu.active) continue;
+        if (pu.type == puType && std::fabs(pu.x - x) < 8.0f) {
+            pu.active = false;
+            removed = true;
+            break;
+        }
+    }
+    // Fallback: remove o do tipo correspondente mais perto de x
+    if (!removed) {
+        int best = -1;
+        float bestDist = 1e9f;
+        for (int i = 0; i < static_cast<int>(activePowerups.size()); ++i) {
+            if (!activePowerups[i].active) continue;
+            if (activePowerups[i].type != puType) continue;
+            float d = std::fabs(activePowerups[i].x - x);
+            if (d < bestDist) { bestDist = d; best = i; }
+        }
+        if (best >= 0) {
+            activePowerups[best].active = false;
+            removed = true;
+        }
+    }
+
+    activePowerups.erase(std::remove_if(activePowerups.begin(), activePowerups.end(),
+                          [](const Powerup& p) { return !p.active; }),
+                          activePowerups.end());
+
+    if (applyEffect && !remotePowerupEffectApplied) {
+        Cannon& shooter = (shooterPlayer == 1) ? player1 : player2;
+        ApplyPowerupEffect(shooter, puType);
+        remotePowerupEffectApplied = true;
+    }
+
+    if (removed) {
+        DebugLogf(LOG_INFO, "GAME: power-up remoto removido type=%d x=%.1f effect=%d",
+                  type, x, applyEffect ? 1 : 0);
+    }
+}
+
+void Game::ConsumeRemotePowerupPickups() {
+    LivePowerupPickup pu;
+    while (netMatch.PollRemotePowerupPickup(pu)) {
+        // Durante o voo: só remove visualmente; efeito no FinishRemoteTurn
+        // (ou aqui se o turno autoritativo ainda não chegou — seguro aplicar 1x).
+        int shooter = netMatch.SyncedCurrentTurnPlayer();
+        ApplyRemotePowerupPickup(pu.type, pu.x, shooter, false);
+    }
+}
+
 void Game::CheckPowerupCollision(Vector2 projFrom, Vector2 projTo) {
     Vector2 seg = { projTo.x - projFrom.x, projTo.y - projFrom.y };
     float segLenSq = seg.x * seg.x + seg.y * seg.y;
@@ -1179,13 +1253,6 @@ void Game::CheckPowerupCollision(Vector2 projFrom, Vector2 projTo) {
         float y = terrain.HeightAt(pu.x);
         Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f };
 
-        // Distância do PONTO ao SEGMENTO (projFrom -> projTo), em vez de só
-        // checar a posição atual do projétil: em alta velocidade, a bala
-        // pode "pular" de um lado do power-up para o outro entre dois
-        // frames de física sem que nenhuma das duas posições pontuais
-        // esteja dentro do raio — mesmo que a trajetória tenha cruzado por
-        // cima dele. Checar o segmento inteiro percorrido no frame evita
-        // esse "vazamento".
         float t = 0.0f;
         if (segLenSq > 0.0001f) {
             t = ((center.x - projFrom.x) * seg.x + (center.y - projFrom.y) * seg.y) / segLenSq;
@@ -1198,12 +1265,19 @@ void Game::CheckPowerupCollision(Vector2 projFrom, Vector2 projTo) {
 
         Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
         PowerupType type = pu.type;
+        float px = pu.x;
         pu.active = false;
+
+        if (mode == GameMode::Online) {
+            shotPickedPowerupType = static_cast<int>(type);
+            shotPickedPowerupX = px;
+            netMatch.PublishPowerupPicked(shotPickedPowerupType, shotPickedPowerupX);
+        }
+
         ApplyPowerupEffect(shooter, type);
-        break; // um power-up por frame é suficiente
+        break;
     }
 
-    // remove os já consumidos
     activePowerups.erase(std::remove_if(activePowerups.begin(), activePowerups.end(),
                           [](const Powerup& p) { return !p.active; }),
                           activePowerups.end());
@@ -1613,6 +1687,8 @@ void Game::UpdateAiming() {
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
             state = GameState::ProjectileFlying;
+            shotPickedPowerupType = -1;
+            shotPickedPowerupX = 0.0f;
             if (mode == GameMode::Online && netMatch.InMatch()) {
                 Vector2 muzz = active.MuzzlePosition();
                 netMatch.PublishShotFired(active.angleDeg, active.power01, windForce, muzz.x, muzz.y);
@@ -1833,7 +1909,10 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         netMatch.PublishShotEnded(impactPos.x, impactPos.y);
         netMatch.SubmitMyTurn(shooter.angleDeg, shooter.power01, windAtShot,
                                impactPos.x, impactPos.y, craterRadius,
-                               dmgAppliedP1, dmgAppliedP2, nextWind, matchOver, winnerPlayer);
+                               dmgAppliedP1, dmgAppliedP2, nextWind, matchOver, winnerPlayer,
+                               shotPickedPowerupType, shotPickedPowerupX);
+        shotPickedPowerupType = -1;
+        shotPickedPowerupX = 0.0f;
         currentPlayer = netMatch.SyncedCurrentTurnPlayer();
 
         if (matchOver) {

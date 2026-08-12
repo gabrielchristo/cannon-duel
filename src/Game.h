@@ -167,8 +167,15 @@ private:
 #endif
 
     // --- power-ups (versão Plus) ---
+    void ApplyRemotePowerupPickup(int type, float x, int shooterPlayer, bool applyEffect);
+    void ConsumeRemotePowerupPickups(); // WS imediato durante o voo adversário
+
     std::vector<Powerup> activePowerups;
     int turnsSincePowerupCheck = 0;
+    // Coleta no tiro local (Plus online) — enviada no match_turns.
+    int shotPickedPowerupType = -1;
+    float shotPickedPowerupX = 0.0f;
+    bool remotePowerupEffectApplied = false; // evita aplicar 2x (WS + FinishRemoteTurn)
     Vector2 prevProjectilePos{}; // usado para checagem de colisão "varrida" (evita atravessar em alta velocidade)
     bool guidedDiving = false; // teleguiado: uma vez que entra na fase de "mergulho" no alvo, nunca mais volta a mirar no ápice (evita oscilação/instabilidade perto do limiar de distância)
 

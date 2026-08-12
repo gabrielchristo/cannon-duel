@@ -22,6 +22,8 @@ struct RemoteTurnResult {
     int nextTurnPlayer = 1;
     bool matchOver = false;
     int winnerPlayer = 0;
+    int pickedPowerupType = -1; // -1 = nenhum; senão cast de PowerupType
+    float pickedPowerupX = 0.0f;
 };
 
 struct LiveAimState {
@@ -49,6 +51,12 @@ struct ProjSample {
     float y = 0.0f;
 };
 
+struct LivePowerupPickup {
+    int type = -1;
+    float x = 0.0f;
+    bool valid = false;
+};
+
 enum class DisconnectResult {
     None,
     OpponentLeft,
@@ -73,10 +81,15 @@ public:
     void SubmitMyTurn(float shootAngle, float shootPower, float windAtShot,
                        float impactX, float impactY, float craterRadius,
                        float damageP1, float damageP2, float nextWind,
-                       bool matchOver, int winnerPlayer);
+                       bool matchOver, int winnerPlayer,
+                       int pickedPowerupType = -1, float pickedPowerupX = 0.0f);
 
     void PublishLiveAim(float dt, float angleDeg, float power01, const char* phase);
     LiveAimState GetOpponentLiveAim() const;
+
+    // Aviso imediato de coleta (visual); o efeito autoritativo vem no match_turns.
+    void PublishPowerupPicked(int type, float x);
+    bool PollRemotePowerupPickup(LivePowerupPickup& out);
 
     // Stream do projétil (atirador → adversário via broadcast).
     void PublishShotFired(float angleDeg, float power01, float wind,
@@ -128,6 +141,8 @@ private:
     DisconnectResult pendingDisconnect_ = DisconnectResult::None;
     bool disconnectReported_ = false;
     LiveAimState opponentAim_{};
+    bool hasPendingPowerupPickup_ = false;
+    LivePowerupPickup pendingPowerupPickup_{};
 
     bool pendingLiveShotStart_ = false;
     LiveShotStart pendingLiveShot_{};

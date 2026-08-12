@@ -39,6 +39,9 @@ class OnlineLobby {
 public:
     void Init(PlayerIdentity* identity);
 
+    // Chamado ao ABRIR a tela de lobby — publica presença e busca lista na hora.
+    void EnterLobby();
+
     // Chamado a cada frame enquanto a tela de lobby está aberta.
     // Realtime (CDC) é o caminho rápido; poll HTTP é fallback lento.
     void Update(float dt);
@@ -83,8 +86,14 @@ private:
     std::vector<IncomingChallenge> incoming;
 
     float pollTimer = 0.0f;
-    static constexpr float POLL_INTERVAL_REALTIME_SEC = 8.0f;
-    static constexpr float POLL_INTERVAL_FALLBACK_SEC = 2.5f;
+    float ghostCleanupTimer = 0.0f;
+    static constexpr float POLL_INTERVAL_REALTIME_SEC = 3.0f;
+    static constexpr float POLL_INTERVAL_FALLBACK_SEC = 1.0f;
+    static constexpr float GHOST_CLEANUP_SEC = 25.0f;
+
+    bool lobbyActive_ = false;
+    bool needsBootstrap_ = false;
+    bool wasRealtimeConnected_ = false;
 
     float matchHeartbeatTimer = 0.0f;
     static constexpr float MATCH_HEARTBEAT_SEC = 2.5f;
@@ -108,5 +117,7 @@ private:
     void RefreshPlayerList();
     void RefreshIncomingChallenges();
     void TryResolveAcceptedChallenge();
+    void MaybeCleanupGhostPresence();
+    void SyncLobbyData(bool upsertPresence);
     float PollIntervalSec() const;
 };

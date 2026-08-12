@@ -39,6 +39,38 @@ constexpr float EXPLOSION_RADIUS_PX  = 60.0f;   // raio de dano em área
 constexpr float ANGLE_OSC_PERIOD_SEC = 2.4f; // tempo para ir de 0 a 90 e voltar (mais lento)
 constexpr float POWER_OSC_PERIOD_SEC = 1.1f;
 
+// ---- Power-ups (versão Plus) ----
+constexpr float POWERUP_RADIUS_PX          = 16.0f;
+constexpr float POWERUP_HIT_TOLERANCE_PX   = 14.0f; // folga extra pra facilitar o acerto
+constexpr int   POWERUP_MAX_ACTIVE         = 6;     // limite pra não acumular infinitamente
+constexpr int   POWERUP_SPAWN_EVERY_TURNS  = 4;    // ~2 rodadas completas (2 jogadores)
+constexpr float POWERUP_HEAL_MIN_RATIO     = 0.25f;
+constexpr float POWERUP_HEAL_MAX_RATIO     = 0.5f;
+constexpr int   POWERUP_SHIELD_TURNS       = 2;
+constexpr int   POWERUP_TRAJECTORY_TURNS   = 2;
+constexpr float POWERUP_GUIDED_DAMAGE_MULT = 0.5f;
+constexpr float POWERUP_GUIDED_TURN_RATE_DEG = 140.0f; // graus/seg de correção de rota
+// Enquanto o alvo horizontal ainda está longe, o teleguiado mira num ponto
+// alto no céu (em vez do canhão adversário diretamente) — garante que ele
+// sempre suba e faça um arco por cima, nunca indo em linha reta baixa que
+// poderia bater no terreno mais próximo sem sequer chegar perto do alvo.
+constexpr float POWERUP_GUIDED_APEX_Y_PX     = 130.0f;
+constexpr float POWERUP_GUIDED_DIVE_DIST_PX  = 140.0f; // distância horizontal a partir da qual mira direto no alvo
+constexpr float POWERUP_DOUBLE_DAMAGE_MULT = 2.0f;
+// pesos relativos de sorteio (Guiado é mais raro, conforme pedido)
+constexpr float POWERUP_WEIGHT_DOUBLE_DMG  = 1.0f;
+constexpr float POWERUP_WEIGHT_TRAJECTORY  = 1.0f;
+constexpr float POWERUP_WEIGHT_GUIDED      = 0.4f;
+constexpr float POWERUP_WEIGHT_HEAL        = 1.0f;
+constexpr float POWERUP_WEIGHT_SHIELD      = 1.0f;
+constexpr float POWERUP_MESSAGE_DURATION_SEC = 2.0f;
+
+// ---- Screen shake (versão Plus) ----
+constexpr float SHAKE_DURATION_DIRECT_SEC  = 0.35f;
+constexpr float SHAKE_DURATION_TERRAIN_SEC = 0.22f;
+constexpr float SHAKE_MAGNITUDE_DIRECT_PX  = 14.0f;
+constexpr float SHAKE_MAGNITUDE_TERRAIN_PX = 7.0f;
+
 // ---- Vento ----
 // Vento é tratado como ACELERAÇÃO (m/s²), não força bruta — assim o efeito
 // não depende da massa do projétil (evita curvas absurdas na trajetória).

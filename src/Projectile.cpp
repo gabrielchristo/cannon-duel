@@ -1,5 +1,6 @@
 #include "Projectile.h"
 #include <algorithm>
+#include <cmath>
 
 void Projectile::Spawn(b2WorldId world, Vector2 startPosPx, Vector2 dirUnit, float power01) {
     b2BodyDef bodyDef = b2DefaultBodyDef();
@@ -41,6 +42,32 @@ Vector2 Projectile::PositionPx() const {
 Vector2 Projectile::VelocityPx() const {
     b2Vec2 v = b2Body_GetLinearVelocity(body);
     return { cfg::MToPx(v.x), cfg::MToPx(v.y) };
+}
+
+void Projectile::ApplyGuidance(Vector2 targetPx, float turnRateDegPerSec, float dt) {
+    if (!active) return;
+
+    Vector2 vel = VelocityPx();
+    float speed = std::sqrt(vel.x * vel.x + vel.y * vel.y);
+    if (speed < 0.01f) return;
+
+    Vector2 pos = PositionPx();
+    Vector2 toTarget = { targetPx.x - pos.x, targetPx.y - pos.y };
+
+    float curAngle = std::atan2(vel.y, vel.x);
+    float desiredAngle = std::atan2(toTarget.y, toTarget.x);
+
+    float diff = desiredAngle - curAngle;
+    while (diff > PI) diff -= 2.0f * PI;
+    while (diff < -PI) diff += 2.0f * PI;
+
+    float maxTurn = (turnRateDegPerSec * DEG2RAD) * dt;
+    float turn = std::clamp(diff, -maxTurn, maxTurn);
+    float newAngle = curAngle + turn;
+
+    Vector2 newVelPx = { std::cos(newAngle) * speed, std::sin(newAngle) * speed };
+    b2Vec2 newVelM = { cfg::PxToM(newVelPx.x), cfg::PxToM(newVelPx.y) };
+    b2Body_SetLinearVelocity(body, newVelM);
 }
 
 void Projectile::Destroy() {

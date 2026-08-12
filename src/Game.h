@@ -1,13 +1,16 @@
 #pragma once
 #include <raylib.h>
+#include <vector>
 #include "PhysicsWorld.h"
 #include "Terrain.h"
 #include "Cannon.h"
 #include "Projectile.h"
 #include "ParticleSystem.h"
 #include "AI.h"
+#include "Powerup.h"
 
 enum class GameMode { PvP, PvAI };
+enum class GameVersion { Classic, Plus };
 enum class GameState { MainMenu, About, Aiming, ProjectileFlying, TurnTransition, RoundOver };
 enum class AimPhase { Angle, Power };
 
@@ -50,6 +53,7 @@ private:
     // --- estado geral ---
     GameState state = GameState::MainMenu;
     GameMode  mode  = GameMode::PvAI;
+    GameVersion version = GameVersion::Classic;
 
     // --- física / mundo ---
     PhysicsWorld physics;
@@ -91,4 +95,41 @@ private:
     void UpdateMenuConfirmDialog(); // consome cliques enquanto o diálogo está aberto
 
     void ResetRound(unsigned int seed);
+
+    // --- power-ups (versão Plus) ---
+    std::vector<Powerup> activePowerups;
+    int turnsSincePowerupCheck = 0;
+    Vector2 prevProjectilePos{}; // usado para checagem de colisão "varrida" (evita atravessar em alta velocidade)
+
+    void MaybeSpawnPowerup();
+    void DrawPowerup() const;
+    void CheckPowerupCollision(Vector2 projFrom, Vector2 projTo);
+    void ApplyPowerupEffect(Cannon& picker, PowerupType type);
+    void TickPowerupTurnEffects(Cannon& startingTurnCannon); // chamado quando a vez volta pro dono do efeito
+
+    // mensagem flutuante "você pegou X" acima do canhão
+    const char* powerupMessageText = nullptr;
+    float powerupMessageTimer = 0.0f;
+    Vector2 powerupMessagePos{};
+    void ShowPowerupMessage(const char* text, Vector2 pos);
+    void DrawPowerupMessage() const;
+    void DrawPowerupTooltip() const;
+
+    // --- screen shake (versão Plus) ---
+    float shakeTimer = 0.0f;
+    float shakeDuration = 1.0f;
+    float shakeMagnitude = 0.0f;
+    void TriggerShake(float magnitudePx, float durationSec);
+    Vector2 ComputeShakeOffset() const;
+
+    // --- menu: alternância Classic/Plus ---
+    void DrawVersionSwitch(Vector2 mouse);
+    void UpdateVersionSwitch(Vector2 mouse);
+
+    // --- painel de desenvolvedor oculto (F9) ---
+    bool devMode = false;
+    bool UpdateDevPanel(); // retorna true se consumiu o clique deste frame
+    void DrawDevPanel() const;
+    void DevForceSpawnPowerup();
+    void DevGrantPowerupToPlayer1(PowerupType type);
 };

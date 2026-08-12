@@ -26,10 +26,9 @@ void ParticleSystem::EmitExplosion(Vector2 pos, int count) {
     }
 }
 
-void ParticleSystem::EmitTrail(Vector2 pos, Vector2 velocityHint) {
-    // Rastro sutil de fumaça atrás do projétil — sempre visível (cor clara
-    // com leve contorno implícito pelo brilho), independente do fundo ser
-    // dia ou noite, sem precisar mudar a cor do sprite da bala em si.
+void ParticleSystem::EmitTrail(Vector2 pos, Vector2 velocityHint, Color color) {
+    // Rastro sutil de fumaça (ou chamas, se 'color' for passada) atrás do
+    // projétil — sempre visível independente do fundo ser dia ou noite.
     Particle p;
     p.pos = pos;
     // leve dispersão, com uma tendência a "ficar para trás" do movimento
@@ -38,7 +37,7 @@ void ParticleSystem::EmitTrail(Vector2 pos, Vector2 velocityHint) {
     p.maxLife = RandRange(0.25f, 0.4f);
     p.life = p.maxLife;
     p.size = RandRange(2.0f, 4.0f);
-    p.color = Color{ 235, 230, 215, 255 };
+    p.color = color;
     particles.push_back(p);
 }
 

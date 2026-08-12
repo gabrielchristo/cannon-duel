@@ -9,6 +9,11 @@ void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
     health = cfg::CANNON_MAX_HEALTH;
     angleDeg = 45.0f;
     power01 = 0.5f;
+    pendingDoubleDamage = false;
+    queuedDoubleDamage = false;
+    pendingGuided = false;
+    trajectoryPreviewTurnsLeft = 0;
+    shieldTurnsLeft = 0;
 }
 
 void Cannon::SetAim(float pAngleDeg, float pPower01) {
@@ -21,7 +26,11 @@ void Cannon::TakeDamage(float dmg) {
 }
 
 Vector2 Cannon::AimDirection() const {
-    float rad = angleDeg * DEG2RAD;
+    return DirectionAtAngle(angleDeg);
+}
+
+Vector2 Cannon::DirectionAtAngle(float customAngleDeg) const {
+    float rad = customAngleDeg * DEG2RAD;
     float dirX = std::cos(rad);
     float dirY = -std::sin(rad); // y cresce para baixo na tela
     if (side == CannonSide::Right) dirX = -dirX;
@@ -104,4 +113,20 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* sprite) const {
                   static_cast<int>(barW * ratio), static_cast<int>(barH), hpColor);
     DrawRectangleLines(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
                         static_cast<int>(barW), static_cast<int>(barH), BLACK);
+
+    // pequenos indicadores de efeitos ativos (power-ups) acima da barra de vida
+    if (HasActiveEffectIndicator()) {
+        float badgeX = barPos.x;
+        float badgeY = barPos.y - 12;
+        auto badge = [&](Color c) {
+            DrawCircle(static_cast<int>(badgeX), static_cast<int>(badgeY), 5, c);
+            DrawCircleLines(static_cast<int>(badgeX), static_cast<int>(badgeY), 5, BLACK);
+            badgeX += 13;
+        };
+        if (pendingDoubleDamage) badge(Color{220, 60, 40, 255});
+        if (queuedDoubleDamage)  badge(Color{240, 140, 60, 255}); // "vai ativar no próximo tiro"
+        if (pendingGuided)       badge(Color{150, 70, 200, 255});
+        if (trajectoryPreviewTurnsLeft > 0) badge(Color{60, 130, 220, 255});
+        if (shieldTurnsLeft > 0) badge(Color{60, 200, 210, 255});
+    }
 }

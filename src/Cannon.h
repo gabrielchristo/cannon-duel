@@ -16,6 +16,7 @@ public:
 
     Vector2 MuzzlePosition() const; // ponta do cano, em px, ponto de spawn do projétil
     Vector2 AimDirection() const;   // vetor unitário da direção de disparo
+    Vector2 DirectionAtAngle(float angleDeg) const; // como AimDirection, mas com ângulo customizado (não altera o estado)
 
     void Draw(bool isCurrentTurn, Texture2D* sprite = nullptr) const;
 
@@ -24,4 +25,16 @@ public:
     float power01  = 0.5f;  // 0..1, mapeado para MIN_POWER..MAX_POWER
     float health    = cfg::CANNON_MAX_HEALTH;
     CannonSide side = CannonSide::Left;
+
+    // --- efeitos de power-up (versão Plus) ---
+    bool pendingDoubleDamage = false; // ativo NO PRÓXIMO tiro
+    bool queuedDoubleDamage  = false; // acabou de pegar; só vira "pending" após o tiro atual resolver
+    bool pendingGuided       = false;
+    int  trajectoryPreviewTurnsLeft = 0;
+    int  shieldTurnsLeft            = 0;
+
+    bool HasActiveEffectIndicator() const {
+        return pendingDoubleDamage || queuedDoubleDamage || pendingGuided ||
+               trajectoryPreviewTurnsLeft > 0 || shieldTurnsLeft > 0;
+    }
 };

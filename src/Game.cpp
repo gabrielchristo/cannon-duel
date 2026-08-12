@@ -5,6 +5,12 @@
 #include <string>
 #include <algorithm>
 
+namespace {
+float RandF(float lo, float hi) {
+    return lo + static_cast<float>(rand()) / RAND_MAX * (hi - lo);
+}
+} // namespace
+
 Game::Game() {
     InitWindow(cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, "Cannon Duel");
     SetTargetFPS(cfg::TARGET_FPS);
@@ -99,6 +105,11 @@ void Game::ResetRound(unsigned int seed) {
     aimOscTimer = 0.0f;
     nightMode = (rand() % 2) == 0; // cenário dia/noite sorteado a cada partida
 
+    activePowerups.clear();
+    turnsSincePowerupCheck = 0;
+    powerupMessageTimer = 0.0f;
+    shakeTimer = 0.0f;
+
     state = GameState::Aiming;
 }
 
@@ -112,6 +123,16 @@ void Game::StartMatch(GameMode m) {
 // Update
 // ---------------------------------------------------------------------------
 void Game::Update(float dt) {
+    // Painel de desenvolvedor oculto: F9 alterna a visibilidade. Não é
+    // exposto em nenhum menu/UI normal — é só um atalho de teclado para
+    // testes internos.
+    if (IsKeyPressed(KEY_F9)) {
+        devMode = !devMode;
+    }
+    if (devMode && UpdateDevPanel()) {
+        return;
+    }
+
     // Diálogo de confirmação tem prioridade máxima: enquanto aberto, nenhum
     // outro input do jogo é processado.
     if (showMenuConfirm) {
@@ -134,6 +155,9 @@ void Game::Update(float dt) {
     if (state != GameState::MainMenu) {
         particles.Update(dt);
     }
+
+    if (shakeTimer > 0.0f) shakeTimer = std::max(0.0f, shakeTimer - dt);
+    if (powerupMessageTimer > 0.0f) powerupMessageTimer = std::max(0.0f, powerupMessageTimer - dt);
 
     switch (state) {
         case GameState::MainMenu:
@@ -162,11 +186,12 @@ void Game::Update(float dt) {
 }
 
 void Game::UpdateMainMenu() {
-    // apenas espera clique nos botões (tratado no Draw via retângulos, checado aqui)
     Vector2 m = GetMousePosition();
-    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 320, 280, 56 };
-    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 396, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 472, 280, 56 };
+    UpdateVersionSwitch(m);
+
+    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
+    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
+    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (CheckCollisionPointRec(m, btn1P)) StartMatch(GameMode::PvAI);
@@ -183,6 +208,327 @@ void Game::UpdateAbout() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Power-ups (versão Plus)
+// ---------------------------------------------------------------------------
+void Game::MaybeSpawnPowerup() {
+    if (static_cast<int>(activePowerups.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
+    if (turnsSincePowerupCheck < cfg::POWERUP_SPAWN_EVERY_TURNS) return;
+    turnsSincePowerupCheck = 0;
+
+    // posição aleatória, evitando ficar em cima dos canhões
+    float margin = 160.0f;
+    float x = RandF(margin, cfg::SCREEN_WIDTH - margin);
+
+    // sorteio ponderado (Guiado é mais raro)
+    struct Entry { PowerupType type; float weight; };
+    Entry entries[] = {
+        { PowerupType::DoubleDamage,      cfg::POWERUP_WEIGHT_DOUBLE_DMG },
+        { PowerupType::TrajectoryPreview, cfg::POWERUP_WEIGHT_TRAJECTORY },
+        { PowerupType::Guided,            cfg::POWERUP_WEIGHT_GUIDED },
+        { PowerupType::Heal,              cfg::POWERUP_WEIGHT_HEAL },
+        { PowerupType::Shield,            cfg::POWERUP_WEIGHT_SHIELD },
+    };
+    float totalWeight = 0.0f;
+    for (auto& e : entries) totalWeight += e.weight;
+    float roll = RandF(0.0f, totalWeight);
+    PowerupType chosen = entries[0].type;
+    for (auto& e : entries) {
+        if (roll < e.weight) { chosen = e.type; break; }
+        roll -= e.weight;
+    }
+
+    Powerup p;
+    p.active = true;
+    p.type = chosen;
+    p.x = x;
+    activePowerups.push_back(p);
+}
+
+void Game::DrawPowerup() const {
+    for (const auto& pu : activePowerups) {
+        if (!pu.active) continue;
+
+        float y = terrain.HeightAt(pu.x);
+        float bob = std::sin(static_cast<float>(GetTime()) * 3.0f + pu.x) * 4.0f;
+        Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f + bob };
+
+        Color c = PowerupColor(pu.type);
+        DrawCircleV(center, cfg::POWERUP_RADIUS_PX, c);
+        DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y),
+                         static_cast<int>(cfg::POWERUP_RADIUS_PX), Color{20, 20, 20, 255});
+        DrawCircleLines(static_cast<int>(center.x), static_cast<int>(center.y),
+                         static_cast<int>(cfg::POWERUP_RADIUS_PX) + 3, Fade(c, 0.4f));
+
+        const char* label = PowerupLabel(pu.type);
+        int fs = 14;
+        int tw = MeasureText(label, fs);
+        DrawText(label, static_cast<int>(center.x - tw / 2), static_cast<int>(center.y - fs / 2), fs, WHITE);
+    }
+}
+
+void Game::DrawPowerupTooltip() const {
+    Vector2 mouse = GetMousePosition();
+
+    for (const auto& pu : activePowerups) {
+        if (!pu.active) continue;
+
+        float y = terrain.HeightAt(pu.x);
+        float bob = std::sin(static_cast<float>(GetTime()) * 3.0f + pu.x) * 4.0f;
+        Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f + bob };
+
+        float dist = std::sqrt(std::pow(mouse.x - center.x, 2) + std::pow(mouse.y - center.y, 2));
+        if (dist > cfg::POWERUP_RADIUS_PX + 10.0f) continue;
+
+        const char* desc = PowerupDescription(pu.type);
+        int fs = 15;
+        int tw = MeasureText(desc, fs);
+        float boxW = tw + 16.0f, boxH = fs + 12.0f;
+
+        float bx = mouse.x + 16.0f;
+        float by = mouse.y - boxH - 10.0f;
+        // mantém a tooltip inteira dentro da tela
+        bx = std::clamp(bx, 4.0f, static_cast<float>(cfg::SCREEN_WIDTH) - boxW - 4.0f);
+        by = std::clamp(by, 4.0f, static_cast<float>(cfg::SCREEN_HEIGHT) - boxH - 4.0f);
+
+        DrawRectangle(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
+                      Fade(Color{20, 20, 20, 255}, 0.9f));
+        DrawRectangleLines(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
+                            PowerupColor(pu.type));
+        DrawText(desc, static_cast<int>(bx + 8), static_cast<int>(by + 6), fs, WHITE);
+        break; // só uma tooltip por vez, mesmo com vários power-ups próximos
+    }
+}
+
+void Game::CheckPowerupCollision(Vector2 projFrom, Vector2 projTo) {
+    Vector2 seg = { projTo.x - projFrom.x, projTo.y - projFrom.y };
+    float segLenSq = seg.x * seg.x + seg.y * seg.y;
+    float hitRadius = cfg::POWERUP_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + cfg::POWERUP_HIT_TOLERANCE_PX;
+
+    for (auto& pu : activePowerups) {
+        if (!pu.active) continue;
+
+        float y = terrain.HeightAt(pu.x);
+        Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f };
+
+        // Distância do PONTO ao SEGMENTO (projFrom -> projTo), em vez de só
+        // checar a posição atual do projétil: em alta velocidade, a bala
+        // pode "pular" de um lado do power-up para o outro entre dois
+        // frames de física sem que nenhuma das duas posições pontuais
+        // esteja dentro do raio — mesmo que a trajetória tenha cruzado por
+        // cima dele. Checar o segmento inteiro percorrido no frame evita
+        // esse "vazamento".
+        float t = 0.0f;
+        if (segLenSq > 0.0001f) {
+            t = ((center.x - projFrom.x) * seg.x + (center.y - projFrom.y) * seg.y) / segLenSq;
+            t = std::clamp(t, 0.0f, 1.0f);
+        }
+        Vector2 closest = { projFrom.x + seg.x * t, projFrom.y + seg.y * t };
+        float dist = std::sqrt(std::pow(closest.x - center.x, 2) + std::pow(closest.y - center.y, 2));
+
+        if (dist > hitRadius) continue;
+
+        Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
+        PowerupType type = pu.type;
+        pu.active = false;
+        ApplyPowerupEffect(shooter, type);
+        break; // um power-up por frame é suficiente
+    }
+
+    // remove os já consumidos
+    activePowerups.erase(std::remove_if(activePowerups.begin(), activePowerups.end(),
+                          [](const Powerup& p) { return !p.active; }),
+                          activePowerups.end());
+}
+
+void Game::ApplyPowerupEffect(Cannon& picker, PowerupType type) {
+    switch (type) {
+        case PowerupType::DoubleDamage:
+            // só vira ativo no PRÓXIMO tiro (não no que acabou de coletar o
+            // power-up) — ver promoção em ResolveImpact.
+            picker.queuedDoubleDamage = true;
+            break;
+        case PowerupType::TrajectoryPreview:
+            picker.trajectoryPreviewTurnsLeft = cfg::POWERUP_TRAJECTORY_TURNS;
+            break;
+        case PowerupType::Guided:
+            picker.pendingGuided = true;
+            break;
+        case PowerupType::Heal: {
+            float amount = RandF(cfg::POWERUP_HEAL_MIN_RATIO, cfg::POWERUP_HEAL_MAX_RATIO) * cfg::CANNON_MAX_HEALTH;
+            picker.health = std::min(cfg::CANNON_MAX_HEALTH, picker.health + amount);
+            break;
+        }
+        case PowerupType::Shield:
+            picker.shieldTurnsLeft = cfg::POWERUP_SHIELD_TURNS;
+            break;
+        default: break;
+    }
+
+    Vector2 base = { picker.x, picker.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f - 40.0f };
+    ShowPowerupMessage(PowerupDescription(type), base);
+}
+
+void Game::TickPowerupTurnEffects(Cannon& startingTurnCannon) {
+    if (startingTurnCannon.shieldTurnsLeft > 0) startingTurnCannon.shieldTurnsLeft--;
+    if (startingTurnCannon.trajectoryPreviewTurnsLeft > 0) startingTurnCannon.trajectoryPreviewTurnsLeft--;
+}
+
+void Game::ShowPowerupMessage(const char* text, Vector2 pos) {
+    powerupMessageText = text;
+    powerupMessagePos = pos;
+    powerupMessageTimer = cfg::POWERUP_MESSAGE_DURATION_SEC;
+}
+
+void Game::DrawPowerupMessage() const {
+    if (powerupMessageTimer <= 0.0f || !powerupMessageText) return;
+
+    float alpha = std::min(1.0f, powerupMessageTimer / 0.4f); // fade-out no final
+    int fs = 18;
+    int tw = MeasureText(powerupMessageText, fs);
+
+    float boxPad = 6.0f;
+    float boxW = tw + boxPad * 2.0f;
+    float px = powerupMessagePos.x - tw / 2.0f;
+
+    // garante que a caixa inteira (não só o texto) fique dentro da janela,
+    // mesmo quando o canhão está perto da borda esquerda/direita da tela
+    float minX = boxPad;
+    float maxX = static_cast<float>(cfg::SCREEN_WIDTH) - boxW + boxPad;
+    px = std::clamp(px, minX, maxX);
+
+    float py = std::clamp(powerupMessagePos.y, 4.0f, static_cast<float>(cfg::SCREEN_HEIGHT) - fs - 8.0f);
+
+    DrawRectangle(static_cast<int>(px) - static_cast<int>(boxPad), static_cast<int>(py) - 4,
+                  static_cast<int>(boxW), fs + 8, Fade(Color{20, 20, 20, 255}, alpha * 0.75f));
+    DrawText(powerupMessageText, static_cast<int>(px), static_cast<int>(py), fs,
+             Fade(Color{255, 230, 140, 255}, alpha));
+}
+
+// ---------------------------------------------------------------------------
+// Screen shake (versão Plus)
+// ---------------------------------------------------------------------------
+void Game::TriggerShake(float magnitudePx, float durationSec) {
+    if (version != GameVersion::Plus) return;
+    shakeMagnitude = magnitudePx;
+    shakeDuration = durationSec;
+    shakeTimer = durationSec;
+}
+
+Vector2 Game::ComputeShakeOffset() const {
+    if (shakeTimer <= 0.0f) return { 0.0f, 0.0f };
+    float ratio = shakeTimer / shakeDuration;
+    float mag = shakeMagnitude * ratio;
+    return { RandF(-mag, mag), RandF(-mag, mag) };
+}
+
+// ---------------------------------------------------------------------------
+// Painel de desenvolvedor oculto (F9) — não é exposto em nenhum menu normal.
+// Serve pra testar rapidamente todas as funcionalidades sem depender de RNG
+// (vento, spawn de power-up) ou de sobreviver várias rodadas.
+// ---------------------------------------------------------------------------
+void Game::DevForceSpawnPowerup() {
+    if (version != GameVersion::Plus) version = GameVersion::Plus;
+    turnsSincePowerupCheck = cfg::POWERUP_SPAWN_EVERY_TURNS;
+    MaybeSpawnPowerup();
+}
+
+void Game::DevGrantPowerupToPlayer1(PowerupType type) {
+    if (version != GameVersion::Plus) version = GameVersion::Plus;
+    ApplyPowerupEffect(player1, type);
+}
+
+bool Game::UpdateDevPanel() {
+    Vector2 m = GetMousePosition();
+    Rectangle panel = { 16, 90, 240, 505 };
+    if (!CheckCollisionPointRec(m, panel)) return false;
+    if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) return true; // dentro do painel, sem clique: ainda consome (evita vazar clique pro jogo)
+
+    bool inMatch = (state == GameState::Aiming || state == GameState::ProjectileFlying ||
+                    state == GameState::TurnTransition || state == GameState::RoundOver);
+
+    float y = panel.y + 34;
+    float bw = panel.width - 20, bh = 28, gap = 5;
+    auto hit = [&](float rowY) {
+        Rectangle r = { panel.x + 10, rowY, bw, bh };
+        return CheckCollisionPointRec(m, r);
+    };
+
+    if (hit(y) && inMatch) { player1.health = cfg::CANNON_MAX_HEALTH; player2.health = cfg::CANNON_MAX_HEALTH; return true; }
+    y += bh + gap;
+    if (hit(y) && inMatch) { DevForceSpawnPowerup(); return true; }
+    y += bh + gap;
+    if (hit(y) && inMatch) { windForce = 0.0f; return true; }
+    y += bh + gap;
+    if (hit(y) && inMatch && state == GameState::Aiming) { EndTurn(); return true; }
+    y += bh + gap;
+    if (hit(y)) { version = (version == GameVersion::Classic) ? GameVersion::Plus : GameVersion::Classic; return true; }
+    y += bh + gap;
+    if (hit(y)) { nightMode = !nightMode; return true; }
+    y += bh + gap;
+    if (hit(y) && state == GameState::MainMenu) { StartMatch(GameMode::PvAI); return true; }
+    y += bh + gap;
+
+    // seção: conceder power-up específico ao Jogador 1
+    y += 22; // espaço do subtítulo
+    PowerupType types[] = { PowerupType::DoubleDamage, PowerupType::TrajectoryPreview,
+                             PowerupType::Guided,
+                             PowerupType::Heal, PowerupType::Shield };
+    for (PowerupType t : types) {
+        if (hit(y) && inMatch) { DevGrantPowerupToPlayer1(t); return true; }
+        y += bh + gap;
+    }
+
+    return true;
+}
+
+void Game::DrawDevPanel() const {
+    Rectangle panel = { 16, 90, 240, 505 };
+    DrawRectangleRec(panel, Fade(Color{15, 15, 20, 255}, 0.9f));
+    DrawRectangleLinesEx(panel, 2, Color{255, 210, 60, 255});
+
+    const char* title = "DEV PANEL (F9)";
+    DrawText(title, static_cast<int>(panel.x + 10), static_cast<int>(panel.y + 6), 16, Color{255, 210, 60, 255});
+
+    bool inMatch = (state == GameState::Aiming || state == GameState::ProjectileFlying ||
+                    state == GameState::TurnTransition || state == GameState::RoundOver);
+
+    Vector2 m = GetMousePosition();
+    float y = panel.y + 34;
+    float bw = panel.width - 20, bh = 28, gap = 5;
+
+    auto drawRow = [&](const char* label, bool enabled, bool highlight = false) {
+        Rectangle r = { panel.x + 10, y, bw, bh };
+        bool hover = enabled && CheckCollisionPointRec(m, r);
+        Color bg = !enabled ? Color{40, 40, 45, 255}
+                 : highlight ? Color{80, 160, 90, 255}
+                 : hover ? Color{90, 90, 100, 255} : Color{55, 55, 65, 255};
+        DrawRectangleRec(r, bg);
+        DrawRectangleLinesEx(r, 1, Color{200, 200, 210, 150});
+        Color txt = enabled ? WHITE : Color{130, 130, 135, 255};
+        DrawText(label, static_cast<int>(r.x + 8), static_cast<int>(r.y + 6), 13, txt);
+        y += bh + gap;
+    };
+
+    drawRow("Curar os dois canhoes", inMatch);
+    drawRow("Forcar spawn de power-up", inMatch);
+    drawRow("Zerar vento", inMatch);
+    drawRow("Pular turno", inMatch && state == GameState::Aiming);
+    drawRow(version == GameVersion::Plus ? "Versao: PLUS" : "Versao: CLASSIC", true);
+    drawRow(nightMode ? "Cenario: NOITE" : "Cenario: DIA", true);
+    drawRow("Iniciar partida rapida (1J)", state == GameState::MainMenu);
+
+    y += 22;
+    DrawText("Dar power-up ao Jogador 1:", static_cast<int>(panel.x + 10), static_cast<int>(y - 18), 13,
+              Color{200, 200, 210, 255});
+
+    const char* labels[] = { "2x Dano em dobro", "Trajetoria prevista",
+                              "Teleguiado", "Cura", "Escudo" };
+    for (const char* label : labels) {
+        drawRow(label, inMatch);
+    }
+}
+
 void Game::UpdateAiming() {
     Cannon& active = (currentPlayer == 1) ? player1 : player2;
     Cannon& other  = (currentPlayer == 1) ? player2 : player1;
@@ -194,8 +540,14 @@ void Game::UpdateAiming() {
         ai.ComputeShot(active, other, windForce);
 
         Vector2 muzzle = active.MuzzlePosition();
-        Vector2 dir = active.AimDirection();
+        // Teleguiado sempre sai com um ângulo mínimo elevado, garantindo que
+        // comece subindo (arco por cima) em vez de eventualmente sair quase
+        // reto e bater no terreno próximo antes da correção de rota conseguir agir.
+        Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
+            ? active.DirectionAtAngle(std::max(active.angleDeg, 55.0f))
+            : active.AimDirection();
         projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
+        prevProjectilePos = muzzle;
         if (audioReady) PlaySound(sndFire);
         aimPhase = AimPhase::Angle;
         state = GameState::ProjectileFlying;
@@ -232,8 +584,11 @@ void Game::UpdateAiming() {
 
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             Vector2 muzzle = active.MuzzlePosition();
-            Vector2 dir = active.AimDirection();
+            Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
+                ? active.DirectionAtAngle(std::max(active.angleDeg, 55.0f))
+                : active.AimDirection();
             projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
+            prevProjectilePos = muzzle;
             if (audioReady) PlaySound(sndFire);
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
@@ -243,13 +598,41 @@ void Game::UpdateAiming() {
 }
 
 void Game::UpdateProjectileFlight(float dt) {
+    Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
+    Cannon& opponent = (currentPlayer == 1) ? player2 : player1;
+
     projectile.ApplyWind(windForce);
+
+    if (version == GameVersion::Plus && shooter.pendingGuided) {
+        // Enquanto o projétil ainda está horizontalmente longe do alvo, mira
+        // num ponto alto no céu (força a subir e fazer um arco por cima).
+        // Só passa a mirar diretamente no canhão adversário quando já está
+        // perto o suficiente para "mergulhar" sobre ele — assim o tiro nunca
+        // vai em linha reta baixa e explode sem causar dano no terreno mais
+        // próximo antes de chegar perto do alvo.
+        Vector2 projPos = projectile.PositionPx();
+        float horizDist = std::fabs(projPos.x - opponent.x);
+        Vector2 targetPos = (horizDist > cfg::POWERUP_GUIDED_DIVE_DIST_PX)
+            ? Vector2{ opponent.x, cfg::POWERUP_GUIDED_APEX_Y_PX }
+            : Vector2{ opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+        projectile.ApplyGuidance(targetPos, cfg::POWERUP_GUIDED_TURN_RATE_DEG, dt);
+    }
+
     physics.Step(dt);
 
     if (!projectile.IsActive()) return;
 
     Vector2 pos = projectile.PositionPx();
-    particles.EmitTrail(pos, projectile.VelocityPx());
+
+    Color trailColor = (version == GameVersion::Plus && shooter.pendingDoubleDamage)
+        ? Color{255, 130, 40, 255}  // rastro em chamas (dano em dobro)
+        : Color{235, 230, 215, 255};
+    particles.EmitTrail(pos, projectile.VelocityPx(), trailColor);
+
+    if (version == GameVersion::Plus) {
+        CheckPowerupCollision(prevProjectilePos, pos);
+    }
+    prevProjectilePos = pos;
 
     // fora da tela (nunca deveria bater em nada) -> encerra o turno
     if (pos.x < -50 || pos.x > cfg::SCREEN_WIDTH + 50 || pos.y > cfg::SCREEN_HEIGHT + 200) {
@@ -278,18 +661,55 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
     projectile.Destroy();
     if (audioReady) PlaySound(sndExplosion);
 
-    particles.EmitExplosion(impactPos, 50);
-    terrain.Explode(impactPos.x, impactPos.y, cfg::CRATER_RADIUS_PX);
+    // Multiplicadores de dano/raio vindos de power-ups do atirador (versão Plus)
+    Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
+    float damageMult = 1.0f;
+    float radiusMult = 1.0f;
+    bool wasDoubleDamage = false, wasGuided = false;
+
+    if (version == GameVersion::Plus) {
+        if (shooter.pendingDoubleDamage) { damageMult *= cfg::POWERUP_DOUBLE_DAMAGE_MULT; wasDoubleDamage = true; }
+        if (shooter.pendingGuided) { damageMult *= cfg::POWERUP_GUIDED_DAMAGE_MULT; wasGuided = true; }
+
+        // efeitos de um único tiro são consumidos agora, tenha acertado ou não
+        shooter.pendingDoubleDamage = false;
+        shooter.pendingGuided = false;
+
+        // Se o dano em dobro foi coletado durante ESTE tiro (queuedDoubleDamage),
+        // ele só vira ativo a partir do PRÓXIMO tiro — nunca no que acabou de
+        // resolver, mesmo que tenha sido esse mesmo projétil a pegar o item.
+        if (shooter.queuedDoubleDamage) {
+            shooter.pendingDoubleDamage = true;
+            shooter.queuedDoubleDamage = false;
+        }
+    }
+
+    float craterRadius = cfg::CRATER_RADIUS_PX * radiusMult;
+    float explosionRadius = cfg::EXPLOSION_RADIUS_PX * radiusMult;
+    int particleCount = 50;
+
+    particles.EmitExplosion(impactPos, particleCount);
+    terrain.Explode(impactPos.x, impactPos.y, craterRadius);
+
+    if (version == GameVersion::Plus) {
+        TriggerShake(hitCannon ? cfg::SHAKE_MAGNITUDE_DIRECT_PX : cfg::SHAKE_MAGNITUDE_TERRAIN_PX,
+                      hitCannon ? cfg::SHAKE_DURATION_DIRECT_SEC : cfg::SHAKE_DURATION_TERRAIN_SEC);
+    }
+    (void)wasGuided;
 
     // dano em área para os dois canhões, ponderado pela distância
     Cannon* cannons[2] = { &player1, &player2 };
     for (Cannon* c : cannons) {
         Vector2 base = { c->x, c->groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
         float dist = std::sqrt(std::pow(impactPos.x - base.x, 2) + std::pow(impactPos.y - base.y, 2));
-        if (dist <= cfg::EXPLOSION_RADIUS_PX) {
-            float falloff = 1.0f - (dist / cfg::EXPLOSION_RADIUS_PX);
-            float dmg = cfg::EXPLOSION_DAMAGE_MAX * falloff;
-            if (hitCannon && c == hitTarget) dmg = cfg::EXPLOSION_DAMAGE_MAX; // impacto direto
+        if (dist <= explosionRadius) {
+            float falloff = 1.0f - (dist / explosionRadius);
+            float dmg = cfg::EXPLOSION_DAMAGE_MAX * falloff * damageMult;
+            if (hitCannon && c == hitTarget) dmg = cfg::EXPLOSION_DAMAGE_MAX * damageMult; // impacto direto
+
+            // escudo (power-up) bloqueia todo o dano enquanto ativo
+            if (c->shieldTurnsLeft > 0) dmg = 0.0f;
+
             c->TakeDamage(dmg);
         }
     }
@@ -340,6 +760,14 @@ void Game::EndTurn() {
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
 
+    if (version == GameVersion::Plus) {
+        Cannon& startingCannon = (currentPlayer == 1) ? player1 : player2;
+        TickPowerupTurnEffects(startingCannon);
+
+        turnsSincePowerupCheck++;
+        MaybeSpawnPowerup();
+    }
+
     stateTimer = 0.4f;
     state = GameState::TurnTransition;
 }
@@ -353,12 +781,14 @@ void Game::Draw() {
 
     if (state == GameState::MainMenu) {
         DrawMainMenu();
+        if (devMode) DrawDevPanel();
         EndDrawing();
         return;
     }
 
     if (state == GameState::About) {
         DrawAbout();
+        if (devMode) DrawDevPanel();
         EndDrawing();
         return;
     }
@@ -372,11 +802,27 @@ void Game::Draw() {
         DrawRectangle(0, cfg::SCREEN_HEIGHT - 460, cfg::SCREEN_WIDTH, 40, Color{225, 200, 175, 180});
     }
 
+    // Screen shake (versão Plus): tudo dentro do "mundo do jogo" (terreno,
+    // canhões, projétil, partículas, power-up, indicadores de mira) é
+    // desenhado com um leve deslocamento de câmera que decai com o tempo.
+    // O HUD e os overlays de UI ficam FORA dessa câmera, sempre estáveis.
+    Camera2D shakeCam = { 0 };
+    shakeCam.target = { 0.0f, 0.0f };
+    shakeCam.offset = ComputeShakeOffset();
+    shakeCam.rotation = 0.0f;
+    shakeCam.zoom = 1.0f;
+    BeginMode2D(shakeCam);
+
     terrain.Draw();
     player1.Draw(currentPlayer == 1 && state != GameState::RoundOver,
                  spritesReady ? &texCannonLeft : nullptr);
     player2.Draw(currentPlayer == 2 && state != GameState::RoundOver,
                  spritesReady ? &texCannonRight : nullptr);
+
+    if (version == GameVersion::Plus) {
+        DrawPowerup();
+        DrawPowerupTooltip();
+    }
 
     // Partículas (incluindo o rastro do projétil) desenhadas ANTES do
     // projétil em si — senão, como o rastro nasce exatamente na posição da
@@ -399,6 +845,26 @@ void Game::Draw() {
     if (state == GameState::Aiming && !(mode == GameMode::PvAI && currentPlayer == 2)) {
         Cannon& active = (currentPlayer == 1) ? player1 : player2;
         Vector2 base = { active.x, active.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+
+        // power-up "trajetória prevista": desenha o arco balístico estimado
+        // com o ângulo/força atuais (simulação simplificada, incluindo vento)
+        if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
+            Vector2 dir = active.AimDirection();
+            float speed = cfg::MIN_POWER + active.power01 * (cfg::MAX_POWER - cfg::MIN_POWER);
+            Vector2 simPos = active.MuzzlePosition();
+            Vector2 simVel = { dir.x * speed * cfg::PPM, dir.y * speed * cfg::PPM }; // px/s
+            float simDt = 0.05f;
+            float windPxAccel = windForce * cfg::PPM;
+            float gravPxAccel = cfg::GRAVITY_MPS2 * cfg::PPM;
+            for (int i = 0; i < 90; ++i) {
+                simVel.x += windPxAccel * simDt;
+                simVel.y += gravPxAccel * simDt;
+                simPos.x += simVel.x * simDt;
+                simPos.y += simVel.y * simDt;
+                if (simPos.y >= terrain.HeightAt(simPos.x) || simPos.x < 0 || simPos.x > cfg::SCREEN_WIDTH) break;
+                if (i % 2 == 0) DrawCircleV(simPos, 2.5f, Fade(Color{60, 130, 220, 255}, 0.7f));
+            }
+        }
 
         if (aimPhase == AimPhase::Angle) {
             Vector2 dir = active.AimDirection();
@@ -433,6 +899,12 @@ void Game::Draw() {
         }
     }
 
+    if (version == GameVersion::Plus) {
+        DrawPowerupMessage();
+    }
+
+    EndMode2D();
+
     DrawHUD();
 
     if (state == GameState::RoundOver) {
@@ -447,11 +919,56 @@ void Game::Draw() {
 
     DrawMenuButton();
 
+    if (devMode) {
+        DrawDevPanel();
+    }
+
     if (showMenuConfirm) {
         DrawMenuConfirmDialog();
     }
 
     EndDrawing();
+}
+
+void Game::UpdateVersionSwitch(Vector2 mouse) {
+    float cx = cfg::SCREEN_WIDTH / 2.0f;
+    Rectangle full = { cx - 150, 240, 300, 50 };
+    Rectangle leftHalf  = { full.x, full.y, full.width / 2, full.height };
+    Rectangle rightHalf = { full.x + full.width / 2, full.y, full.width / 2, full.height };
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(mouse, leftHalf)) version = GameVersion::Classic;
+        else if (CheckCollisionPointRec(mouse, rightHalf)) version = GameVersion::Plus;
+    }
+}
+
+void Game::DrawVersionSwitch(Vector2 mouse) {
+    float cx = cfg::SCREEN_WIDTH / 2.0f;
+    Rectangle full = { cx - 150, 240, 300, 50 };
+    Rectangle leftHalf  = { full.x, full.y, full.width / 2, full.height };
+    Rectangle rightHalf = { full.x + full.width / 2, full.y, full.width / 2, full.height };
+
+    DrawRectangleRec(full, Color{60, 45, 30, 255});
+
+    bool classicSel = (version == GameVersion::Classic);
+    DrawRectangleRec(leftHalf, classicSel ? Color{230, 180, 90, 255} : Color{90, 75, 55, 255});
+    DrawRectangleRec(rightHalf, !classicSel ? Color{230, 130, 60, 255} : Color{90, 75, 55, 255});
+    DrawRectangleLinesEx(full, 2, Color{30, 22, 12, 255});
+    DrawLineEx({cx, full.y}, {cx, full.y + full.height}, 2, Color{30, 22, 12, 255});
+
+    int fs = 20;
+    const char* lbl1 = "CLASSIC";
+    const char* lbl2 = "PLUS";
+    int w1 = MeasureText(lbl1, fs);
+    int w2 = MeasureText(lbl2, fs);
+    DrawText(lbl1, static_cast<int>(leftHalf.x + leftHalf.width / 2 - w1 / 2),
+             static_cast<int>(leftHalf.y + leftHalf.height / 2 - fs / 2), fs,
+             classicSel ? Color{40, 25, 10, 255} : Color{230, 220, 210, 255});
+    DrawText(lbl2, static_cast<int>(rightHalf.x + rightHalf.width / 2 - w2 / 2),
+             static_cast<int>(rightHalf.y + rightHalf.height / 2 - fs / 2), fs,
+             !classicSel ? Color{40, 15, 0, 255} : Color{230, 220, 210, 255});
+
+    (void)mouse;
 }
 
 void Game::DrawMainMenu() {
@@ -461,9 +978,11 @@ void Game::DrawMainMenu() {
     DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 160, fs, Color{40, 30, 20, 255});
 
     Vector2 m = GetMousePosition();
-    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 320, 280, 56 };
-    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 396, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 472, 280, 56 };
+    DrawVersionSwitch(m);
+
+    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
+    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
+    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
 
     auto drawButton = [&](Rectangle r, const char* label) {
         bool hover = CheckCollisionPointRec(m, r);
@@ -479,9 +998,11 @@ void Game::DrawMainMenu() {
     drawButton(btn2P, "2 JOGADORES");
     drawButton(btnAbout, "SOBRE");
 
-    const char* hint = "Clique para travar o angulo e a forca (botao direito volta ao angulo)";
+    const char* hint = (version == GameVersion::Plus)
+        ? "PLUS: power-ups aparecem no mapa a cada 2 rodadas!"
+        : "Clique para travar o angulo e a forca (botao direito volta ao angulo)";
     int hw = MeasureText(hint, 18);
-    DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, 556, 18, Color{70, 55, 40, 255});
+    DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, 562, 18, Color{70, 55, 40, 255});
 }
 
 void Game::DrawAbout() {

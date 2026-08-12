@@ -9,6 +9,7 @@
 #include "AI.h"
 #include "Powerup.h"
 #include "Localization.h"
+#include "Platform.h"
 
 enum class GameMode { PvP, PvAI };
 enum class GameVersion { Classic, Plus };
@@ -134,10 +135,16 @@ private:
     void DrawLanguageFlags(Vector2 mouse);
     void UpdateLanguageFlags(Vector2 mouse);
 
-    // --- painel de desenvolvedor oculto (F9) ---
-    bool devMode = false;
+    // --- painel de desenvolvedor oculto (F9) — só existe na build de PC ---
+    bool devMode = false; // mantido sempre declarado (custo zero) por simplicidade
+#if !CANNON_DUEL_ANDROID_BUILD
     bool UpdateDevPanel(); // retorna true se consumiu o clique deste frame
     void DrawDevPanel() const;
     void DevForceSpawnPowerup();
     void DevGrantPowerupToPlayer1(PowerupType type);
+#endif
+
+    // --- botão in-game "resetar linha de ângulo" (PC e Android) ---
+    void DrawResetAngleButton() const;
+    bool HandleResetAngleButtonClick();
 };

@@ -18,6 +18,7 @@ enum class TK {
     WindLabel,
 
     MenuButton,
+    ResetAngleButton,
     ConfirmTitle,
     ConfirmSub,
     ConfirmYes,
@@ -53,11 +54,11 @@ inline const char* T(TK key, Lang lang) {
         case TK::ClassicLabel: return pt ? "CLASSIC" : "CLASSIC";
         case TK::PlusLabel: return pt ? "PLUS" : "PLUS";
         case TK::HintClassic: return pt
-            ? "Clique (ou barra de espaco) trava o angulo/forca. Botao direito ou B volta ao angulo."
-            : "Click (or spacebar) locks angle/power. Right-click or B goes back to angle.";
+            ? "Clique para travar o angulo/forca. No PC: espaco atira, B reseta/volta."
+            : "Click to lock angle/power. On PC: space fires, B resets/goes back.";
         case TK::HintPlus: return pt
-            ? "PLUS: power-ups aparecem no mapa a cada 2 rodadas! Espaco atira, B reseta o angulo."
-            : "PLUS: power-ups appear on the map every 2 rounds! Space fires, B resets the angle.";
+            ? "PLUS: power-ups aparecem no mapa a cada 2 rodadas!"
+            : "PLUS: power-ups appear on the map every 2 rounds!";
 
         case TK::TurnPlayer1: return pt ? "Vez do Jogador 1" : "Player 1's turn";
         case TK::TurnPlayer2: return pt ? "Vez do Jogador 2" : "Player 2's turn";
@@ -65,6 +66,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::WindLabel: return pt ? "VENTO" : "WIND";
 
         case TK::MenuButton: return pt ? "MENU" : "MENU";
+        case TK::ResetAngleButton: return pt ? "RESETAR ANGULO" : "RESET ANGLE";
         case TK::ConfirmTitle: return pt ? "Voltar ao menu inicial?" : "Return to the main menu?";
         case TK::ConfirmSub: return pt ? "A partida atual sera perdida." : "The current match will be lost.";
         case TK::ConfirmYes: return pt ? "SIM, SAIR" : "YES, EXIT";

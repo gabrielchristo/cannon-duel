@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "Platform.h"
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -135,15 +136,17 @@ const char* Game::ResolveRoundMessage() const {
 }
 
 void Game::Update(float dt) {
-    // Painel de desenvolvedor oculto: F9 alterna a visibilidade. Não é
-    // exposto em nenhum menu/UI normal — é só um atalho de teclado para
-    // testes internos.
+#if !CANNON_DUEL_ANDROID_BUILD
+    // Painel de desenvolvedor oculto: F9 alterna a visibilidade. Só existe
+    // na build de PC — depende de teclado físico e é uma ferramenta de
+    // testes internos, sem sentido numa build mobile/touch.
     if (IsKeyPressed(KEY_F9)) {
         devMode = !devMode;
     }
     if (devMode && UpdateDevPanel()) {
         return;
     }
+#endif
 
     // Diálogo de confirmação tem prioridade máxima: enquanto aberto, nenhum
     // outro input do jogo é processado.
@@ -156,6 +159,21 @@ void Game::Update(float dt) {
     // direto — evita perder uma partida em andamento por clique acidental.
     if (state != GameState::MainMenu && state != GameState::About && HandleMenuButtonClick()) {
         showMenuConfirm = true;
+        return;
+    }
+
+    // Botão in-game "resetar linha de ângulo" — só faz sentido durante a
+    // mira de um jogador humano (não durante o turno da IA). Equivalente
+    // touch-friendly do atalho de teclado B (PC), mas disponível nas duas
+    // plataformas.
+    bool humanAimingTurn = (state == GameState::Aiming && !(mode == GameMode::PvAI && currentPlayer == 2));
+    if (humanAimingTurn && HandleResetAngleButtonClick()) {
+        if (aimPhase == AimPhase::Angle) {
+            aimOscTimer = 0.0f;
+        } else {
+            aimPhase = AimPhase::Angle;
+            aimOscTimer = 0.0f;
+        }
         return;
     }
 
@@ -439,7 +457,11 @@ Vector2 Game::ComputeShakeOffset() const {
 // Painel de desenvolvedor oculto (F9) — não é exposto em nenhum menu normal.
 // Serve pra testar rapidamente todas as funcionalidades sem depender de RNG
 // (vento, spawn de power-up) ou de sobreviver várias rodadas.
+// Compilado SOMENTE na build de PC: além de depender de teclado (F9), é uma
+// ferramenta interna de desenvolvimento que não faz sentido existir — nem
+// ocupar espaço/binário — numa build mobile.
 // ---------------------------------------------------------------------------
+#if !CANNON_DUEL_ANDROID_BUILD
 void Game::DevForceSpawnPowerup() {
     if (version != GameVersion::Plus) version = GameVersion::Plus;
     turnsSincePowerupCheck = cfg::POWERUP_SPAWN_EVERY_TURNS;
@@ -541,6 +563,7 @@ void Game::DrawDevPanel() const {
         drawRow(label, inMatch);
     }
 }
+#endif // !CANNON_DUEL_ANDROID_BUILD
 
 void Game::UpdateAiming() {
     Cannon& active = (currentPlayer == 1) ? player1 : player2;
@@ -605,6 +628,20 @@ void Game::UpdateAiming() {
     // ---- Mecanismo original: oscila e trava no clique ----
     aimOscTimer += GetFrameTime();
 
+    // Atalhos de teclado (espaço = confirmar/atirar, B = resetar/voltar ao
+    // ângulo) só existem na build de PC — foram pensados para permitir que,
+    // no modo 2 jogadores, um jogador use o mouse e o outro o teclado,
+    // compartilhando a mesma tela. Numa build mobile/touch os dois jogadores
+    // compartilham a tela de toque, então esses atalhos não fazem sentido e
+    // o botão in-game de resetar ângulo (touch-friendly) cobre essa função.
+#if CANNON_DUEL_ANDROID_BUILD
+    bool confirmPressed = false;
+    bool resetPressed = false;
+#else
+    bool confirmPressed = IsKeyPressed(KEY_SPACE);
+    bool resetPressed = IsKeyPressed(KEY_B);
+#endif
+
     if (aimPhase == AimPhase::Angle) {
         // -90° (reto pra baixo) a 90° (reto pra cima), oscilando continuamente
         // (onda triangular), na direção do oponente. Com "trajetória
@@ -618,11 +655,11 @@ void Game::UpdateAiming() {
         float angle = -90.0f + tri * 180.0f;
         active.SetAim(angle, active.power01);
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsKeyPressed(KEY_SPACE)) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || confirmPressed) {
             aimPhase = AimPhase::Power;
             aimOscTimer = 0.0f;
         }
-        if (IsKeyPressed(KEY_B)) {
+        if (resetPressed) {
             // reseta a linha de ângulo, reiniciando a oscilação do começo
             aimOscTimer = 0.0f;
         }
@@ -636,14 +673,14 @@ void Game::UpdateAiming() {
         float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
         active.SetAim(active.angleDeg, tri);
 
-        if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || IsKeyPressed(KEY_B)) {
+        if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || resetPressed) {
             // volta para a seleção de ângulo, começando a oscilação do zero
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
             return;
         }
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || IsKeyPressed(KEY_SPACE)) {
+        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || confirmPressed) {
             Vector2 muzzle = active.MuzzlePosition();
             Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
                 ? active.DirectionAtAngle(std::max(active.angleDeg, 55.0f))
@@ -861,14 +898,18 @@ void Game::Draw() {
 
     if (state == GameState::MainMenu) {
         DrawMainMenu();
+#if !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
+#endif
         EndDrawing();
         return;
     }
 
     if (state == GameState::About) {
         DrawAbout();
+#if !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
+#endif
         EndDrawing();
         return;
     }
@@ -1000,9 +1041,15 @@ void Game::Draw() {
 
     DrawMenuButton();
 
+    if (state == GameState::Aiming && !(mode == GameMode::PvAI && currentPlayer == 2)) {
+        DrawResetAngleButton();
+    }
+
+#if !CANNON_DUEL_ANDROID_BUILD
     if (devMode) {
         DrawDevPanel();
     }
+#endif
 
     if (showMenuConfirm) {
         DrawMenuConfirmDialog();
@@ -1264,6 +1311,33 @@ void Game::DrawMenuButton() const {
 
 bool Game::HandleMenuButtonClick() {
     Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 16.0f, 134.0f, 40.0f };
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetMousePosition(), r)) {
+        return true;
+    }
+    return false;
+}
+
+void Game::DrawResetAngleButton() const {
+    // Posicionado logo abaixo do botão de menu — botão in-game, disponível
+    // tanto no PC (via mouse) quanto no Android (via toque), equivalente à
+    // tecla B do atalho de teclado exclusivo de PC.
+    Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 66.0f, 134.0f, 40.0f };
+    Vector2 m = GetMousePosition();
+    bool hover = CheckCollisionPointRec(m, r);
+
+    DrawRectangleRec(r, hover ? Color{235, 235, 235, 235} : Color{20, 20, 20, 170});
+    DrawRectangleLinesEx(r, 2, hover ? Color{20, 20, 20, 255} : Color{235, 235, 235, 200});
+
+    const char* label = T(TK::ResetAngleButton, language);
+    int fs = 14;
+    int tw = MeasureText(label, fs);
+    Color textColor = hover ? Color{20, 20, 20, 255} : Color{240, 240, 240, 255};
+    DrawText(label, static_cast<int>(r.x + r.width / 2 - tw / 2),
+             static_cast<int>(r.y + r.height / 2 - fs / 2), fs, textColor);
+}
+
+bool Game::HandleResetAngleButtonClick() {
+    Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 66.0f, 134.0f, 40.0f };
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetMousePosition(), r)) {
         return true;
     }

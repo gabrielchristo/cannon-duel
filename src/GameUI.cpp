@@ -15,6 +15,21 @@
 #include <string>
 #include <vector>
 
+namespace {
+
+Rectangle MenuButtonRect() {
+    return { cfg::SCREEN_WIDTH - 150.0f, 16.0f, 134.0f, 40.0f };
+}
+
+#if CANNON_DUEL_DEBUG_MODE
+Rectangle DevPanelButtonRect() {
+    Rectangle menu = MenuButtonRect();
+    return { menu.x - menu.width - 10.0f, menu.y, menu.width, menu.height };
+}
+#endif
+
+} // namespace
+
 void Game::UpdateVersionSwitch(Vector2 mouse) {
     float cx = cfg::SCREEN_WIDTH / 2.0f;
     Rectangle full = { cx - 150, 175, 300, 50 };
@@ -289,7 +304,7 @@ void Game::DrawMenuConfirmDialog() const {
 }
 
 void Game::DrawMenuButton() const {
-    Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 16.0f, 134.0f, 40.0f };
+    Rectangle r = MenuButtonRect();
     Vector2 m = ::GetVirtualMouse();
     bool hover = CheckCollisionPointRec(m, r);
 
@@ -305,12 +320,52 @@ void Game::DrawMenuButton() const {
 }
 
 bool Game::HandleMenuButtonClick() {
-    Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 16.0f, 134.0f, 40.0f };
+    Rectangle r = MenuButtonRect();
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(::GetVirtualMouse(), r)) {
         return true;
     }
     return false;
 }
+
+#if CANNON_DUEL_DEBUG_MODE
+void Game::DrawDevPanelButton() const {
+    Rectangle r = DevPanelButtonRect();
+    Vector2 m = ::GetVirtualMouse();
+    bool hover = CheckCollisionPointRec(m, r);
+    bool active = devMode;
+
+    Color bg = active ? Color{255, 210, 60, 255}
+             : hover ? Color{235, 235, 235, 235}
+             : Color{20, 20, 20, 170};
+    Color border = active ? Color{120, 90, 20, 255}
+                 : hover ? Color{20, 20, 20, 255}
+                 : Color{255, 210, 60, 200};
+    Color textColor = active ? Color{20, 20, 20, 255}
+                      : hover ? Color{20, 20, 20, 255}
+                      : Color{255, 210, 60, 255};
+
+    DrawRectangleRec(r, bg);
+    DrawRectangleLinesEx(r, 2, border);
+
+    const char* label = "DEV";
+    int fs = 20;
+    int tw = MeasureText(label, fs);
+    DrawText(label, static_cast<int>(r.x + r.width / 2 - tw / 2),
+             static_cast<int>(r.y + r.height / 2 - fs / 2), fs, textColor);
+}
+
+bool Game::HandleDevPanelButtonClick() {
+    Rectangle r = DevPanelButtonRect();
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(::GetVirtualMouse(), r)) {
+        devMode = !devMode;
+        if (!devMode) {
+            devPanelScrollDragging = false;
+        }
+        return true;
+    }
+    return false;
+}
+#endif
 
 void Game::DrawResetAngleButton() const {
     // Posicionado logo abaixo do botão de menu — botão in-game, disponível
@@ -379,7 +434,7 @@ void Game::DrawOnlineCannonLabels() const {
         int tx = static_cast<int>(cannon.x - tw / 2);
         int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 50);
         DrawRectangle(tx - 4, ty - 2, tw + 8, fs + 4, Fade(BLACK, 0.45f));
-        DrawText(name.c_str(), tx, ty, fs, HudTextColor());
+        DrawText(name.c_str(), tx, ty, fs, WHITE);
     };
 
     drawLabel(player1, onlineP1Name);

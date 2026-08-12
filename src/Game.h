@@ -53,7 +53,7 @@ private:
     void BeginRemoteProjectileLive(const LiveShotStart& shot);
     void UpdateRemoteProjectileLive(float dt);
     void FinishRemoteTurn(const RemoteTurnResult& remote);
-    void OnOnlineTurnCompleted();
+    void OnOnlineTurnCompleted(int startingTurnPlayer);
     void DrawOpponentAim(int shooterPlayer, float angleDeg, float power01) const;
     void ResetOpponentAimSim(int shooterPlayer);
     void UpdateOpponentAimSim(float dt);
@@ -77,6 +77,10 @@ private:
     void DrawWindIndicator() const;
     void DrawMenuButton() const;
     bool HandleMenuButtonClick();
+#if CANNON_DUEL_DEBUG_MODE
+    void DrawDevPanelButton() const;
+    bool HandleDevPanelButtonClick();
+#endif
     void DrawMenuConfirmDialog() const;
     void UpdateMenuConfirmDialog();
     void DrawResetAngleButton() const;
@@ -103,12 +107,22 @@ private:
     int debugLogDragStartScroll = 0;
 #endif
 
-#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE
     bool devMode = false;
+    float devPanelScrollY = 0.0f;
+    bool devPanelScrollDragging = false;
+    float devPanelScrollDragStartY = 0.0f;
+    float devPanelScrollDragStart = 0.0f;
     bool UpdateDevPanel();
     void DrawDevPanel() const;
     void DevForceSpawnPowerup();
-    void DevGrantPowerupToPlayer1(PowerupType type);
+    void DevGrantPowerup(int playerNumber, PowerupType type);
+    void DevHealAll();
+    void DevSetWindZero();
+    void DevSkipTurn();
+    void ApplyDevCommand(const DevCommand& cmd);
+    void DevBroadcastCommand(const std::string& action, int player = 0, int type = -1,
+                             float x = 0.0f, float value = 0.0f);
 #endif
 
     // --- estado geral ---

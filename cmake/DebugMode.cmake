@@ -1,4 +1,4 @@
-# CANNON_DUEL_DEBUG_MODE — dev panel (desktop) + log overlay (todas as plataformas).
+# CANNON_DUEL_DEBUG_MODE — dev panel + log overlay (todas as plataformas).
 # Usado por CMakeLists.txt (desktop) e android/CMakeLists.txt (Android).
 option(CANNON_DUEL_DEBUG_MODE "Compile dev panel and on-screen log overlay" ON)
 

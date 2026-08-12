@@ -223,6 +223,22 @@ void NetMatch::ApplyBroadcast(const json& envelope) {
         hasPendingPowerupPickup_ = true;
         return;
     }
+
+    if (event == "dev_cmd") {
+        DevCommand cmd;
+        cmd.action = p.value("action", "");
+        cmd.player = JsonInt(p, "player", 0);
+        cmd.type = JsonInt(p, "type", -1);
+        cmd.x = JsonFloat(p, "x", 0.0f);
+        cmd.value = JsonFloat(p, "value", 0.0f);
+        cmd.valid = !cmd.action.empty();
+        if (!cmd.valid) return;
+        std::lock_guard lock(mu_);
+        pendingDevCommand_ = cmd;
+        hasPendingDevCommand_ = true;
+        DebugLogf(LOG_INFO, "NET: dev_cmd remoto action=%s", cmd.action.c_str());
+        return;
+    }
 }
 
 void NetMatch::PublishShotFired(float angleDeg, float power01, float wind,
@@ -478,6 +494,48 @@ bool NetMatch::PollRemotePowerupPickup(LivePowerupPickup& out) {
     hasPendingPowerupPickup_ = false;
     pendingPowerupPickup_ = {};
     return out.valid;
+}
+
+void NetMatch::PublishDevCommand(const std::string& action, int player, int type,
+                                 float x, float value) {
+    if (!active_.load() || !realtime_.IsConnected()) return;
+    if (action.empty()) return;
+    realtime_.SendBroadcast("dev_cmd", {
+        { "action", action },
+        { "player", player },
+        { "type", type },
+        { "x", x },
+        { "value", value }
+    });
+    DebugLogf(LOG_INFO, "NET: dev_cmd enviado action=%s", action.c_str());
+}
+
+bool NetMatch::PollDevCommand(DevCommand& out) {
+    std::lock_guard lock(mu_);
+    if (!hasPendingDevCommand_) return false;
+    out = pendingDevCommand_;
+    hasPendingDevCommand_ = false;
+    pendingDevCommand_ = {};
+    return out.valid;
+}
+
+void NetMatch::DevSyncTurnTo(int nextPlayer) {
+    if (!active_.load() || matchId.empty()) return;
+    if (nextPlayer != 1 && nextPlayer != 2) return;
+
+    syncedCurrentTurnPlayer = nextPlayer;
+    awaitingOpponentTurn_.store(false);
+    {
+        std::lock_guard lock(mu_);
+        cachedCurrentTurnPlayer_ = nextPlayer;
+        opponentAim_ = {};
+    }
+
+    const std::string matchIdCopy = matchId;
+    GlobalNetWorker().Post([matchIdCopy, nextPlayer](SupabaseClient& client) {
+        json body = { { "current_turn_player", nextPlayer } };
+        client.Update("matches", "id=eq." + matchIdCopy, body);
+    });
 }
 
 void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot,

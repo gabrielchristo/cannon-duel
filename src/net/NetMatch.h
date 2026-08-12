@@ -57,6 +57,16 @@ struct LivePowerupPickup {
     bool valid = false;
 };
 
+// Comando de debug repassado via Realtime (dev panel online).
+struct DevCommand {
+    std::string action;
+    int player = 0;
+    int type = -1;
+    float x = 0.0f;
+    float value = 0.0f;
+    bool valid = false;
+};
+
 enum class DisconnectResult {
     None,
     OpponentLeft,
@@ -111,6 +121,11 @@ public:
     void AbandonMatch();
     void LeaveMatch();
 
+    void PublishDevCommand(const std::string& action, int player = 0, int type = -1,
+                           float x = 0.0f, float value = 0.0f);
+    bool PollDevCommand(DevCommand& out);
+    void DevSyncTurnTo(int nextPlayer);
+
 private:
     void SchedulePoll();
     float PollIntervalSec() const;
@@ -143,6 +158,9 @@ private:
     LiveAimState opponentAim_{};
     bool hasPendingPowerupPickup_ = false;
     LivePowerupPickup pendingPowerupPickup_{};
+
+    bool hasPendingDevCommand_ = false;
+    DevCommand pendingDevCommand_{};
 
     bool pendingLiveShotStart_ = false;
     LiveShotStart pendingLiveShot_{};

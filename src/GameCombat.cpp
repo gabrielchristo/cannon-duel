@@ -86,7 +86,7 @@ void Game::UpdateAiming() {
         // comece subindo (arco por cima) em vez de eventualmente sair quase
         // reto e bater no terreno próximo antes da correção de rota conseguir agir.
         Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
-            ? active.DirectionAtAngle(std::max(active.angleDeg, 55.0f))
+            ? active.DirectionAtAngle(std::max(active.angleDeg, cfg::POWERUP_GUIDED_MIN_ANGLE_DEG))
             : active.AimDirection();
         projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
         prevProjectilePos = muzzle;
@@ -94,7 +94,7 @@ void Game::UpdateAiming() {
         // Trajetória prevista é consumida no exato momento do disparo — é
         // aqui que o jogador de fato "usou" a rodada com o preview visível.
         if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
-            active.trajectoryPreviewTurnsLeft--;
+            active.OnShotFired();
         }
         if (audioReady) PlaySound(sndFire);
         aimPhase = AimPhase::Angle;
@@ -126,7 +126,7 @@ void Game::UpdateAiming() {
         // ajuda muito, já que o timing fica apertado demais em ambas as fases.
         float period = cfg::ANGLE_OSC_PERIOD_SEC *
             ((version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0)
-                ? cfg::POWERUP_TRAJECTORY_POWER_SLOWDOWN : 1.0f);
+                ? cfg::POWERUP_TRAJECTORY_AIM_SLOWDOWN : 1.0f);
         float t = fmodf(aimOscTimer, period) / period; // 0..1
         float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
         float angle = -90.0f + tri * 180.0f;
@@ -145,7 +145,7 @@ void Game::UpdateAiming() {
         // senão o preview não ajuda muito, já que o timing fica apertado demais.
         float period = cfg::POWER_OSC_PERIOD_SEC *
             ((version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0)
-                ? cfg::POWERUP_TRAJECTORY_POWER_SLOWDOWN : 1.0f);
+                ? cfg::POWERUP_TRAJECTORY_AIM_SLOWDOWN : 1.0f);
         float t = fmodf(aimOscTimer, period) / period; // 0..1
         float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
         active.SetAim(active.angleDeg, tri);
@@ -160,7 +160,7 @@ void Game::UpdateAiming() {
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || confirmPressed) {
             Vector2 muzzle = active.MuzzlePosition();
             Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
-                ? active.DirectionAtAngle(std::max(active.angleDeg, 55.0f))
+                ? active.DirectionAtAngle(std::max(active.angleDeg, cfg::POWERUP_GUIDED_MIN_ANGLE_DEG))
                 : active.AimDirection();
             projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
             prevProjectilePos = muzzle;
@@ -191,39 +191,39 @@ void Game::UpdateProjectileFlight(float dt) {
     Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
     Cannon& opponent = (currentPlayer == 1) ? player2 : player1;
 
-    projectile.ApplyWind(windForce);
-
-    if (version == GameVersion::Plus && shooter.pendingGuided) {
-        // Enquanto o projétil ainda está horizontalmente longe do alvo, mira
-        // num ponto alto no céu (força a subir e fazer um arco por cima).
-        // Só passa a mirar diretamente no canhão adversário quando já está
-        // perto o suficiente para "mergulhar" sobre ele — assim o tiro nunca
-        // vai em linha reta baixa e explode sem causar dano no terreno mais
-        // próximo antes de chegar perto do alvo.
-        //
-        // IMPORTANTE: uma vez que entra em modo "mergulho", NUNCA mais volta
-        // pro modo "subir" — sem essa trava (guidedDiving), se a distância
-        // horizontal oscilasse pra frente e pra trás bem em cima do limiar
-        // (por causa do vento, por exemplo), o alvo da mira alternava entre
-        // "céu" e "canhão" a cada frame, fazendo o projétil guinar
-        // erraticamente pra cima e pra baixo sem parar — exatamente o
-        // comportamento instável relatado.
-        Vector2 projPos = projectile.PositionPx();
-        if (!guidedDiving) {
-            float horizDist = std::fabs(projPos.x - opponent.x);
-            if (horizDist <= cfg::POWERUP_GUIDED_DIVE_DIST_PX) {
-                guidedDiving = true;
-            }
-        }
-        Vector2 targetPos = guidedDiving
-            ? Vector2{ opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f }
-            : Vector2{ opponent.x, cfg::POWERUP_GUIDED_APEX_Y_PX };
-        projectile.ApplyGuidance(targetPos, cfg::POWERUP_GUIDED_TURN_RATE_DEG, dt);
+    const bool guidedActive = (version == GameVersion::Plus && shooter.pendingGuided);
+    if (!guidedActive) {
+        projectile.ApplyWind(windForce);
     }
 
     physics.Step(dt);
 
     if (!projectile.IsActive()) return;
+
+    // Teleguiado: corrige velocidade DEPOIS da física para anular queda lenta
+    // causada por força baixa + gravidade, garantindo subida até o ápice.
+    if (guidedActive) {
+        Vector2 targetBase = { opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+        const float groundAtOpp = terrain.HeightAt(opponent.x);
+        float apexY = std::min(cfg::POWERUP_GUIDED_APEX_Y_PX,
+                               groundAtOpp - cfg::POWERUP_GUIDED_APEX_CLEARANCE_PX);
+        apexY = std::max(24.0f, apexY);
+        const Vector2 apex = { opponent.x, apexY };
+
+        Vector2 projPos = projectile.PositionPx();
+        if (!guidedDiving) {
+            const float horizDist = std::fabs(projPos.x - opponent.x);
+            const bool atApex = horizDist <= cfg::POWERUP_GUIDED_DIVE_ENTRY_HORIZ_PX &&
+                                projPos.y <= apexY + 18.0f;
+            if (atApex) guidedDiving = true;
+            else {
+                projectile.ApplyGuidance(apex, cfg::POWERUP_GUIDED_TURN_RATE_DEG,
+                                         cfg::POWERUP_GUIDED_MIN_SPEED_PX, dt);
+            }
+        } else {
+            projectile.ApplyGuidedDive(targetBase, cfg::POWERUP_GUIDED_DIVE_SPEED_PX, dt);
+        }
+    }
 
     Vector2 pos = projectile.PositionPx();
 
@@ -264,15 +264,15 @@ void Game::UpdateProjectileFlight(float dt) {
     Vector2 targetBase = { target.x, target.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
     float distToTarget = std::sqrt(std::pow(pos.x - targetBase.x, 2) + std::pow(pos.y - targetBase.y, 2));
 
-    // Teleguiado: raio de acerto um pouco mais generoso e, se o projétil já
-    // está bem próximo do adversário (mesmo que ele esteja afundado no
-    // terreno e o ponto tecnicamente "bata" no terreno primeiro), garante
-    // que o resultado seja sempre um acerto direto no canhão — é o próprio
-    // propósito do power-up ("sempre acerta").
     bool guidedForcedHit = false;
-    if (version == GameVersion::Plus && shooter.pendingGuided) {
-        float guidedHitRadius = cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + 10.0f;
+    if (guidedActive) {
+        float guidedHitRadius = cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + 24.0f;
         guidedForcedHit = (distToTarget <= guidedHitRadius);
+        if (!guidedForcedHit) {
+            float horizDist = std::fabs(pos.x - opponent.x);
+            guidedForcedHit = (horizDist <= cfg::POWERUP_GUIDED_SNAP_HORIZ_PX &&
+                               pos.y >= targetBase.y - cfg::CANNON_BODY_RADIUS_PX * 2.0f);
+        }
     }
 
     if (guidedForcedHit) {
@@ -286,6 +286,10 @@ void Game::UpdateProjectileFlight(float dt) {
 
     // colisão com terreno (heightmap)
     if (terrain.IsPointInside(pos.x, pos.y)) {
+        if (guidedActive && std::fabs(pos.x - opponent.x) <= cfg::POWERUP_GUIDED_SNAP_HORIZ_PX) {
+            ResolveImpact(targetBase, true, &target);
+            return;
+        }
         ResolveImpact(pos, false, nullptr);
         return;
     }
@@ -305,24 +309,7 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         if (shooter.pendingDoubleDamage) { damageMult *= cfg::POWERUP_DOUBLE_DAMAGE_MULT; }
         if (shooter.pendingGuided) { damageMult *= cfg::POWERUP_GUIDED_DAMAGE_MULT; wasGuided = true; }
 
-        // efeitos de um único tiro são consumidos agora, tenha acertado ou não
-        shooter.pendingDoubleDamage = false;
-        shooter.pendingGuided = false;
-
-        // Se o dano em dobro foi coletado durante ESTE tiro (queuedDoubleDamage),
-        // ele só vira ativo a partir do PRÓXIMO tiro — nunca no que acabou de
-        // resolver, mesmo que tenha sido esse mesmo projétil a pegar o item.
-        if (shooter.queuedDoubleDamage) {
-            shooter.pendingDoubleDamage = true;
-            shooter.queuedDoubleDamage = false;
-        }
-
-        // Mesma promoção "atrasada" pra trajetória prevista — só começa a
-        // contar a partir da próxima rodada do jogador.
-        if (shooter.queuedTrajectoryPreviewTurns > 0) {
-            shooter.trajectoryPreviewTurnsLeft = shooter.queuedTrajectoryPreviewTurns;
-            shooter.queuedTrajectoryPreviewTurns = 0;
-        }
+        shooter.OnShotResolved();
     }
 
     float craterRadius = cfg::CRATER_RADIUS_PX * radiusMult;
@@ -437,7 +424,7 @@ void Game::EndTurn() {
 
     if (mode == GameMode::Online) {
         if (version == GameVersion::Plus) {
-            OnOnlineTurnCompleted();
+            OnOnlineTurnCompleted(currentPlayer == 1 ? 2 : 1);
         } else {
             onlineCompletedTurns++;
         }
@@ -447,7 +434,7 @@ void Game::EndTurn() {
 
         if (version == GameVersion::Plus) {
             Cannon& startingCannon = (currentPlayer == 1) ? player1 : player2;
-            powerups.TickTurnEffects(startingCannon);
+            startingCannon.OnTurnStarted();
 
             powerups.TickSpawnCounter();
             powerups.MaybeSpawnRandom();

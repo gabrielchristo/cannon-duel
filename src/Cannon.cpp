@@ -131,3 +131,25 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* sprite) const {
         if (shieldTurnsLeft > 0) badge(Color{60, 200, 210, 255});
     }
 }
+
+void Cannon::OnShotFired() {
+    if (trajectoryPreviewTurnsLeft > 0) trajectoryPreviewTurnsLeft--;
+}
+
+void Cannon::OnShotResolved() {
+    pendingDoubleDamage = false;
+    pendingGuided = false;
+
+    if (queuedDoubleDamage) {
+        pendingDoubleDamage = true;
+        queuedDoubleDamage = false;
+    }
+    if (queuedTrajectoryPreviewTurns > 0) {
+        trajectoryPreviewTurnsLeft = queuedTrajectoryPreviewTurns;
+        queuedTrajectoryPreviewTurns = 0;
+    }
+}
+
+void Cannon::OnTurnStarted() {
+    if (shieldTurnsLeft > 0) shieldTurnsLeft--;
+}

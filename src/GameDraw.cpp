@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "AssetPath.h"
+#include "CannonUILayout.h"
 #include "Config.h"
 #include "DebugLog.h"
 #include "GameRand.h"
@@ -36,7 +37,8 @@ void Game::Draw() {
 
     if (state == GameState::MainMenu) {
         DrawMainMenu();
-#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
         if (devMode) DrawDevPanel();
 #endif
         PresentScreenWithDebug();
@@ -45,7 +47,8 @@ void Game::Draw() {
 
     if (state == GameState::About) {
         DrawAbout();
-#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
         if (devMode) DrawDevPanel();
 #endif
         PresentScreenWithDebug();
@@ -54,7 +57,8 @@ void Game::Draw() {
 
     if (state == GameState::Instructions) {
         DrawInstructions();
-#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
         if (devMode) DrawDevPanel();
 #endif
         PresentScreenWithDebug();
@@ -63,7 +67,8 @@ void Game::Draw() {
 
     if (state == GameState::OnlineLobby) {
         DrawOnlineLobby();
-#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
         if (devMode) DrawDevPanel();
 #endif
         PresentScreenWithDebug();
@@ -166,18 +171,26 @@ void Game::Draw() {
             Vector2 dir = active.AimDirection();
             float speed = cfg::MIN_POWER + active.power01 * (cfg::MAX_POWER - cfg::MIN_POWER);
             Vector2 simPos = active.MuzzlePosition();
-            Vector2 simVel = { dir.x * speed * cfg::PPM, dir.y * speed * cfg::PPM }; // px/s
+            Vector2 simVel = { dir.x * speed * cfg::PPM, dir.y * speed * cfg::PPM };
             float simDt = 0.05f;
             float windPxAccel = windForce * cfg::PPM;
             float gravPxAccel = cfg::GRAVITY_MPS2 * cfg::PPM;
-            for (int i = 0; i < 90; ++i) {
+            Vector2 landingPos = simPos;
+            for (int i = 0; i < 120; ++i) {
                 simVel.x += windPxAccel * simDt;
                 simVel.y += gravPxAccel * simDt;
                 simPos.x += simVel.x * simDt;
                 simPos.y += simVel.y * simDt;
-                if (simPos.y >= terrain.HeightAt(simPos.x) || simPos.x < 0 || simPos.x > cfg::SCREEN_WIDTH) break;
+                float groundY = terrain.HeightAt(simPos.x);
+                if (simPos.y >= groundY || simPos.x < 0 || simPos.x > cfg::SCREEN_WIDTH) {
+                    landingPos = { simPos.x, groundY };
+                    break;
+                }
+                landingPos = simPos;
                 if (i % 2 == 0) DrawCircleV(simPos, 2.5f, Fade(Color{60, 130, 220, 255}, 0.7f));
             }
+            DrawCircleV(landingPos, 9.0f, Fade(Color{255, 220, 60, 255}, 0.92f));
+            DrawCircleLines(static_cast<int>(landingPos.x), static_cast<int>(landingPos.y), 9, Color{40, 30, 10, 255});
         }
 
         if (aimPhase == AimPhase::Angle) {
@@ -188,7 +201,7 @@ void Game::Draw() {
         } else {
             // barra de força acima do canhão: verde (fraco) -> vermelho (forte)
             float barW = 120.0f, barH = 16.0f;
-            Vector2 barPos = { active.x - barW / 2, active.groundY - cfg::CANNON_BODY_RADIUS_PX - 60 };
+            Vector2 barPos = { active.x - barW / 2, cannon_ui::PowerBarY(active, barH) };
             DrawRectangle(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
                           static_cast<int>(barW), static_cast<int>(barH), Color{30, 30, 30, 220});
 
@@ -242,12 +255,15 @@ void Game::Draw() {
     }
 
     DrawMenuButton();
+#if CANNON_DUEL_DEBUG_MODE
+    DrawDevPanelButton();
+#endif
 
     if (IsLocalHumanTurn()) {
         DrawResetAngleButton();
     }
 
-#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE
     if (devMode) {
         DrawDevPanel();
     }

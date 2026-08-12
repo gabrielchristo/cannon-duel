@@ -49,6 +49,7 @@ public:
 
     int TurnsSinceSpawnCheck() const { return turnsSinceSpawnCheck_; }
     void ForceSpawnReady() { turnsSinceSpawnCheck_ = cfg::POWERUP_SPAWN_EVERY_TURNS; }
+    void SpawnAt(float x, PowerupType type);
 
 private:
     std::vector<Powerup> active_;

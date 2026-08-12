@@ -217,6 +217,13 @@ void Game::Update(float dt) {
             return;
         }
 
+#if CANNON_DUEL_DEBUG_MODE
+        DevCommand devCmd;
+        while (netMatch.PollDevCommand(devCmd)) {
+            ApplyDevCommand(devCmd);
+        }
+#endif
+
         // Stream em tempo real tem prioridade sobre o replay fake.
         if (state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
             LiveShotStart liveShot;
@@ -279,9 +286,14 @@ void Game::Update(float dt) {
         }
     }
 
-#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE
+#if !CANNON_DUEL_ANDROID_BUILD
     if (IsKeyPressed(KEY_F9)) {
         devMode = !devMode;
+    }
+#endif
+    if (HandleDevPanelButtonClick()) {
+        return;
     }
     if (devMode && UpdateDevPanel()) {
         return;

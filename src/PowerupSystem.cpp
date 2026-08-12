@@ -62,6 +62,11 @@ void PowerupSystem::MaybeSpawnRandom() {
     PushSpawn(x, RollWeightedType(RandF(0.0f, 1.0f)));
 }
 
+void PowerupSystem::SpawnAt(float x, PowerupType type) {
+    if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
+    PushSpawn(x, type);
+}
+
 void PowerupSystem::MaybeSpawnSeeded(unsigned seed, int completedTurns) {
     if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
 
@@ -185,7 +190,7 @@ void PowerupSystem::ApplyEffect(Cannon& picker, PowerupType type, Lang lang) {
 }
 
 void PowerupSystem::TickTurnEffects(Cannon& startingTurnCannon) {
-    if (startingTurnCannon.shieldTurnsLeft > 0) startingTurnCannon.shieldTurnsLeft--;
+    startingTurnCannon.OnTurnStarted();
 }
 
 bool PowerupSystem::CheckProjectileCollision(Vector2 projFrom, Vector2 projTo, int currentPlayer,

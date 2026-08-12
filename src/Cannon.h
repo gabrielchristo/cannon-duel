@@ -38,4 +38,11 @@ public:
         return pendingDoubleDamage || queuedDoubleDamage || pendingGuided ||
                trajectoryPreviewTurnsLeft > 0 || queuedTrajectoryPreviewTurns > 0 || shieldTurnsLeft > 0;
     }
+
+    // Consumido ao disparar (local ou espelhado no tiro remoto).
+    void OnShotFired();
+    // Consumido ao resolver impacto (local ou FinishRemoteTurn).
+    void OnShotResolved();
+    // Decrementa escudo no início do turno do dono.
+    void OnTurnStarted();
 };

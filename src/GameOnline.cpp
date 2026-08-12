@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "AssetPath.h"
+#include "CannonUILayout.h"
 #include "Config.h"
 #include "DebugLog.h"
 #include "GameRand.h"
@@ -91,7 +92,7 @@ void Game::DrawOpponentAim(int shooterPlayer, float angleDeg, float power01) con
     DrawCircleV(tip, 4.0f, SKYBLUE);
 
     float barW = 100.0f, barH = 12.0f;
-    Vector2 barPos = { active.x - barW / 2, active.groundY - cfg::CANNON_BODY_RADIUS_PX - 52 };
+    Vector2 barPos = { active.x - barW / 2, cannon_ui::PowerBarY(active, barH) };
     DrawRectangle(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
                   static_cast<int>(barW), static_cast<int>(barH), Color{30, 30, 30, 200});
     float fill = std::clamp(power01, 0.0f, 1.0f) * barW;
@@ -121,6 +122,7 @@ void Game::BeginRemoteShotReplay(const RemoteTurnResult& remote) {
     guidedDiving = false;
 
     if (audioReady) PlaySound(sndFire);
+    if (version == GameVersion::Plus) shooter.OnShotFired();
     state = GameState::RemoteShotReplay;
 }
 
@@ -146,6 +148,7 @@ void Game::BeginRemoteProjectileLive(const LiveShotStart& shot) {
     opponentAimHasLiveTarget = false;
 
     if (audioReady) PlaySound(sndFire);
+    if (version == GameVersion::Plus) shooter.OnShotFired();
     state = GameState::RemoteProjectileLive;
     powerups.RemoteEffectApplied() = false;
     DebugLogf(LOG_INFO, "GAME: stream projétil ao vivo P%d", shot.shooterPlayer);
@@ -306,6 +309,11 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     }
     powerups.RemoteEffectApplied() = false;
 
+    Cannon& shooter = (remote.shooterPlayer == 1) ? player1 : player2;
+    if (version == GameVersion::Plus) {
+        shooter.OnShotResolved();
+    }
+
     if (audioReady) PlaySound(sndExplosion);
     particles.EmitExplosion(impactPos, 50);
     terrain.Explode(impactPos.x, impactPos.y, remote.craterRadius);
@@ -344,17 +352,17 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
         state = GameState::RoundOver;
         stateTimer = 1.0f;
     } else {
-        OnOnlineTurnCompleted();
+        OnOnlineTurnCompleted(currentPlayer);
         state = GameState::TurnTransition;
         stateTimer = 0.35f;
     }
 }
 
-void Game::OnOnlineTurnCompleted() {
+void Game::OnOnlineTurnCompleted(int startingTurnPlayer) {
     onlineCompletedTurns++;
     if (version == GameVersion::Plus) {
-        Cannon& startingCannon = (currentPlayer == 1) ? player1 : player2;
-        powerups.TickTurnEffects(startingCannon);
+        Cannon& startingCannon = (startingTurnPlayer == 1) ? player1 : player2;
+        startingCannon.OnTurnStarted();
         if (onlineCompletedTurns % cfg::POWERUP_SPAWN_EVERY_TURNS == 0) {
             powerups.MaybeSpawnSeeded(onlineSeed, onlineCompletedTurns);
         }

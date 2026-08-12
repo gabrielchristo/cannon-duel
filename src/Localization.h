@@ -30,6 +30,8 @@ enum class TK {
     RoundP1WinsBuried,
     RoundP2WinsBuried,
 
+    RoundOpponentDisconnected,
+
     AboutTitle,
     AboutBody,
     AboutCredit,
@@ -89,6 +91,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::RoundP2Wins: return pt ? "JOGADOR 2 VENCEU!" : "PLAYER 2 WINS!";
         case TK::RoundP1WinsBuried: return pt ? "JOGADOR 1 VENCEU! (canhao 2 soterrado)" : "PLAYER 1 WINS! (cannon 2 buried)";
         case TK::RoundP2WinsBuried: return pt ? "JOGADOR 2 VENCEU! (canhao 1 soterrado)" : "PLAYER 2 WINS! (cannon 1 buried)";
+        case TK::RoundOpponentDisconnected: return pt ? "VITORIA! Adversario desconectou." : "YOU WIN! Opponent disconnected.";
 
         case TK::AboutTitle: return pt ? "SOBRE O JOGO" : "ABOUT THE GAME";
         case TK::AboutBody: return pt

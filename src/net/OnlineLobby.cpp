@@ -1,8 +1,27 @@
 #include "OnlineLobby.h"
 #include "../DebugLog.h"
 #include <raylib.h>
+#include <ctime>
+#include <cstdio>
+#include <iomanip>
+#include <sstream>
 
 using json = nlohmann::json;
+
+namespace {
+std::string UtcNowIso8601() {
+    std::time_t now = std::time(nullptr);
+    std::tm t {};
+#if defined(_WIN32)
+    gmtime_s(&t, &now);
+#else
+    gmtime_r(&now, &t);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&t, "%Y-%m-%dT%H:%M:%SZ");
+    return oss.str();
+}
+} // namespace
 
 void OnlineLobby::Init(PlayerIdentity* id) {
     identity = id;
@@ -40,12 +59,9 @@ void OnlineLobby::EnsurePlayerRegistered() {
     }
 }
 
-void OnlineLobby::UpsertPresence() {
+void OnlineLobby::UpsertPresenceWithStatus(const char* status) {
     if (!identity) return;
 
-    // Busca meu próprio placar atual (wins/losses) pra incluir na presença
-    // — assim os outros jogadores veem meu histórico sem uma segunda
-    // consulta separada por card.
     json me = client.Select("players", "select=wins,losses&id=eq." + identity->Id());
     int myWins = 0, myLosses = 0;
     if (me.is_array() && !me.empty()) {
@@ -53,29 +69,128 @@ void OnlineLobby::UpsertPresence() {
         myLosses = me[0].value("losses", 0);
     }
 
-    // "last_seen" não é enviado explicitamente — o valor padrão da coluna
-    // (default now()) cuida disso a cada upsert, já que o PostgREST não
-    // avalia "now()" como SQL quando mandado como valor de campo comum.
     json body = {
         { "player_id", identity->Id() },
         { "display_name", identity->DisplayName() },
         { "wins", myWins },
         { "losses", myLosses },
-        { "status", "idle" }
+        { "status", status },
+        { "last_seen", UtcNowIso8601() }
     };
     client.Upsert("lobby_presence", body, "player_id");
     DebugLogf(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
-             "LOBBY: upsert de presença %s", client.LastRequestOk() ? "OK" : "FALHOU");
+             "LOBBY: upsert de presença (%s) %s", status,
+             client.LastRequestOk() ? "OK" : "FALHOU");
+}
+
+void OnlineLobby::UpsertPresence() {
+    UpsertPresenceWithStatus("idle");
+}
+
+void OnlineLobby::HeartbeatInMatch(float dt) {
+    matchHeartbeatTimer += dt;
+    if (matchHeartbeatTimer < MATCH_HEARTBEAT_SEC) return;
+    matchHeartbeatTimer = 0.0f;
+    UpsertPresenceWithStatus("in_match");
+}
+
+void OnlineLobby::LeaveLobby() {
+    if (!identity) return;
+    realtime_.Stop();
+    realtimeStarted_ = false;
+    client.Delete("lobby_presence", "player_id=eq." + identity->Id());
+    client.Close();
+    registeredPlayer = false;
+    matchHeartbeatTimer = 0.0f;
+}
+
+void OnlineLobby::PauseRealtime() {
+    realtime_.Stop();
+    realtimeStarted_ = false;
+}
+
+float OnlineLobby::PollIntervalSec() const {
+    if (realtime_.IsConnected()) return POLL_INTERVAL_REALTIME_SEC;
+    return POLL_INTERVAL_FALLBACK_SEC;
+}
+
+void OnlineLobby::EnsureRealtime() {
+    if (!identity || realtimeStarted_ || !registeredPlayer) return;
+    realtimeStarted_ = true;
+
+    realtime_.SetOnPostgres("lobby_presence", [this](const json&) {
+        dirtyPresence_.store(true);
+    });
+    realtime_.SetOnPostgres("challenges", [this](const json&) {
+        dirtyChallenges_.store(true);
+    });
+
+    std::vector<RealtimeClient::PostgresSub> subs = {
+        { "*", "public", "lobby_presence", "" },
+        { "*", "public", "challenges", "to_player_id=eq." + identity->Id() },
+        { "*", "public", "challenges", "from_player_id=eq." + identity->Id() },
+    };
+    realtime_.Start("lobby:" + identity->Id(), subs);
+    DebugLogf(LOG_INFO, "LOBBY: Realtime iniciado");
+}
+
+void OnlineLobby::TryResolveAcceptedChallenge() {
+    if (!identity || pendingChallengeId.empty() || hasReadyMatch) return;
+
+    json mine = client.Select("challenges", "select=status,match_id&id=eq." + pendingChallengeId);
+    if (!mine.is_array() || mine.empty()) return;
+
+    std::string status = mine[0].value("status", "pending");
+    if (status == "accepted") {
+        std::string matchId = mine[0].value("match_id", "");
+        if (!matchId.empty()) {
+            json matchRows = client.Select("matches",
+                "select=terrain_seed,version,player1_id,player2_id&id=eq." + matchId);
+            if (matchRows.is_array() && !matchRows.empty()) {
+                readyMatch.matchId = matchId;
+                const std::string p1 = matchRows[0].value("player1_id", "");
+                const std::string p2 = matchRows[0].value("player2_id", "");
+                if (identity->Id() == p1) {
+                    readyMatch.myPlayerNumber = 1;
+                    readyMatch.opponentId = p2.empty() ? pendingChallengeOpponentId : p2;
+                } else if (identity->Id() == p2) {
+                    readyMatch.myPlayerNumber = 2;
+                    readyMatch.opponentId = p1.empty() ? pendingChallengeOpponentId : p1;
+                } else {
+                    readyMatch.myPlayerNumber = 1;
+                    readyMatch.opponentId = pendingChallengeOpponentId;
+                }
+                readyMatch.opponentName = pendingChallengeOpponentName;
+                long long seed = matchRows[0].value("terrain_seed", 0LL);
+                readyMatch.terrainSeed = static_cast<unsigned int>(seed);
+                readyMatch.isPlus = (matchRows[0].value("version", "classic") == "plus");
+                hasReadyMatch = true;
+                DebugLogf(LOG_INFO, "LOBBY: partida aceita match=%s eu=P%d",
+                          matchId.c_str(), readyMatch.myPlayerNumber);
+            }
+        }
+        pendingChallengeId.clear();
+    } else if (status != "pending") {
+        pendingChallengeId.clear();
+    }
 }
 
 void OnlineLobby::RefreshPlayerList() {
     if (!identity) return;
 
-    // PostgREST não avalia funções como now() dentro de um filtro de query
-    // string (isso exigiria uma view ou função RPC no banco). Pra manter
-    // esta primeira etapa simples, sem SQL customizado além do schema
-    // básico, buscamos os registros mais recentes e não filtramos por
-    // "online há quanto tempo" no banco — só ordenamos por last_seen.
+    // Limpa fantasmas de installs antigas / apps mortos (last_seen velho).
+    const std::time_t cutoff = std::time(nullptr) - 25; // 25s
+    std::tm t {};
+#if defined(_WIN32)
+    gmtime_s(&t, &cutoff);
+#else
+    gmtime_r(&cutoff, &t);
+#endif
+    std::ostringstream cutoffOss;
+    cutoffOss << std::put_time(&t, "%Y-%m-%dT%H:%M:%SZ");
+    const std::string cutoffIso = cutoffOss.str();
+    client.Delete("lobby_presence", "last_seen=lt." + cutoffIso);
+
     json rows = client.Select("lobby_presence",
         "select=player_id,display_name,wins,losses,last_seen&order=last_seen.desc&limit=30");
 
@@ -87,7 +202,12 @@ void OnlineLobby::RefreshPlayerList() {
 
     for (auto& row : rows) {
         std::string pid = row.value("player_id", "");
-        if (pid == identity->Id()) continue; // não me listo pra mim mesmo
+        if (pid.empty() || pid == identity->Id()) continue;
+
+        // ISO-8601 UTC ordena lexicograficamente — só mostra heartbeat recente.
+        std::string seen = row.value("last_seen", "");
+        if (!seen.empty() && seen < cutoffIso) continue;
+
         LobbyPlayerCard card;
         card.playerId = pid;
         card.displayName = row.value("display_name", "???");
@@ -95,8 +215,8 @@ void OnlineLobby::RefreshPlayerList() {
         card.losses = row.value("losses", 0);
         players.push_back(card);
     }
-    DebugLogf(LOG_INFO, "LOBBY: %d linha(s) em lobby_presence, %d jogador(es) na lista (excluindo eu mesmo)",
-             static_cast<int>(rows.size()), static_cast<int>(players.size()));
+    DebugLogf(LOG_INFO, "LOBBY: eu=%s | %d online (filtrado)",
+              identity->Id().c_str(), static_cast<int>(players.size()));
 }
 
 void OnlineLobby::RefreshIncomingChallenges() {
@@ -118,33 +238,7 @@ void OnlineLobby::RefreshIncomingChallenges() {
         incoming.push_back(c);
     }
 
-    // Se eu tinha um desafio pendente enviado e ele não está mais "pending"
-    // (foi aceito ou recusado), verifica o resultado.
-    if (!pendingChallengeId.empty()) {
-        json mine = client.Select("challenges", "select=status,match_id&id=eq." + pendingChallengeId);
-        if (mine.is_array() && !mine.empty()) {
-            std::string status = mine[0].value("status", "pending");
-            if (status == "accepted") {
-                std::string matchId = mine[0].value("match_id", "");
-                if (!matchId.empty()) {
-                    json matchRows = client.Select("matches", "select=terrain_seed,version&id=eq." + matchId);
-                    if (matchRows.is_array() && !matchRows.empty()) {
-                        readyMatch.matchId = matchId;
-                        readyMatch.myPlayerNumber = 1; // quem desafia sempre começa como player1
-                        readyMatch.opponentId = pendingChallengeOpponentId;
-                        readyMatch.opponentName = pendingChallengeOpponentName;
-                        long long seed = matchRows[0].value("terrain_seed", 0LL);
-                        readyMatch.terrainSeed = static_cast<unsigned int>(seed);
-                        readyMatch.isPlus = (matchRows[0].value("version", "classic") == "plus");
-                        hasReadyMatch = true;
-                    }
-                }
-                pendingChallengeId.clear();
-            } else if (status != "pending") {
-                pendingChallengeId.clear();
-            }
-        }
-    }
+    TryResolveAcceptedChallenge();
 }
 
 void OnlineLobby::Update(float dt) {
@@ -158,20 +252,22 @@ void OnlineLobby::Update(float dt) {
     if (!identity) return;
 
     EnsurePlayerRegistered();
+    EnsureRealtime();
+    realtime_.Drain();
+
+    const bool dirty = dirtyPresence_.exchange(false) || dirtyChallenges_.exchange(false);
 
     pollTimer += dt;
-    if (pollTimer < POLL_INTERVAL_SEC) return;
-    pollTimer = 0.0f;
+    const bool duePoll = pollTimer >= PollIntervalSec();
+    if (!duePoll && !dirty) return;
+    if (duePoll) pollTimer = 0.0f;
 
-    UpsertPresence();
-    RefreshPlayerList();
-    RefreshIncomingChallenges();
-}
-
-void OnlineLobby::LeaveLobby() {
-    if (!identity) return;
-    client.Delete("lobby_presence", "player_id=eq." + identity->Id());
-    registeredPlayer = false;
+    // Presence upsert só no ciclo de poll (não a cada CDC).
+    if (duePoll) UpsertPresence();
+    if (duePoll || dirty) {
+        RefreshPlayerList();
+        RefreshIncomingChallenges();
+    }
 }
 
 void OnlineLobby::SendChallenge(const LobbyPlayerCard& target) {
@@ -235,6 +331,7 @@ void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge, bool isPlu
     readyMatch.terrainSeed = seed;
     readyMatch.isPlus = isPlusVersion;
     hasReadyMatch = true;
+    DebugLogf(LOG_INFO, "LOBBY: aceitei desafio match=%s eu=P2", matchId.c_str());
 }
 
 void OnlineLobby::DeclineChallenge(const IncomingChallenge& challenge) {

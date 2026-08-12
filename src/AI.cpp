@@ -5,7 +5,7 @@
 #include <algorithm>
 
 static float RandRange(float lo, float hi) {
-    return lo + static_cast<float>(rand()) / RAND_MAX * (hi - lo);
+    return lo + static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * (hi - lo);
 }
 
 // Aproximação: usa a equação de alcance balístico (sem arrasto) para estimar

@@ -4,8 +4,10 @@
 
 #include <vector>
 #include <string>
+#include <atomic>
 #include "PlayerIdentity.h"
 #include "SupabaseClient.h"
+#include "RealtimeClient.h"
 
 // Um "card" exibido na tela de lobby — um jogador atualmente online.
 struct LobbyPlayerCard {
@@ -37,14 +39,19 @@ class OnlineLobby {
 public:
     void Init(PlayerIdentity* identity);
 
-    // Chamado a cada frame enquanto a tela de lobby está aberta — faz
-    // polling periódico (não bloqueia o frame; cada requisição HTTP roda de
-    // forma síncrona mas curta, com timeout de poucos segundos).
+    // Chamado a cada frame enquanto a tela de lobby está aberta.
+    // Realtime (CDC) é o caminho rápido; poll HTTP é fallback lento.
     void Update(float dt);
 
     // Chamado ao SAIR da tela de lobby, pra remover minha presença (não
     // aparecer mais como "online" pros outros).
     void LeaveLobby();
+
+    // Para o WS do lobby ao entrar na partida (HTTP heartbeat continua).
+    void PauseRealtime();
+
+    // Heartbeat durante partida online — mantém last_seen e status in_match.
+    void HeartbeatInMatch(float dt);
 
     const std::vector<LobbyPlayerCard>& Players() const { return players; }
     const std::vector<IncomingChallenge>& IncomingChallenges() const { return incoming; }
@@ -70,24 +77,36 @@ public:
 private:
     PlayerIdentity* identity = nullptr;
     SupabaseClient client;
+    RealtimeClient realtime_;
 
     std::vector<LobbyPlayerCard> players;
     std::vector<IncomingChallenge> incoming;
 
     float pollTimer = 0.0f;
-    static constexpr float POLL_INTERVAL_SEC = 2.5f;
+    static constexpr float POLL_INTERVAL_REALTIME_SEC = 8.0f;
+    static constexpr float POLL_INTERVAL_FALLBACK_SEC = 2.5f;
 
-    std::string pendingChallengeId; // desafio que EU enviei, aguardando resposta
+    float matchHeartbeatTimer = 0.0f;
+    static constexpr float MATCH_HEARTBEAT_SEC = 2.5f;
+
+    std::string pendingChallengeId;
     std::string pendingChallengeOpponentId;
     std::string pendingChallengeOpponentName;
     bool registeredPlayer = false;
+    bool realtimeStarted_ = false;
+
+    std::atomic<bool> dirtyPresence_{false};
+    std::atomic<bool> dirtyChallenges_{false};
 
     bool hasReadyMatch = false;
     MatchStart readyMatch;
 
     void EnsurePlayerRegistered();
+    void EnsureRealtime();
+    void UpsertPresenceWithStatus(const char* status);
     void UpsertPresence();
     void RefreshPlayerList();
     void RefreshIncomingChallenges();
+    void TryResolveAcceptedChallenge();
+    float PollIntervalSec() const;
 };
-

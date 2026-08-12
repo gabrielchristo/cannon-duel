@@ -1,7 +1,307 @@
 #include "NetMatch.h"
-
+#include "NetWorker.h"
+#include "../DebugLog.h"
 
 using json = nlohmann::json;
+
+namespace {
+int JsonInt(const json& j, const char* key, int fallback) {
+    if (!j.contains(key) || j[key].is_null()) return fallback;
+    const auto& v = j[key];
+    if (v.is_number_integer()) return v.get<int>();
+    if (v.is_number_float()) return static_cast<int>(v.get<double>());
+    if (v.is_string()) {
+        try { return std::stoi(v.get<std::string>()); } catch (...) { return fallback; }
+    }
+    if (v.is_boolean()) return v.get<bool>() ? 1 : 0;
+    return fallback;
+}
+
+float JsonFloat(const json& j, const char* key, float fallback) {
+    if (!j.contains(key) || j[key].is_null()) return fallback;
+    const auto& v = j[key];
+    if (v.is_number()) return static_cast<float>(v.get<double>());
+    if (v.is_string()) {
+        try { return std::stof(v.get<std::string>()); } catch (...) { return fallback; }
+    }
+    return fallback;
+}
+
+bool JsonBool(const json& j, const char* key, bool fallback) {
+    if (!j.contains(key) || j[key].is_null()) return fallback;
+    const auto& v = j[key];
+    if (v.is_boolean()) return v.get<bool>();
+    if (v.is_number()) return v.get<double>() != 0.0;
+    if (v.is_string()) {
+        const std::string s = v.get<std::string>();
+        return s == "true" || s == "t" || s == "1";
+    }
+    return fallback;
+}
+} // namespace
+
+bool NetMatch::IsMyTurn() const {
+    if (awaitingOpponentTurn_.load()) return false;
+    std::lock_guard lock(mu_);
+    if (hasPendingTurn_) return false;
+    return syncedCurrentTurnPlayer == myPlayerNumber;
+}
+
+float NetMatch::PollIntervalSec() const {
+    if (realtime_.IsConnected()) return POLL_INTERVAL_REALTIME_SEC;
+    return POLL_INTERVAL_FALLBACK_SEC;
+}
+
+RemoteTurnResult NetMatch::TurnFromJson(const json& row) {
+    RemoteTurnResult turn;
+    turn.turnNumber = JsonInt(row, "turn_number", 0);
+    turn.shooterPlayer = JsonInt(row, "shooter_player", 1);
+    turn.shootAngle = JsonFloat(row, "shoot_angle", 45.0f);
+    turn.shootPower = JsonFloat(row, "shoot_power", 0.5f);
+    turn.windAtShot = JsonFloat(row, "wind_at_shot", 0.0f);
+    turn.impactX = JsonFloat(row, "impact_x", 0.0f);
+    turn.impactY = JsonFloat(row, "impact_y", 0.0f);
+    turn.craterRadius = JsonFloat(row, "crater_radius", 0.0f);
+    turn.damageP1 = JsonFloat(row, "damage_p1", 0.0f);
+    turn.damageP2 = JsonFloat(row, "damage_p2", 0.0f);
+    turn.nextWind = JsonFloat(row, "next_wind", 0.0f);
+    turn.nextTurnPlayer = JsonInt(row, "next_turn_player", 1);
+    turn.matchOver = JsonBool(row, "match_over", false);
+    turn.winnerPlayer = JsonInt(row, "winner_player", 0);
+    return turn;
+}
+
+void NetMatch::ApplyTurnRecord(const json& row) {
+    const int shooterPlayer = JsonInt(row, "shooter_player", 1);
+    const int turnNumber = JsonInt(row, "turn_number", 0);
+    if (turnNumber <= 0) return;
+
+    if (shooterPlayer == myPlayerNumber) {
+        std::lock_guard lock(mu_);
+        if (turnNumber > lastSeenTurnNumber) lastSeenTurnNumber = turnNumber;
+        return;
+    }
+
+    RemoteTurnResult turn = TurnFromJson(row);
+    std::lock_guard lock(mu_);
+    if (turnNumber <= lastSeenTurnNumber) return;
+    if (turnNumber != lastSeenTurnNumber + 1) {
+        DebugLogf(LOG_WARNING, "NET: turno #%d fora de ordem (esperado #%d)",
+                  turnNumber, lastSeenTurnNumber + 1);
+        return;
+    }
+    if (hasPendingTurn_ && pendingTurn_.turnNumber >= turnNumber) return;
+    pendingTurn_ = turn;
+    hasPendingTurn_ = true;
+    DebugLogf(LOG_INFO, "NET: turno remoto #%d enfileirado (atirador P%d)",
+              turn.turnNumber, turn.shooterPlayer);
+}
+
+void NetMatch::ApplyLiveAimFromRecord(const json& row) {
+    const int shooter = JsonInt(row, "live_shooter", 0);
+    if (shooter == 0 || shooter == myPlayerNumber) return;
+
+    LiveAimState aim;
+    aim.player = shooter;
+    aim.angleDeg = JsonFloat(row, "live_angle", 45.0f);
+    aim.power01 = JsonFloat(row, "live_power", 0.0f);
+    aim.phase = row.value("live_aim_phase", "angle");
+    aim.valid = true;
+
+    std::lock_guard lock(mu_);
+    opponentAim_ = aim;
+}
+
+void NetMatch::ApplyMatchRecord(const json& row) {
+    const int currentTurnPlayer = JsonInt(row, "current_turn_player", 1);
+    const std::string status = row.value("status", "active");
+    {
+        std::lock_guard lock(mu_);
+        cachedCurrentTurnPlayer_ = currentTurnPlayer;
+        if (status == "abandoned" && !disconnectReported_) {
+            int winner = JsonInt(row, "winner_player", 0);
+            pendingDisconnect_ = (winner == myPlayerNumber)
+                ? DisconnectResult::OpponentLeft
+                : DisconnectResult::MatchAbandoned;
+        }
+    }
+    syncedCurrentTurnPlayer = currentTurnPlayer;
+    ApplyLiveAimFromRecord(row);
+}
+
+void NetMatch::ApplyBroadcast(const json& envelope) {
+    const std::string event = envelope.value("event", "");
+    const json& p = envelope.contains("payload") ? envelope["payload"] : envelope;
+    if (!p.is_object()) return;
+
+    if (event == "aim") {
+        const int player = JsonInt(p, "player", 0);
+        if (player == 0 || player == myPlayerNumber) return;
+        LiveAimState aim;
+        aim.player = player;
+        aim.angleDeg = JsonFloat(p, "angle", 45.0f);
+        aim.power01 = JsonFloat(p, "power", 0.0f);
+        aim.phase = p.value("phase", "angle");
+        aim.valid = true;
+        std::lock_guard lock(mu_);
+        opponentAim_ = aim;
+        return;
+    }
+
+    if (event == "shot_fired") {
+        const int player = JsonInt(p, "player", 0);
+        if (player == 0 || player == myPlayerNumber) return;
+        LiveShotStart start;
+        start.shotId = JsonInt(p, "shot_id", 0);
+        start.shooterPlayer = player;
+        start.angleDeg = JsonFloat(p, "angle", 45.0f);
+        start.power01 = JsonFloat(p, "power", 0.5f);
+        start.wind = JsonFloat(p, "wind", 0.0f);
+        start.muzzleX = JsonFloat(p, "mx", 0.0f);
+        start.muzzleY = JsonFloat(p, "my", 0.0f);
+        std::lock_guard lock(mu_);
+        liveShotId_ = start.shotId;
+        liveSamples_.clear();
+        liveShotEnded_ = false;
+        pendingLiveShot_ = start;
+        pendingLiveShotStart_ = true;
+        // amostra inicial = muzzle
+        liveSamples_.push_back(ProjSample{ 0, 0.0f, start.muzzleX, start.muzzleY });
+        DebugLogf(LOG_INFO, "NET: shot_fired remoto P%d id=%d", player, start.shotId);
+        return;
+    }
+
+    if (event == "proj") {
+        const int player = JsonInt(p, "player", 0);
+        if (player == 0 || player == myPlayerNumber) return;
+        const int shotId = JsonInt(p, "shot_id", 0);
+        ProjSample s;
+        s.seq = JsonInt(p, "seq", 0);
+        s.t = JsonFloat(p, "t", 0.0f);
+        s.x = JsonFloat(p, "x", 0.0f);
+        s.y = JsonFloat(p, "y", 0.0f);
+        std::lock_guard lock(mu_);
+        if (shotId != 0 && liveShotId_ != 0 && shotId != liveShotId_) return;
+        if (shotId != 0) liveShotId_ = shotId;
+        if (!liveSamples_.empty() && s.seq <= liveSamples_.back().seq) return;
+        liveSamples_.push_back(s);
+        while (liveSamples_.size() > MAX_LIVE_SAMPLES) liveSamples_.pop_front();
+        return;
+    }
+
+    if (event == "shot_end") {
+        const int player = JsonInt(p, "player", 0);
+        if (player == 0 || player == myPlayerNumber) return;
+        const int shotId = JsonInt(p, "shot_id", 0);
+        std::lock_guard lock(mu_);
+        if (shotId != 0 && liveShotId_ != 0 && shotId != liveShotId_) return;
+        liveShotEnded_ = true;
+        liveShotEndX_ = JsonFloat(p, "x", 0.0f);
+        liveShotEndY_ = JsonFloat(p, "y", 0.0f);
+        // Garante amostra final no buffer para interpolação chegar ao impacto.
+        ProjSample s;
+        s.seq = liveSamples_.empty() ? 1 : liveSamples_.back().seq + 1;
+        s.t = liveSamples_.empty() ? 0.0f : liveSamples_.back().t + 0.02f;
+        s.x = liveShotEndX_;
+        s.y = liveShotEndY_;
+        if (JsonFloat(p, "t", -1.0f) >= 0.0f) s.t = JsonFloat(p, "t", s.t);
+        liveSamples_.push_back(s);
+        return;
+    }
+}
+
+void NetMatch::PublishShotFired(float angleDeg, float power01, float wind,
+                                float muzzleX, float muzzleY) {
+    if (!active_.load() || !realtime_.IsConnected()) return;
+    localShotId_++;
+    localProjSeq_ = 0;
+    localShotFlightT_ = 0.0f;
+    projPublishTimer_ = 0.0f;
+    realtime_.SendBroadcast("shot_fired", {
+        { "player", myPlayerNumber },
+        { "shot_id", localShotId_ },
+        { "angle", angleDeg },
+        { "power", power01 },
+        { "wind", wind },
+        { "mx", muzzleX },
+        { "my", muzzleY }
+    });
+    // Primeira amostra imediata
+    realtime_.SendBroadcast("proj", {
+        { "player", myPlayerNumber },
+        { "shot_id", localShotId_ },
+        { "seq", 0 },
+        { "t", 0.0f },
+        { "x", muzzleX },
+        { "y", muzzleY }
+    });
+}
+
+void NetMatch::PublishProjectileSample(float dt, float x, float y) {
+    if (!active_.load() || !realtime_.IsConnected()) return;
+    if (localShotId_ <= 0) return;
+    localShotFlightT_ += dt;
+    projPublishTimer_ += dt;
+    if (projPublishTimer_ < PROJ_PUBLISH_INTERVAL_SEC) return;
+    projPublishTimer_ = 0.0f;
+    localProjSeq_++;
+    // Sem coalesce — cada amostra importa para o path.
+    realtime_.SendBroadcast("proj", {
+        { "player", myPlayerNumber },
+        { "shot_id", localShotId_ },
+        { "seq", localProjSeq_ },
+        { "t", localShotFlightT_ },
+        { "x", x },
+        { "y", y }
+    });
+}
+
+void NetMatch::PublishShotEnded(float x, float y) {
+    if (!active_.load() || !realtime_.IsConnected()) return;
+    if (localShotId_ <= 0) return;
+    localProjSeq_++;
+    realtime_.SendBroadcast("shot_end", {
+        { "player", myPlayerNumber },
+        { "shot_id", localShotId_ },
+        { "seq", localProjSeq_ },
+        { "t", localShotFlightT_ },
+        { "x", x },
+        { "y", y }
+    });
+}
+
+bool NetMatch::PollLiveShotStart(LiveShotStart& out) {
+    std::lock_guard lock(mu_);
+    if (!pendingLiveShotStart_) return false;
+    out = pendingLiveShot_;
+    pendingLiveShotStart_ = false;
+    return true;
+}
+
+int NetMatch::PullProjectileSamples(int afterSeq, std::vector<ProjSample>& out) {
+    out.clear();
+    std::lock_guard lock(mu_);
+    for (const auto& s : liveSamples_) {
+        if (s.seq > afterSeq) out.push_back(s);
+    }
+    return static_cast<int>(out.size());
+}
+
+bool NetMatch::PeekShotEnded(float& outX, float& outY) const {
+    std::lock_guard lock(mu_);
+    if (!liveShotEnded_) return false;
+    outX = liveShotEndX_;
+    outY = liveShotEndY_;
+    return true;
+}
+
+void NetMatch::ClearLiveShot() {
+    std::lock_guard lock(mu_);
+    pendingLiveShotStart_ = false;
+    liveSamples_.clear();
+    liveShotEnded_ = false;
+    liveShotId_ = 0;
+}
 
 void NetMatch::Begin(const std::string& id, int myPlayerNum,
                       const std::string& oppId, const std::string& oppName) {
@@ -9,78 +309,280 @@ void NetMatch::Begin(const std::string& id, int myPlayerNum,
     myPlayerNumber = myPlayerNum;
     opponentId = oppId;
     opponentName = oppName;
-    isMyTurn = (myPlayerNumber == 1); // current_turn_player começa em 1
+    syncedCurrentTurnPlayer = 1;
+    cachedCurrentTurnPlayer_ = 1;
     lastSeenTurnNumber = 0;
     pollTimer = 0.0f;
+    liveAimPublishTimer_ = 0.0f;
+    projPublishTimer_ = 0.0f;
+    localShotFlightT_ = 0.0f;
+    localShotId_ = 0;
+    localProjSeq_ = 0;
+    pollInFlight_.store(false);
+    awaitingOpponentTurn_.store(false);
+    active_.store(true);
+
+    {
+        std::lock_guard lock(mu_);
+        hasPendingTurn_ = false;
+        pendingDisconnect_ = DisconnectResult::None;
+        disconnectReported_ = false;
+        opponentAim_ = {};
+        pendingLiveShotStart_ = false;
+        liveSamples_.clear();
+        liveShotEnded_ = false;
+        liveShotId_ = 0;
+    }
+
+    DebugLogf(LOG_INFO, "NET: Begin match=%s eu=P%d adversario=%s",
+              matchId.c_str(), myPlayerNumber, opponentName.c_str());
+
+    realtime_.SetOnPostgres("match_turns", [this](const json& env) {
+        const std::string type = env.value("type", "");
+        if (!type.empty() && type.find("INSERT") == std::string::npos) return;
+        if (env.contains("record")) ApplyTurnRecord(env["record"]);
+    });
+    realtime_.SetOnPostgres("matches", [this](const json& env) {
+        if (env.contains("record")) ApplyMatchRecord(env["record"]);
+    });
+    realtime_.SetOnBroadcast([this](const json& env) {
+        ApplyBroadcast(env);
+    });
+
+    std::vector<RealtimeClient::PostgresSub> subs = {
+        { "INSERT", "public", "match_turns", "match_id=eq." + matchId },
+        { "UPDATE", "public", "matches", "id=eq." + matchId },
+    };
+    realtime_.Start("match:" + matchId, subs);
+
+    SchedulePoll();
 }
 
-void NetMatch::SubmitMyTurn(float impactX, float impactY, float craterRadius,
+void NetMatch::Pump(float dt) {
+    if (!active_.load() || matchId.empty()) return;
+
+    realtime_.Drain();
+
+    {
+        std::lock_guard lock(mu_);
+        syncedCurrentTurnPlayer = cachedCurrentTurnPlayer_;
+    }
+
+    pollTimer += dt;
+    if (pollTimer >= PollIntervalSec()) {
+        pollTimer = 0.0f;
+        SchedulePoll();
+    }
+}
+
+void NetMatch::PublishLiveAim(float dt, float angleDeg, float power01, const char* phase) {
+    if (!active_.load() || matchId.empty()) return;
+    if (!IsMyTurn()) return;
+
+    const char* ph = phase ? phase : "angle";
+    liveAimPublishTimer_ += dt;
+
+    json payload = {
+        { "player", myPlayerNumber },
+        { "angle", angleDeg },
+        { "power", power01 },
+        { "phase", ph }
+    };
+
+    if (realtime_.IsConnected()) {
+        if (liveAimPublishTimer_ < LIVE_AIM_PUBLISH_INTERVAL_SEC) return;
+        liveAimPublishTimer_ = 0.0f;
+        realtime_.SendBroadcast("aim", payload, "aim");
+        return;
+    }
+
+    if (liveAimPublishTimer_ < LIVE_AIM_HTTP_INTERVAL_SEC) return;
+    liveAimPublishTimer_ = 0.0f;
+
+    const std::string matchIdCopy = matchId;
+    const int me = myPlayerNumber;
+    GlobalNetWorker().PostCoalesced("live_aim", [=](SupabaseClient& client) {
+        client.Update("matches", "id=eq." + matchIdCopy, {
+            { "live_shooter", me },
+            { "live_angle", angleDeg },
+            { "live_power", power01 },
+            { "live_aim_phase", ph }
+        });
+    });
+}
+
+LiveAimState NetMatch::GetOpponentLiveAim() const {
+    std::lock_guard lock(mu_);
+    return opponentAim_;
+}
+
+void NetMatch::SchedulePoll() {
+    if (!active_.load() || matchId.empty()) return;
+    if (pollInFlight_.exchange(true)) return;
+
+    const std::string matchIdCopy = matchId;
+    const int nextTurn = lastSeenTurnNumber + 1;
+
+    GlobalNetWorker().Post([this, matchIdCopy, nextTurn](SupabaseClient& client) {
+        json matchRows = client.Select("matches",
+            "select=status,winner_player,current_turn_player,"
+            "live_shooter,live_angle,live_power,live_aim_phase&id=eq." + matchIdCopy);
+
+        if (matchRows.is_array() && !matchRows.empty()) {
+            ApplyMatchRecord(matchRows[0]);
+        }
+
+        json rows = client.Select("match_turns",
+            "select=*&match_id=eq." + matchIdCopy +
+            "&turn_number=eq." + std::to_string(nextTurn) +
+            "&limit=1");
+        if (rows.is_array() && !rows.empty()) {
+            ApplyTurnRecord(rows[0]);
+        }
+
+        pollInFlight_.store(false);
+    });
+}
+
+void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot,
+                             float impactX, float impactY, float craterRadius,
                              float damageP1, float damageP2, float nextWind,
                              bool matchOver, int winnerPlayer) {
     lastSeenTurnNumber++;
 
-    json body = {
-        { "match_id", matchId },
-        { "turn_number", lastSeenTurnNumber },
-        { "shooter_player", myPlayerNumber },
-        { "impact_x", impactX },
-        { "impact_y", impactY },
-        { "crater_radius", craterRadius },
-        { "damage_p1", damageP1 },
-        { "damage_p2", damageP2 },
-        { "next_wind", nextWind },
-        { "next_turn_player", matchOver ? myPlayerNumber : (myPlayerNumber == 1 ? 2 : 1) },
-        { "match_over", matchOver },
-        { "winner_player", winnerPlayer }
-    };
-    client.Insert("match_turns", body);
+    const int nextTurnPlayer = matchOver ? myPlayerNumber : (myPlayerNumber == 1 ? 2 : 1);
+    syncedCurrentTurnPlayer = nextTurnPlayer;
+    {
+        std::lock_guard lock(mu_);
+        cachedCurrentTurnPlayer_ = nextTurnPlayer;
+        opponentAim_ = {};
+    }
 
-    json matchUpdate = {
-        { "current_turn_player", matchOver ? myPlayerNumber : (myPlayerNumber == 1 ? 2 : 1) },
-        { "wind", nextWind },
-        { "status", matchOver ? "finished" : "active" }
-    };
-    if (matchOver) matchUpdate["winner_player"] = winnerPlayer;
-    client.Update("matches", "id=eq." + matchId, matchUpdate);
+    awaitingOpponentTurn_.store(!matchOver);
 
-    isMyTurn = false;
+    const std::string matchIdCopy = matchId;
+    const int turnNum = lastSeenTurnNumber;
+    const int shooter = myPlayerNumber;
+
+    DebugLogf(LOG_INFO, "NET: SubmitMyTurn #%d atirador=P%d proximo=P%d",
+              turnNum, shooter, nextTurnPlayer);
+
+    // Avisa adversário via broadcast (além do CDC do INSERT).
+    if (realtime_.IsConnected()) {
+        realtime_.SendBroadcast("turn_submitted", {
+            { "turn_number", turnNum },
+            { "shooter", shooter }
+        });
+    }
+
+    GlobalNetWorker().Post([=](SupabaseClient& client) {
+        json body = {
+            { "match_id", matchIdCopy },
+            { "turn_number", turnNum },
+            { "shooter_player", shooter },
+            { "shoot_angle", shootAngle },
+            { "shoot_power", shootPower },
+            { "wind_at_shot", windAtShot },
+            { "impact_x", impactX },
+            { "impact_y", impactY },
+            { "crater_radius", craterRadius },
+            { "damage_p1", damageP1 },
+            { "damage_p2", damageP2 },
+            { "next_wind", nextWind },
+            { "next_turn_player", nextTurnPlayer },
+            { "match_over", matchOver },
+            { "winner_player", winnerPlayer }
+        };
+        json inserted = client.Insert("match_turns", body);
+        if (!inserted.is_array() || inserted.empty()) {
+            DebugLogf(LOG_WARNING, "NET: Insert match_turns #%d FALHOU", turnNum);
+        }
+
+        json matchUpdate = {
+            { "current_turn_player", nextTurnPlayer },
+            { "wind", nextWind },
+            { "status", matchOver ? "finished" : "active" },
+            { "live_shooter", 0 },
+            { "live_aim_phase", "idle" }
+        };
+        if (matchOver) matchUpdate["winner_player"] = winnerPlayer;
+        client.Update("matches", "id=eq." + matchIdCopy, matchUpdate);
+    });
+
+    // Força um poll cedo só se Realtime estiver down.
+    if (!realtime_.IsConnected()) {
+        pollTimer = POLL_INTERVAL_FALLBACK_SEC;
+        SchedulePoll();
+    }
 }
 
-bool NetMatch::PollOpponentTurn(RemoteTurnResult& out, float dt) {
-    if (isMyTurn) return false;
-
-    pollTimer += dt;
-    if (pollTimer < POLL_INTERVAL_SEC) return false;
-    pollTimer = 0.0f;
-
-    json rows = client.Select("match_turns",
-        "select=*&match_id=eq." + matchId +
-        "&turn_number=eq." + std::to_string(lastSeenTurnNumber + 1));
-
-    if (!rows.is_array() || rows.empty()) return false;
-
-    const json& row = rows[0];
-    out.turnNumber = row.value("turn_number", 0);
-    out.shooterPlayer = row.value("shooter_player", 1);
-    out.impactX = row.value("impact_x", 0.0f);
-    out.impactY = row.value("impact_y", 0.0f);
-    out.craterRadius = row.value("crater_radius", 0.0f);
-    out.damageP1 = row.value("damage_p1", 0.0f);
-    out.damageP2 = row.value("damage_p2", 0.0f);
-    out.nextWind = row.value("next_wind", 0.0f);
-    out.nextTurnPlayer = row.value("next_turn_player", 1);
-    out.matchOver = row.value("match_over", false);
-    out.winnerPlayer = row.value("winner_player", 0);
-
+bool NetMatch::PollOpponentTurn(RemoteTurnResult& out) {
+    std::lock_guard lock(mu_);
+    if (!hasPendingTurn_) return false;
+    out = pendingTurn_;
+    hasPendingTurn_ = false;
     lastSeenTurnNumber = out.turnNumber;
-    isMyTurn = (out.nextTurnPlayer == myPlayerNumber);
+    cachedCurrentTurnPlayer_ = out.nextTurnPlayer;
+    syncedCurrentTurnPlayer = out.nextTurnPlayer;
+    awaitingOpponentTurn_.store(false);
+    opponentAim_ = {};
+    pendingLiveShotStart_ = false;
+    liveSamples_.clear();
+    liveShotEnded_ = false;
     return true;
 }
 
+DisconnectResult NetMatch::PollDisconnect() {
+    std::lock_guard lock(mu_);
+    if (disconnectReported_ || pendingDisconnect_ == DisconnectResult::None) {
+        return DisconnectResult::None;
+    }
+    disconnectReported_ = true;
+    DisconnectResult r = pendingDisconnect_;
+    pendingDisconnect_ = DisconnectResult::None;
+    return r;
+}
+
+void NetMatch::AbandonMatch() {
+    if (matchId.empty()) return;
+
+    const std::string matchIdCopy = matchId;
+    const int winner = (myPlayerNumber == 1) ? 2 : 1;
+    GlobalNetWorker().Post([matchIdCopy, winner](SupabaseClient& client) {
+        json rows = client.Select("matches", "select=status&id=eq." + matchIdCopy);
+        if (rows.is_array() && !rows.empty()) {
+            std::string status = rows[0].value("status", "active");
+            if (status == "active") {
+                client.Update("matches", "id=eq." + matchIdCopy, {
+                    { "status", "abandoned" },
+                    { "winner_player", winner }
+                });
+            }
+        }
+    });
+    LeaveMatch();
+}
+
 void NetMatch::LeaveMatch() {
+    active_.store(false);
+    realtime_.Stop();
     matchId.clear();
     opponentId.clear();
     opponentName.clear();
     lastSeenTurnNumber = 0;
-}
+    pollInFlight_.store(false);
+    awaitingOpponentTurn_.store(false);
 
+    GlobalNetWorker().ClearCoalesced();
+    GlobalNetWorker().CloseConnections();
+
+    std::lock_guard lock(mu_);
+    hasPendingTurn_ = false;
+    pendingDisconnect_ = DisconnectResult::None;
+    disconnectReported_ = false;
+    opponentAim_ = {};
+    pendingLiveShotStart_ = false;
+    liveSamples_.clear();
+    liveShotEnded_ = false;
+    liveShotId_ = 0;
+}

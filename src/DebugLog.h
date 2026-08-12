@@ -1,20 +1,31 @@
 #pragma once
 #include <raylib.h>
+#include <cstdarg>
 #include <string>
 #include <vector>
+#include "Platform.h"
 
-// Buffer de log pro overlay na tela (Android sem logcat à mão).
-// InstallOverlayCapture() redireciona TraceLog, printf e logcat Android
-// pra cá — nada vai mais pro terminal/logcat.
+#if CANNON_DUEL_DEBUG_MODE
+
 namespace DebugLog {
     void Push(const std::string& line);
     const std::vector<std::string>& Lines();
-
-    // Redireciona TraceLog (raylib), printf e logcat Android pro buffer do
-    // overlay — nada vai mais pro terminal/logcat. Chamar uma vez no boot.
     void InstallOverlayCapture();
 }
 
-// Loga formatado no overlay via TraceLog + callback instalado por
-// InstallOverlayCapture(). Use em vez de TraceLog/printf diretos.
 void DebugLogf(int level, const char* fmt, ...);
+
+#else
+
+namespace DebugLog {
+    inline void Push(const std::string&) {}
+    inline const std::vector<std::string>& Lines() {
+        static const std::vector<std::string> kEmpty;
+        return kEmpty;
+    }
+    inline void InstallOverlayCapture() {}
+}
+
+inline void DebugLogf(int, const char*, ...) {}
+
+#endif

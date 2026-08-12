@@ -1,5 +1,6 @@
 #pragma once
 #include <raylib.h>
+#include <string>
 #include <vector>
 #include "PhysicsWorld.h"
 #include "Terrain.h"
@@ -17,7 +18,7 @@
 
 enum class GameMode { PvP, PvAI, Online };
 enum class GameVersion { Classic, Plus };
-enum class GameState { MainMenu, About, Instructions, OnlineLobby, Aiming, ProjectileFlying, TurnTransition, RoundOver };
+enum class GameState { MainMenu, About, Instructions, OnlineLobby, Aiming, ProjectileFlying, RemoteShotReplay, RemoteProjectileLive, TurnTransition, RoundOver };
 enum class AimPhase { Angle, Power };
 
 class Game {
@@ -45,7 +46,18 @@ private:
     void UpdateOnlineLobby();
     void DrawOnlineLobby();
     void StartOnlineMatch(const MatchStart& ms);
-    void ApplyRemoteTurn(const RemoteTurnResult& remote);
+    void EndOnlineMatchOpponentLeft();
+    void BeginRemoteShotReplay(const RemoteTurnResult& remote);
+    void UpdateRemoteShotReplay(float dt);
+    void BeginRemoteProjectileLive(const LiveShotStart& shot);
+    void UpdateRemoteProjectileLive(float dt);
+    void FinishRemoteTurn(const RemoteTurnResult& remote);
+    void OnOnlineTurnCompleted();
+    void DrawOpponentAim(int shooterPlayer, float angleDeg, float power01) const;
+    void ResetOpponentAimSim(int shooterPlayer);
+    void UpdateOpponentAimSim(float dt);
+    float SeededWind(int turnIndex) const;
+    void MaybeSpawnPowerupSeeded();
 
     void StartMatch(GameMode mode);
     void UpdateAiming();
@@ -99,7 +111,6 @@ private:
     Texture2D texBackgroundNight{};
     Texture2D texTerrainTile{};
     Texture2D texProjectile{};
-    Font uiFont{}; // fonte mais legível (DejaVu Sans) — usada em partes da UI; ver Game.cpp
     bool spritesReady = false;
     bool nightMode = false; // sorteado a cada partida
 
@@ -143,16 +154,17 @@ private:
     Vector2 GetVirtualMouse() const;
     void DrawVirtualScreenScaled() const;
 
-    // Painel temporário de log na tela (Android sem logcat à mão) — ver
-    // implementação em Game.cpp pra detalhes/remoção futura.
+    // Painel temporário de log na tela — só compilado com CANNON_DUEL_DEBUG_MODE.
+#if CANNON_DUEL_DEBUG_MODE
     void DrawDebugLogOverlay() const;
-    bool UpdateDebugLogOverlay(); // retorna true se consumiu o clique deste frame
+    bool UpdateDebugLogOverlay();
     bool debugLogVisible = true;
-    int debugLogScrollIndex = 0;      // índice da linha mais no topo visível
-    bool debugLogFollowTail = true;   // segue automaticamente as linhas mais novas até o usuário rolar manualmente
+    int debugLogScrollIndex = 0;
+    bool debugLogFollowTail = true;
     bool debugLogDragging = false;
     float debugLogDragStartY = 0.0f;
     int debugLogDragStartScroll = 0;
+#endif
 
     // --- power-ups (versão Plus) ---
     std::vector<Powerup> activePowerups;
@@ -161,6 +173,39 @@ private:
     bool guidedDiving = false; // teleguiado: uma vez que entra na fase de "mergulho" no alvo, nunca mais volta a mirar no ápice (evita oscilação/instabilidade perto do limiar de distância)
 
     void MaybeSpawnPowerup();
+
+    // --- multiplayer online: RNG determinístico + replay de tiro remoto ---
+    unsigned int onlineSeed = 0;
+    int onlineCompletedTurns = 0;
+    Vector2 remoteReplayPos{};
+    float remoteReplayT = 0.0f;
+    float remoteReplayAimTimer = 0.0f;
+    RemoteTurnResult pendingRemoteTurn{};
+    // Stream ao vivo do projétil adversário
+    bool remoteLiveActive = false;
+    int remoteLiveShotId = 0;
+    int remoteLiveLastSeq = -1;
+    float remoteLivePlayT = 0.0f;
+    float remoteLiveBufferDelay = 0.08f; // atrasa playback p/ ter amostras à frente
+    bool remoteLivePlayStarted = false;
+    bool remoteLiveHasPendingResult = false;
+    float remoteLiveWatchTimer = 0.0f;
+    std::vector<ProjSample> remoteLiveSamples;
+    Vector2 remoteLivePos{};
+    Vector2 remoteLivePrevPos{};
+    int opponentAimPlayer = 0;
+    float opponentAimAngle = 45.0f;
+    float opponentAimPower = 0.5f;
+    float opponentAimTargetAngle = 45.0f;
+    float opponentAimTargetPower = 0.5f;
+    bool opponentAimHasLiveTarget = false;
+    float opponentAimOscTimer = 0.0f;
+    bool opponentAimSimActive = false;
+    int opponentAimForTurn = 0;
+    bool onlineWinByDisconnect = false;
+    std::string onlineP1Name;
+    std::string onlineP2Name;
+    void DrawOnlineCannonLabels() const;
     void DrawPowerup() const;
     void CheckPowerupCollision(Vector2 projFrom, Vector2 projTo);
     void ApplyPowerupEffect(Cannon& picker, PowerupType type);
@@ -189,10 +234,10 @@ private:
     void DrawLanguageFlags(Vector2 mouse);
     void UpdateLanguageFlags(Vector2 mouse);
 
-    // --- painel de desenvolvedor oculto (F9) — só existe na build de PC ---
-    bool devMode = false; // mantido sempre declarado (custo zero) por simplicidade
-#if !CANNON_DUEL_ANDROID_BUILD
-    bool UpdateDevPanel(); // retorna true se consumiu o clique deste frame
+    // --- painel de desenvolvedor (F9) — só com CANNON_DUEL_DEBUG_MODE ---
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
+    bool devMode = false;
+    bool UpdateDevPanel();
     void DrawDevPanel() const;
     void DevForceSpawnPowerup();
     void DevGrantPowerupToPlayer1(PowerupType type);

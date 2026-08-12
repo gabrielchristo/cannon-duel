@@ -48,8 +48,16 @@ create table if not exists matches (
     version text not null default 'classic', -- classic | plus — escolhido por quem aceita o desafio
     current_turn_player int not null default 1,
     wind real not null default 0,
-    status text not null default 'active', -- active | finished
+    status text not null default 'active', -- active | finished | abandoned
     winner_player int,
+    live_shooter int not null default 0,
+    live_angle real not null default 45,
+    live_power real not null default 0.5,
+    live_aim_phase text not null default 'idle',
+    live_wind real not null default 0,
+    live_shot_id int not null default 0,
+    p1_last_seen timestamptz,
+    p2_last_seen timestamptz,
     updated_at timestamptz not null default now(),
     created_at timestamptz not null default now()
 );
@@ -69,6 +77,9 @@ create table if not exists match_turns (
     crater_radius real not null,
     damage_p1 real not null default 0,
     damage_p2 real not null default 0,
+    shoot_angle real not null default 45,
+    shoot_power real not null default 0.5,
+    wind_at_shot real not null default 0,
     next_wind real not null default 0,
     next_turn_player int not null,
     match_over boolean not null default false,
@@ -127,3 +138,7 @@ create policy "qualquer um pode ler turnos" on match_turns
     for select using (true);
 create policy "qualquer um pode criar turnos" on match_turns
     for insert with check (true);
+
+-- Realtime (postgres_changes) — ver migration_005_realtime.sql
+-- Tabelas na publication supabase_realtime: players, lobby_presence,
+-- challenges, matches, match_turns (replica identity full).

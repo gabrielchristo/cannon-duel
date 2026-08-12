@@ -3,6 +3,7 @@
 #include "AssetPath.h"
 #include "DebugLog.h"
 #include "net/SupabaseClient.h"
+#include "net/NetWorker.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -11,15 +12,26 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <random>
 
 namespace {
+constexpr float kRandMaxF = static_cast<float>(RAND_MAX);
+
 float RandF(float lo, float hi) {
-    return lo + static_cast<float>(rand()) / RAND_MAX * (hi - lo);
+    return lo + static_cast<float>(rand()) / kRandMaxF * (hi - lo);
+}
+
+float SeededUnitFloat(unsigned seed, unsigned salt) {
+    std::mt19937 rng(seed ^ salt);
+    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    return dist(rng);
 }
 } // namespace
 
 Game::Game() {
+#if CANNON_DUEL_DEBUG_MODE
     DebugLog::InstallOverlayCapture();
+#endif
     InitWindow(cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, "Cannon Duel");
     SetTargetFPS(cfg::TARGET_FPS);
 
@@ -51,16 +63,6 @@ Game::Game() {
     texTerrainTile  = LoadTexture(AssetPath("sprites/terrain_tile.png").c_str());
     texProjectile   = LoadTexture(AssetPath("sprites/projectile.png").c_str());
 
-    // Fonte mais legível que a padrão do raylib. Carregada num tamanho
-    // base alto (48px) e depois desenhada em vários tamanhos via
-    // DrawTextEx — assim mantém boa nitidez tanto em textos grandes
-    // (título) quanto pequenos (HUD, log).
-    uiFont = LoadFontEx(AssetPath("fonts/main.ttf").c_str(), 48, nullptr, 0);
-    if (uiFont.texture.id > 0) {
-        SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
-    } else {
-        uiFont = GetFontDefault(); // não achou o arquivo — cai pra fonte padrão sem quebrar nada
-    }
     spritesReady = (texCannonLeft.id != 0 && texCannonRight.id != 0);
 
     srand(static_cast<unsigned int>(time(nullptr)));
@@ -73,6 +75,15 @@ Game::Game() {
 }
 
 Game::~Game() {
+    if (state == GameState::OnlineLobby) {
+        onlineLobby.LeaveLobby();
+    }
+    if (netMatch.InMatch()) {
+        netMatch.LeaveMatch();
+    } else {
+        GlobalNetWorker().Stop();
+    }
+
     if (audioReady) {
         UnloadSound(sndFire);
         UnloadSound(sndExplosion);
@@ -86,9 +97,6 @@ Game::~Game() {
     UnloadTexture(texBackgroundNight);
     UnloadTexture(texTerrainTile);
     UnloadTexture(texProjectile);
-    if (uiFont.texture.id > 0 && uiFont.texture.id != GetFontDefault().texture.id) {
-        UnloadFont(uiFont);
-    }
     UnloadRenderTexture(virtualScreen);
     CloseWindow();
 }
@@ -133,6 +141,7 @@ void Game::DrawVirtualScreenScaled() const {
     DrawTexturePro(virtualScreen.texture, src, dst, {0, 0}, 0.0f, WHITE);
 }
 
+#if CANNON_DUEL_DEBUG_MODE
 void Game::DrawDebugLogOverlay() const {
     const int fs = 12;
     const int lineH = 15;
@@ -145,7 +154,7 @@ void Game::DrawDebugLogOverlay() const {
         bool hover = CheckCollisionPointRec(GetMousePosition(), reopenBtn);
         DrawRectangleRec(reopenBtn, Fade(hover ? YELLOW : Color{40, 40, 40, 255}, 0.85f));
         DrawRectangleLinesEx(reopenBtn, 2, YELLOW);
-        DrawTextEx(uiFont, "LOG", {reopenBtn.x + 16, reopenBtn.y + 5}, fs + 2, 1.0f,
+        DrawText("LOG", static_cast<int>(reopenBtn.x + 16), static_cast<int>(reopenBtn.y + 5), fs + 2,
                  hover ? BLACK : YELLOW);
         return;
     }
@@ -158,27 +167,27 @@ void Game::DrawDebugLogOverlay() const {
 
     DrawRectangleRec(panel, Fade(BLACK, 0.82f));
     DrawRectangleLinesEx(panel, 2, Fade(YELLOW, 0.9f));
-    DrawTextEx(uiFont, "LOG (overlay — sem logcat/terminal)", {panel.x + 6, panel.y + 4}, fs, 1.0f, YELLOW);
-    DrawTextEx(uiFont, "arraste p/ rolar", {panel.x + 6, panel.y + 4 + fs + 2}, fs - 2, 1.0f, Fade(YELLOW, 0.75f));
+    DrawText("LOG (overlay — sem logcat/terminal)", static_cast<int>(panel.x + 6), static_cast<int>(panel.y + 4), fs, YELLOW);
+    DrawText("arraste p/ rolar", static_cast<int>(panel.x + 6), static_cast<int>(panel.y + 4 + fs + 2), fs - 2, Fade(YELLOW, 0.75f));
 
     bool hoverClose = CheckCollisionPointRec(GetMousePosition(), closeBtn);
     DrawRectangleRec(closeBtn, hoverClose ? RED : Color{80, 20, 20, 255});
     DrawRectangleLinesEx(closeBtn, 2, WHITE);
     int xFs = 22;
-    float xw = MeasureTextEx(uiFont, "X", xFs, 1.0f).x;
-    DrawTextEx(uiFont, "X", {closeBtn.x + closeBtn.width / 2 - xw / 2,
-               closeBtn.y + closeBtn.height / 2 - xFs / 2}, xFs, 1.0f, WHITE);
+    int xw = MeasureText("X", xFs);
+    DrawText("X", static_cast<int>(closeBtn.x + closeBtn.width / 2 - xw / 2),
+             static_cast<int>(closeBtn.y + closeBtn.height / 2 - xFs / 2), xFs, WHITE);
 
     if (totalLines == 0) {
-        DrawTextEx(uiFont, "(aguardando logs...)", {panel.x + 6, static_cast<float>(panel.y + headerH)},
-                  fs, 1.0f, Fade(WHITE, 0.6f));
+        DrawText("(aguardando logs...)", static_cast<int>(panel.x + 6), panel.y + headerH,
+                 fs, Fade(WHITE, 0.6f));
         return;
     }
 
     int y = static_cast<int>(panel.y) + headerH;
     int start = std::clamp(debugLogScrollIndex, 0, std::max(0, totalLines - visibleLines));
     for (int i = start; i < std::min(totalLines, start + visibleLines); ++i) {
-        DrawTextEx(uiFont, DebugLog::Lines()[i].c_str(), {panel.x + 6, static_cast<float>(y)}, fs, 1.0f, WHITE);
+        DrawText(DebugLog::Lines()[i].c_str(), static_cast<int>(panel.x + 6), y, fs, WHITE);
         y += lineH;
     }
 
@@ -257,6 +266,7 @@ bool Game::UpdateDebugLogOverlay() {
     // consome o clique se ele começou (ou o arrasto continua) dentro do painel
     return overPanel || debugLogDragging;
 }
+#endif // CANNON_DUEL_DEBUG_MODE
 
 // ---------------------------------------------------------------------------
 // Setup de partida
@@ -302,15 +312,32 @@ void Game::ResetRound(unsigned int seed) {
     player2.Init(rightX, terrain.HeightAt(rightX), CannonSide::Right);
 
     currentPlayer = 1;
-    windForce = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
+    if (mode == GameMode::Online) {
+        onlineSeed = seed;
+        onlineCompletedTurns = 0;
+        nightMode = ((seed >> 17) & 1u) == 0;
+        windForce = SeededWind(0);
+        currentMusicIndex = static_cast<int>((seed >> 25) % 2);
+    } else {
+        windForce = ((static_cast<float>(rand()) / kRandMaxF) * 2.0f - 1.0f) * std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
+        nightMode = (rand() % 2) == 0;
+    }
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
-    nightMode = (rand() % 2) == 0; // cenário dia/noite sorteado a cada partida
 
     activePowerups.clear();
     turnsSincePowerupCheck = 0;
     powerupMessageTimer = 0.0f;
     shakeTimer = 0.0f;
+    remoteReplayT = 0.0f;
+    remoteReplayAimTimer = 0.0f;
+    opponentAimPlayer = 0;
+    opponentAimSimActive = false;
+    opponentAimForTurn = 0;
+    opponentAimHasLiveTarget = false;
+    opponentAimTargetAngle = 45.0f;
+    opponentAimTargetPower = 0.0f;
+    onlineWinByDisconnect = false;
 
     state = GameState::Aiming;
 }
@@ -332,6 +359,7 @@ void Game::StartMatch(GameMode m) {
 // Update
 // ---------------------------------------------------------------------------
 const char* Game::ResolveRoundMessage() const {
+    if (onlineWinByDisconnect) return T(TK::RoundOpponentDisconnected, language);
     switch (roundOutcome) {
         case RoundOutcome::Draw: return T(TK::RoundDraw, language);
         case RoundOutcome::DrawBuried: return T(TK::RoundDrawBuried, language);
@@ -344,12 +372,11 @@ const char* Game::ResolveRoundMessage() const {
 }
 
 void Game::Update(float dt) {
-    // Painel de log temporário — prioridade máxima, consome o clique antes
-    // de qualquer outra lógica do jogo (evita que interagir com o log
-    // também trave um ângulo/dispare um tiro por trás).
+#if CANNON_DUEL_DEBUG_MODE
     if (UpdateDebugLogOverlay()) {
         return;
     }
+#endif
 
     // Precisa ser chamado todo frame pro streaming da música avançar (e
     // fazer o loop) — independe de qualquer outro estado/painel.
@@ -357,21 +384,75 @@ void Game::Update(float dt) {
         UpdateMusicStream(musicTracks[currentMusicIndex]);
     }
 
-    // Multiplayer online: enquanto não é minha vez, faz polling do próximo
-    // turno do adversário e aplica assim que chegar.
-    if (mode == GameMode::Online && !netMatch.IsMyTurn() &&
-        (state == GameState::Aiming || state == GameState::TurnTransition)) {
-        RemoteTurnResult remote;
-        if (netMatch.PollOpponentTurn(remote, dt)) {
-            ApplyRemoteTurn(remote);
+    // Multiplayer online: rede assíncrona (sem bloquear o frame).
+    if (mode == GameMode::Online && netMatch.InMatch() && state != GameState::RoundOver) {
+        netMatch.Pump(dt);
+        currentPlayer = netMatch.SyncedCurrentTurnPlayer();
+
+        DisconnectResult disc = netMatch.PollDisconnect();
+        if (disc == DisconnectResult::OpponentLeft) {
+            EndOnlineMatchOpponentLeft();
             return;
+        }
+
+        // Stream em tempo real tem prioridade sobre o replay fake.
+        if (state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
+            LiveShotStart liveShot;
+            if (netMatch.PollLiveShotStart(liveShot)) {
+                BeginRemoteProjectileLive(liveShot);
+                return;
+            }
+        }
+
+        if (state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
+            RemoteTurnResult remote;
+            if (netMatch.PollOpponentTurn(remote)) {
+                // Sem stream: fallback no arco interpolado antigo.
+                BeginRemoteShotReplay(remote);
+                return;
+            }
+        } else if (state == GameState::RemoteProjectileLive) {
+            // Também consumido dentro de UpdateRemoteProjectileLive; aqui é backup.
+            RemoteTurnResult remote;
+            if (!remoteLiveHasPendingResult && netMatch.PollOpponentTurn(remote)) {
+                pendingRemoteTurn = remote;
+                remoteLiveHasPendingResult = true;
+            }
+        }
+
+        if (netMatch.IsMyTurn()) {
+            opponentAimPlayer = 0;
+            opponentAimSimActive = false;
+            opponentAimHasLiveTarget = false;
+        } else if (state == GameState::Aiming || state == GameState::TurnTransition) {
+            int waitingTurn = netMatch.TurnsCompleted() + 1;
+            if (waitingTurn != opponentAimForTurn) {
+                ResetOpponentAimSim(netMatch.SyncedCurrentTurnPlayer());
+                opponentAimForTurn = waitingTurn;
+            }
+
+            // Preferir mira real via Realtime; interpolar suavemente até o alvo.
+            LiveAimState live = netMatch.GetOpponentLiveAim();
+            if (live.valid && live.player != 0) {
+                opponentAimPlayer = live.player;
+                opponentAimTargetAngle = live.angleDeg;
+                opponentAimTargetPower = std::clamp(live.power01, 0.0f, 1.0f);
+                opponentAimHasLiveTarget = true;
+                opponentAimSimActive = false;
+            } else if (!opponentAimHasLiveTarget) {
+                UpdateOpponentAimSim(dt);
+            }
+
+            if (opponentAimHasLiveTarget && opponentAimPlayer != 0) {
+                // Follow exponencial — elimina “degraus” dos broadcasts ~12 Hz.
+                const float follow = 1.0f - std::exp(-dt * 22.0f);
+                opponentAimAngle += (opponentAimTargetAngle - opponentAimAngle) * follow;
+                opponentAimPower += (opponentAimTargetPower - opponentAimPower) * follow;
+            }
         }
     }
 
-#if !CANNON_DUEL_ANDROID_BUILD
-    // Painel de desenvolvedor oculto: F9 alterna a visibilidade. Só existe
-    // na build de PC — depende de teclado físico e é uma ferramenta de
-    // testes internos, sem sentido numa build mobile/touch.
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
     if (IsKeyPressed(KEY_F9)) {
         devMode = !devMode;
     }
@@ -446,6 +527,12 @@ void Game::Update(float dt) {
             break;
         case GameState::ProjectileFlying:
             UpdateProjectileFlight(dt);
+            break;
+        case GameState::RemoteShotReplay:
+            UpdateRemoteShotReplay(dt);
+            break;
+        case GameState::RemoteProjectileLive:
+            UpdateRemoteProjectileLive(dt);
             break;
         case GameState::TurnTransition:
             stateTimer -= dt;
@@ -652,30 +739,289 @@ void Game::DrawOnlineLobby() {
 
 void Game::StartOnlineMatch(const MatchStart& ms) {
     mode = GameMode::Online;
-    // A versão (Classic/Plus) da partida é decidida por quem ACEITA o
-    // desafio, e transmitida via a linha de "matches" pro desafiante ler de
-    // volta — assim os dois lados sempre concordam na mesma versão.
-    //
-    // NOTA: na versão Plus, o spawn de power-ups usa RNG local de cada
-    // cliente (não sincronizado por rede ainda), então os dois lados podem
-    // ver um power-up aparecer no mesmo turno em posições/tipos diferentes.
-    // O RESULTADO de cada tiro (dano, cratera, vitória) continua correto e
-    // sincronizado de qualquer forma — só a exibição do ícone do power-up
-    // no mapa pode divergir visualmente entre os dois clientes por ora.
     version = ms.isPlus ? GameVersion::Plus : GameVersion::Classic;
+    onlineWinByDisconnect = false;
+    onlineLobby.PauseRealtime();
+
+    if (ms.myPlayerNumber == 1) {
+        onlineP1Name = playerIdentity.DisplayName();
+        onlineP2Name = ms.opponentName;
+    } else {
+        onlineP1Name = ms.opponentName;
+        onlineP2Name = playerIdentity.DisplayName();
+    }
 
     netMatch.Begin(ms.matchId, ms.myPlayerNumber, ms.opponentId, ms.opponentName);
     ResetRound(ms.terrainSeed);
 
-    currentMusicIndex = rand() % 2;
     if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
         PlayMusicStream(musicTracks[currentMusicIndex]);
     }
 }
 
-void Game::ApplyRemoteTurn(const RemoteTurnResult& remote) {
-    Vector2 impactPos = { remote.impactX, remote.impactY };
+void Game::EndOnlineMatchOpponentLeft() {
+    onlineWinByDisconnect = true;
+    roundOutcome = (netMatch.MyPlayerNumber() == 1)
+        ? RoundOutcome::P1Wins : RoundOutcome::P2Wins;
+    onlineLobby.ReportMatchResult(true);
+    netMatch.LeaveMatch();
+    state = GameState::RoundOver;
+    stateTimer = 1.0f;
+}
 
+float Game::SeededWind(int turnIndex) const {
+    float u = SeededUnitFloat(onlineSeed, static_cast<unsigned>(turnIndex * 7919u + 12345u));
+    float signed01 = u * 2.0f - 1.0f;
+    return signed01 * std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
+}
+
+void Game::ResetOpponentAimSim(int shooterPlayer) {
+    opponentAimPlayer = shooterPlayer;
+    opponentAimOscTimer = 0.0f;
+    opponentAimAngle = -90.0f;
+    opponentAimPower = 0.0f;
+    opponentAimTargetAngle = -90.0f;
+    opponentAimTargetPower = 0.0f;
+    opponentAimHasLiveTarget = false;
+    opponentAimSimActive = shooterPlayer != 0;
+}
+
+void Game::UpdateOpponentAimSim(float dt) {
+    if (!opponentAimSimActive || opponentAimPlayer == 0) return;
+    // Feedback visual local: mesma faixa de ângulo do jogo (-90°..90°),
+    // onda triangular — não precisa bater com a mira real do adversário.
+    opponentAimOscTimer += dt;
+    float period = cfg::ANGLE_OSC_PERIOD_SEC;
+    float t = fmodf(opponentAimOscTimer, period) / period; // 0..1
+    float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
+    opponentAimAngle = -90.0f + tri * 180.0f;
+
+    float powerPeriod = cfg::POWER_OSC_PERIOD_SEC;
+    float pt = fmodf(opponentAimOscTimer, powerPeriod) / powerPeriod;
+    float ptri = (pt < 0.5f) ? (pt * 2.0f) : (2.0f - pt * 2.0f);
+    opponentAimPower = ptri;
+}
+
+void Game::DrawOpponentAim(int shooterPlayer, float angleDeg, float power01) const {
+    const Cannon& active = (shooterPlayer == 1) ? player1 : player2;
+    Vector2 base = { active.x, active.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+    Color aimColor = Fade(SKYBLUE, 0.75f);
+
+    Vector2 dir = active.DirectionAtAngle(angleDeg);
+    Vector2 tip = { base.x + dir.x * 90.0f, base.y + dir.y * 90.0f };
+    DrawLineEx(base, tip, 3.0f, aimColor);
+    DrawCircleV(tip, 4.0f, SKYBLUE);
+
+    float barW = 100.0f, barH = 12.0f;
+    Vector2 barPos = { active.x - barW / 2, active.groundY - cfg::CANNON_BODY_RADIUS_PX - 52 };
+    DrawRectangle(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
+                  static_cast<int>(barW), static_cast<int>(barH), Color{30, 30, 30, 200});
+    float fill = std::clamp(power01, 0.0f, 1.0f) * barW;
+    DrawRectangle(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
+                  static_cast<int>(fill), static_cast<int>(barH), Fade(SKYBLUE, 0.85f));
+    DrawRectangleLines(static_cast<int>(barPos.x), static_cast<int>(barPos.y),
+                       static_cast<int>(barW), static_cast<int>(barH), BLACK);
+}
+
+void Game::BeginRemoteShotReplay(const RemoteTurnResult& remote) {
+    pendingRemoteTurn = remote;
+    opponentAimPlayer = 0;
+    opponentAimSimActive = false;
+    remoteLiveActive = false;
+    remoteLiveHasPendingResult = false;
+
+    Cannon& shooter = (remote.shooterPlayer == 1) ? player1 : player2;
+    shooter.SetAim(remote.shootAngle, remote.shootPower);
+    windForce = remote.windAtShot;
+    currentPlayer = remote.shooterPlayer;
+
+    Vector2 start = shooter.MuzzlePosition();
+    remoteReplayPos = start;
+    remoteReplayT = 0.0f;
+    remoteReplayAimTimer = 0.25f;
+    prevProjectilePos = start;
+    guidedDiving = false;
+
+    if (audioReady) PlaySound(sndFire);
+    state = GameState::RemoteShotReplay;
+}
+
+void Game::BeginRemoteProjectileLive(const LiveShotStart& shot) {
+    remoteLiveActive = true;
+    remoteLiveShotId = shot.shotId;
+    remoteLiveLastSeq = -1;
+    remoteLivePlayT = 0.0f;
+    remoteLivePlayStarted = false;
+    remoteLiveHasPendingResult = false;
+    remoteLiveWatchTimer = 0.0f;
+    remoteLiveSamples.clear();
+    remoteLivePos = { shot.muzzleX, shot.muzzleY };
+    remoteLivePrevPos = remoteLivePos;
+    remoteLiveSamples.push_back(ProjSample{ 0, 0.0f, shot.muzzleX, shot.muzzleY });
+    remoteLiveLastSeq = 0;
+
+    Cannon& shooter = (shot.shooterPlayer == 1) ? player1 : player2;
+    shooter.SetAim(shot.angleDeg, shot.power01);
+    windForce = shot.wind;
+    currentPlayer = shot.shooterPlayer;
+    opponentAimPlayer = 0;
+    opponentAimSimActive = false;
+    opponentAimHasLiveTarget = false;
+
+    if (audioReady) PlaySound(sndFire);
+    state = GameState::RemoteProjectileLive;
+    DebugLogf(LOG_INFO, "GAME: stream projétil ao vivo P%d", shot.shooterPlayer);
+}
+
+void Game::UpdateRemoteProjectileLive(float dt) {
+    remoteLiveWatchTimer += dt;
+
+    // Puxa amostras novas do NetMatch
+    std::vector<ProjSample> fresh;
+    if (netMatch.PullProjectileSamples(remoteLiveLastSeq, fresh) > 0) {
+        for (const auto& s : fresh) {
+            remoteLiveSamples.push_back(s);
+            if (s.seq > remoteLiveLastSeq) remoteLiveLastSeq = s.seq;
+        }
+    }
+
+    // Resultado autoritativo enquanto ainda assistimos o stream.
+    if (!remoteLiveHasPendingResult) {
+        RemoteTurnResult remote;
+        if (netMatch.PollOpponentTurn(remote)) {
+            pendingRemoteTurn = remote;
+            remoteLiveHasPendingResult = true;
+        }
+    }
+
+    if (remoteLiveSamples.size() < 2) {
+        if (remoteLiveHasPendingResult) {
+            const auto& r = pendingRemoteTurn;
+            ProjSample fin;
+            fin.seq = remoteLiveLastSeq + 1;
+            fin.t = 0.35f;
+            fin.x = r.impactX;
+            fin.y = r.impactY;
+            remoteLiveSamples.push_back(fin);
+            remoteLiveLastSeq = fin.seq;
+        } else if (remoteLiveWatchTimer > 6.0f) {
+            // Stream nunca veio — desiste e espera poll do turno (fallback).
+            DebugLogf(LOG_WARNING, "GAME: stream live timeout sem amostras — volta a Aiming");
+            remoteLiveActive = false;
+            netMatch.ClearLiveShot();
+            state = GameState::Aiming;
+            return;
+        } else {
+            return;
+        }
+    }
+
+    if (!remoteLivePlayStarted) {
+        remoteLivePlayT = std::max(0.0f, remoteLiveSamples.front().t);
+        remoteLivePlayStarted = true;
+    }
+
+    const float maxT = remoteLiveSamples.back().t;
+    float targetPlay = remoteLivePlayT + dt;
+
+    float endX = 0, endY = 0;
+    const bool streamEnded = netMatch.PeekShotEnded(endX, endY);
+    // Com resultado autoritativo (ou shot_end), NÃO segurar buffer delay —
+    // senão playT nunca alcança o fim e deadlocks o adversário.
+    const bool canFinishPath = streamEnded || remoteLiveHasPendingResult;
+    if (!canFinishPath) {
+        const float cap = std::max(0.0f, maxT - remoteLiveBufferDelay);
+        if (targetPlay > cap) targetPlay = cap;
+    } else if (targetPlay > maxT) {
+        targetPlay = maxT;
+    }
+    remoteLivePlayT = targetPlay;
+
+    Vector2 prev = remoteLivePos;
+    if (remoteLivePlayT <= remoteLiveSamples.front().t) {
+        remoteLivePos = { remoteLiveSamples.front().x, remoteLiveSamples.front().y };
+    } else if (remoteLivePlayT >= remoteLiveSamples.back().t) {
+        remoteLivePos = { remoteLiveSamples.back().x, remoteLiveSamples.back().y };
+    } else {
+        for (size_t i = 0; i + 1 < remoteLiveSamples.size(); ++i) {
+            const auto& a = remoteLiveSamples[i];
+            const auto& b = remoteLiveSamples[i + 1];
+            if (remoteLivePlayT >= a.t && remoteLivePlayT <= b.t) {
+                float span = std::max(1e-4f, b.t - a.t);
+                float u = (remoteLivePlayT - a.t) / span;
+                u = u * u * (3.0f - 2.0f * u);
+                remoteLivePos.x = a.x + (b.x - a.x) * u;
+                remoteLivePos.y = a.y + (b.y - a.y) * u;
+                break;
+            }
+        }
+    }
+
+    Vector2 vel = { remoteLivePos.x - prev.x, remoteLivePos.y - prev.y };
+    remoteLivePrevPos = prev;
+    particles.EmitTrail(remoteLivePos, vel);
+
+    if (remoteLiveHasPendingResult) {
+        const auto& r = pendingRemoteTurn;
+        const auto& last = remoteLiveSamples.back();
+        if (std::fabs(last.x - r.impactX) > 2.0f || std::fabs(last.y - r.impactY) > 2.0f) {
+            ProjSample fin;
+            fin.seq = remoteLiveLastSeq + 1;
+            fin.t = last.t + 0.08f;
+            fin.x = r.impactX;
+            fin.y = r.impactY;
+            remoteLiveSamples.push_back(fin);
+            remoteLiveLastSeq = fin.seq;
+            return; // próximo frame interpola até o impacto
+        }
+
+        const bool atEnd = remoteLivePlayT >= remoteLiveSamples.back().t - 0.001f;
+        // Timeout de segurança: não segurar o adversário sem turno.
+        if (atEnd || remoteLiveWatchTimer > 2.5f) {
+            FinishRemoteTurn(pendingRemoteTurn);
+            return;
+        }
+    }
+}
+
+void Game::UpdateRemoteShotReplay(float dt) {
+    const RemoteTurnResult& remote = pendingRemoteTurn;
+    Vector2 start = (remote.shooterPlayer == 1) ? player1.MuzzlePosition() : player2.MuzzlePosition();
+    Vector2 end = { remote.impactX, remote.impactY };
+
+    if (remoteReplayAimTimer > 0.0f) {
+        remoteReplayAimTimer -= dt;
+        opponentAimPlayer = remote.shooterPlayer;
+        opponentAimAngle = remote.shootAngle;
+        opponentAimPower = remote.shootPower;
+        return;
+    }
+    opponentAimPlayer = 0;
+
+    constexpr float kDuration = 0.85f;
+    remoteReplayT += dt / kDuration;
+    float t = std::clamp(remoteReplayT, 0.0f, 1.0f);
+
+    Vector2 prev = remoteReplayPos;
+    remoteReplayPos.x = start.x + (end.x - start.x) * t;
+    remoteReplayPos.y = start.y + (end.y - start.y) * t - std::sin(t * PI) * 80.0f;
+
+    Vector2 vel = { remoteReplayPos.x - prev.x, remoteReplayPos.y - prev.y };
+    particles.EmitTrail(remoteReplayPos, vel);
+
+    if (t >= 1.0f) {
+        FinishRemoteTurn(remote);
+    }
+}
+
+void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
+    Vector2 impactPos = { remote.impactX, remote.impactY };
+    remoteLiveActive = false;
+    remoteLiveHasPendingResult = false;
+    remoteLiveSamples.clear();
+    netMatch.ClearLiveShot();
+
+    if (audioReady) PlaySound(sndExplosion);
     particles.EmitExplosion(impactPos, 50);
     terrain.Explode(impactPos.x, impactPos.y, remote.craterRadius);
 
@@ -685,11 +1031,19 @@ void Game::ApplyRemoteTurn(const RemoteTurnResult& remote) {
     player1.groundY = terrain.HeightAt(player1.x);
     player2.groundY = terrain.HeightAt(player2.x);
 
+    if (version == GameVersion::Plus) {
+        TriggerShake(cfg::SHAKE_MAGNITUDE_TERRAIN_PX, cfg::SHAKE_DURATION_TERRAIN_SEC);
+    }
+
     windForce = remote.nextWind;
     currentPlayer = remote.nextTurnPlayer;
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
     prevProjectilePos = {0, 0};
+    opponentAimPlayer = 0;
+    opponentAimSimActive = false;
+    opponentAimForTurn = 0;
+    opponentAimHasLiveTarget = false;
 
     if (remote.matchOver) {
         bool iWon = (remote.winnerPlayer == netMatch.MyPlayerNumber());
@@ -705,8 +1059,20 @@ void Game::ApplyRemoteTurn(const RemoteTurnResult& remote) {
         state = GameState::RoundOver;
         stateTimer = 1.0f;
     } else {
+        OnOnlineTurnCompleted();
         state = GameState::TurnTransition;
-        stateTimer = 0.4f;
+        stateTimer = 0.35f;
+    }
+}
+
+void Game::OnOnlineTurnCompleted() {
+    onlineCompletedTurns++;
+    if (version == GameVersion::Plus) {
+        Cannon& startingCannon = (currentPlayer == 1) ? player1 : player2;
+        TickPowerupTurnEffects(startingCannon);
+        if (onlineCompletedTurns % cfg::POWERUP_SPAWN_EVERY_TURNS == 0) {
+            MaybeSpawnPowerupSeeded();
+        }
     }
 }
 
@@ -945,7 +1311,7 @@ Vector2 Game::ComputeShakeOffset() const {
 // ferramenta interna de desenvolvimento que não faz sentido existir — nem
 // ocupar espaço/binário — numa build mobile.
 // ---------------------------------------------------------------------------
-#if !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
 void Game::DevForceSpawnPowerup() {
     if (version != GameVersion::Plus) version = GameVersion::Plus;
     turnsSincePowerupCheck = cfg::POWERUP_SPAWN_EVERY_TURNS;
@@ -1047,7 +1413,7 @@ void Game::DrawDevPanel() const {
         drawRow(label, inMatch);
     }
 }
-#endif // !CANNON_DUEL_ANDROID_BUILD
+#endif // CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
 
 // ---------------------------------------------------------------------------
 // Poeira ambiente — pequenas partículas flutuando pela tela, cuja velocidade
@@ -1094,20 +1460,26 @@ void Game::DrawDustMotes() const {
 bool Game::IsLocalHumanTurn() const {
     if (state != GameState::Aiming) return false;
     if (mode == GameMode::PvAI && currentPlayer == 2) return false;
-    if (mode == GameMode::Online && !netMatch.IsMyTurn()) return false;
+    if (mode == GameMode::Online) {
+        if (!netMatch.IsMyTurn()) return false;
+        if (currentPlayer != netMatch.MyPlayerNumber()) return false;
+    }
     return true;
 }
 
 void Game::UpdateAiming() {
-    // Multiplayer online: se não é minha vez, não processo nenhum input
-    // local — o polling em Update() cuida de aplicar o turno do adversário
-    // assim que ele chegar.
+    // Multiplayer online: só controlo o MEU canhão quando o servidor diz
+    // que é minha vez — nunca o canhão indicado por currentPlayer sozinho.
     if (mode == GameMode::Online && !netMatch.IsMyTurn()) {
         return;
     }
 
-    Cannon& active = (currentPlayer == 1) ? player1 : player2;
-    Cannon& other  = (currentPlayer == 1) ? player2 : player1;
+    int activePlayer = currentPlayer;
+    if (mode == GameMode::Online) {
+        activePlayer = netMatch.MyPlayerNumber();
+    }
+    Cannon& active = (activePlayer == 1) ? player1 : player2;
+    Cannon& other  = (activePlayer == 1) ? player2 : player1;
 
     bool isAITurn = (mode == GameMode::PvAI && currentPlayer == 2);
 
@@ -1241,7 +1613,16 @@ void Game::UpdateAiming() {
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
             state = GameState::ProjectileFlying;
+            if (mode == GameMode::Online && netMatch.InMatch()) {
+                Vector2 muzz = active.MuzzlePosition();
+                netMatch.PublishShotFired(active.angleDeg, active.power01, windForce, muzz.x, muzz.y);
+            }
         }
+    }
+
+    if (mode == GameMode::Online && netMatch.InMatch()) {
+        const char* phaseStr = (aimPhase == AimPhase::Angle) ? "angle" : "power";
+        netMatch.PublishLiveAim(GetFrameTime(), active.angleDeg, active.power01, phaseStr);
     }
 }
 
@@ -1285,6 +1666,10 @@ void Game::UpdateProjectileFlight(float dt) {
 
     Vector2 pos = projectile.PositionPx();
 
+    if (mode == GameMode::Online && netMatch.InMatch()) {
+        netMatch.PublishProjectileSample(dt, pos.x, pos.y);
+    }
+
     Color trailColor = (version == GameVersion::Plus && shooter.pendingDoubleDamage)
         ? Color{255, 130, 40, 255}  // rastro em chamas (dano em dobro)
         : Color{235, 230, 215, 255};
@@ -1297,8 +1682,9 @@ void Game::UpdateProjectileFlight(float dt) {
 
     // fora da tela (nunca deveria bater em nada) -> encerra o turno
     if (pos.x < -50 || pos.x > cfg::SCREEN_WIDTH + 50 || pos.y > cfg::SCREEN_HEIGHT + 200) {
-        projectile.Destroy();
-        EndTurn();
+        // ResolveImpact também envia o turno online — EndTurn() sozinho
+        // deixaria o adversário esperando para sempre.
+        ResolveImpact(pos, false, nullptr);
         return;
     }
 
@@ -1425,35 +1811,36 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         CheckRoundEnd(); // pode terminar a partida (RoundOver) ou chamar EndTurn()
     }
 
-    // Multiplayer online: eu (o atirador) sou sempre quem manda o RESULTADO
-    // já resolvido pro adversário — ele nunca recalcula a física, só aplica
-    // (ver ApplyRemoteTurn). Isso evita depender de simulação bit-a-bit
-    // idêntica entre plataformas/compiladores diferentes.
+    // Multiplayer online: eu (o atirador) mando o RESULTADO autoritativo
+    // (impacto, cratera, dano). O adversário só aplica esse pacote — nunca
+    // recalcula Box2D. Assim terreno/dano ficam idênticos nos dois clientes.
     if (mode == GameMode::Online) {
+        // Captura o vento do disparo ANTES de qualquer troca de turno.
+        const float windAtShot = windForce;
         bool matchOver = (state == GameState::RoundOver);
         int winnerPlayer = 0;
         if (matchOver) {
             switch (roundOutcome) {
                 case RoundOutcome::P1Wins: case RoundOutcome::P1WinsBuried: winnerPlayer = 1; break;
                 case RoundOutcome::P2Wins: case RoundOutcome::P2WinsBuried: winnerPlayer = 2; break;
-                default: winnerPlayer = 0; break; // empate
+                default: winnerPlayer = 0; break;
             }
         }
 
-        float nextWind = matchOver ? windForce
-            : ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) *
-              std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
+        int nextTurnIndex = netMatch.TurnsCompleted() + 1;
+        float nextWind = matchOver ? windForce : SeededWind(nextTurnIndex);
 
-        netMatch.SubmitMyTurn(impactPos.x, impactPos.y, craterRadius,
+        netMatch.PublishShotEnded(impactPos.x, impactPos.y);
+        netMatch.SubmitMyTurn(shooter.angleDeg, shooter.power01, windAtShot,
+                               impactPos.x, impactPos.y, craterRadius,
                                dmgAppliedP1, dmgAppliedP2, nextWind, matchOver, winnerPlayer);
+        currentPlayer = netMatch.SyncedCurrentTurnPlayer();
 
         if (matchOver) {
             if (winnerPlayer != 0) {
                 onlineLobby.ReportMatchResult(winnerPlayer == netMatch.MyPlayerNumber());
             }
         } else {
-            // usa o MESMO vento que acabei de mandar pro adversário, pra
-            // ambos os lados verem o mesmo valor no próximo turno
             windForce = nextWind;
         }
     }
@@ -1472,25 +1859,64 @@ void Game::CheckRoundEnd() {
 
 void Game::EndTurn() {
     if (state == GameState::RoundOver) return;
-    currentPlayer = (currentPlayer == 1) ? 2 : 1;
-
-    // sorteia um novo vento a cada turno (como no jogo original), limitado a
-    // um valor que ainda garanta ser possível acertar o adversário mesmo no
-    // pior caso (ver ComputeSafeMaxWindAccel)
-    windForce = ((static_cast<float>(rand()) / RAND_MAX) * 2.0f - 1.0f) * std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
+    if (mode != GameMode::Online) {
+        currentPlayer = (currentPlayer == 1) ? 2 : 1;
+    }
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
 
-    if (version == GameVersion::Plus) {
-        Cannon& startingCannon = (currentPlayer == 1) ? player1 : player2;
-        TickPowerupTurnEffects(startingCannon);
+    if (mode == GameMode::Online) {
+        if (version == GameVersion::Plus) {
+            OnOnlineTurnCompleted();
+        } else {
+            onlineCompletedTurns++;
+        }
+    } else {
+        windForce = ((static_cast<float>(rand()) / kRandMaxF) * 2.0f - 1.0f) *
+                    std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
 
-        turnsSincePowerupCheck++;
-        MaybeSpawnPowerup();
+        if (version == GameVersion::Plus) {
+            Cannon& startingCannon = (currentPlayer == 1) ? player1 : player2;
+            TickPowerupTurnEffects(startingCannon);
+
+            turnsSincePowerupCheck++;
+            MaybeSpawnPowerup();
+        }
     }
 
     stateTimer = 0.4f;
     state = GameState::TurnTransition;
+}
+
+void Game::MaybeSpawnPowerupSeeded() {
+    if (static_cast<int>(activePowerups.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
+
+    unsigned salt = static_cast<unsigned>(onlineCompletedTurns * 104729u + 17u);
+    float margin = 160.0f;
+    float x = margin + SeededUnitFloat(onlineSeed, salt) * (cfg::SCREEN_WIDTH - 2.0f * margin);
+
+    struct Entry { PowerupType type; float weight; };
+    Entry entries[] = {
+        { PowerupType::DoubleDamage,      cfg::POWERUP_WEIGHT_DOUBLE_DMG },
+        { PowerupType::TrajectoryPreview, cfg::POWERUP_WEIGHT_TRAJECTORY },
+        { PowerupType::Guided,            cfg::POWERUP_WEIGHT_GUIDED },
+        { PowerupType::Heal,              cfg::POWERUP_WEIGHT_HEAL },
+        { PowerupType::Shield,            cfg::POWERUP_WEIGHT_SHIELD },
+    };
+    float totalWeight = 0.0f;
+    for (auto& e : entries) totalWeight += e.weight;
+    float roll = SeededUnitFloat(onlineSeed, salt + 1u) * totalWeight;
+    PowerupType chosen = entries[0].type;
+    for (auto& e : entries) {
+        if (roll < e.weight) { chosen = e.type; break; }
+        roll -= e.weight;
+    }
+
+    Powerup p;
+    p.active = true;
+    p.type = chosen;
+    p.x = x;
+    activePowerups.push_back(p);
 }
 
 // ---------------------------------------------------------------------------
@@ -1506,56 +1932,64 @@ void Game::Draw() {
 
     if (state == GameState::MainMenu) {
         DrawMainMenu();
-#if !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
 #endif
         EndTextureMode();
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+#if CANNON_DUEL_DEBUG_MODE
         DrawDebugLogOverlay();
+#endif
         EndDrawing();
         return;
     }
 
     if (state == GameState::About) {
         DrawAbout();
-#if !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
 #endif
         EndTextureMode();
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+#if CANNON_DUEL_DEBUG_MODE
         DrawDebugLogOverlay();
+#endif
         EndDrawing();
         return;
     }
 
     if (state == GameState::Instructions) {
         DrawInstructions();
-#if !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
 #endif
         EndTextureMode();
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+#if CANNON_DUEL_DEBUG_MODE
         DrawDebugLogOverlay();
+#endif
         EndDrawing();
         return;
     }
 
     if (state == GameState::OnlineLobby) {
         DrawOnlineLobby();
-#if !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
 #endif
         EndTextureMode();
         BeginDrawing();
         ClearBackground(BLACK);
         DrawVirtualScreenScaled();
+#if CANNON_DUEL_DEBUG_MODE
         DrawDebugLogOverlay();
+#endif
         EndDrawing();
         return;
     }
@@ -1591,6 +2025,10 @@ void Game::Draw() {
     player2.Draw(currentPlayer == 2 && state != GameState::RoundOver,
                  spritesReady ? &texCannonRight : nullptr);
 
+    if (mode == GameMode::Online) {
+        DrawOnlineCannonLabels();
+    }
+
     if (version == GameVersion::Plus) {
         DrawPowerup();
         DrawPowerupTooltip();
@@ -1613,9 +2051,37 @@ void Game::Draw() {
         }
     }
 
+    if (state == GameState::RemoteShotReplay) {
+        if (opponentAimPlayer != 0) {
+            DrawOpponentAim(opponentAimPlayer, opponentAimAngle, opponentAimPower);
+        }
+        if (remoteReplayAimTimer <= 0.0f) {
+            Vector2 p = remoteReplayPos;
+            if (spritesReady && texProjectile.id != 0) {
+                float r = cfg::PROJECTILE_RADIUS_PX;
+                DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
+                               {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
+            } else {
+                DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
+            }
+        }
+    }
+
+    if (state == GameState::RemoteProjectileLive) {
+        Vector2 p = remoteLivePos;
+        if (spritesReady && texProjectile.id != 0) {
+            float r = cfg::PROJECTILE_RADIUS_PX;
+            DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
+                           {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
+        } else {
+            DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
+        }
+    }
+
     // mecanismo de mira: linha oscilando (fase ângulo) ou barra de força (fase potência)
     if (IsLocalHumanTurn()) {
-        Cannon& active = (currentPlayer == 1) ? player1 : player2;
+        int activePlayer = (mode == GameMode::Online) ? netMatch.MyPlayerNumber() : currentPlayer;
+        Cannon& active = (activePlayer == 1) ? player1 : player2;
         Vector2 base = { active.x, active.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
 
         // power-up "trajetória prevista": desenha o arco balístico estimado
@@ -1670,6 +2136,10 @@ void Game::Draw() {
                           4, static_cast<int>(barH) + 8, WHITE);
         }
     }
+    else if (mode == GameMode::Online && opponentAimPlayer != 0 &&
+             state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
+        DrawOpponentAim(opponentAimPlayer, opponentAimAngle, opponentAimPower);
+    }
     else if (mode == GameMode::Online && !netMatch.IsMyTurn() && state == GameState::Aiming) {
         std::string waitMsg = std::string(netMatch.OpponentName()) + T(TK::OnlineWaitingSuffix, language);
         int ww = MeasureText(waitMsg.c_str(), 20);
@@ -1701,7 +2171,7 @@ void Game::Draw() {
         DrawResetAngleButton();
     }
 
-#if !CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE && !CANNON_DUEL_ANDROID_BUILD
     if (devMode) {
         DrawDevPanel();
     }
@@ -1715,7 +2185,9 @@ void Game::Draw() {
     BeginDrawing();
     ClearBackground(BLACK);
     DrawVirtualScreenScaled();
+#if CANNON_DUEL_DEBUG_MODE
     DrawDebugLogOverlay();
+#endif
     EndDrawing();
 }
 
@@ -1832,8 +2304,8 @@ void Game::DrawLanguageFlags(Vector2 mouse) {
 void Game::DrawMainMenu() {
     const char* title = T(TK::Title, language);
     int fs = 64;
-    float tw = MeasureTextEx(uiFont, title, static_cast<float>(fs), 2.0f).x;
-    DrawTextEx(uiFont, title, {cfg::SCREEN_WIDTH / 2.0f - tw / 2, 95.0f}, static_cast<float>(fs), 2.0f, Color{40, 30, 20, 255});
+    int tw = MeasureText(title, fs);
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 95, fs, Color{40, 30, 20, 255});
 
     Vector2 m = GetVirtualMouse();
     DrawVersionSwitch(m);
@@ -1941,7 +2413,8 @@ void Game::UpdateMenuConfirmDialog() {
             projectile.Destroy();
             if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
             if (mode == GameMode::Online) {
-                netMatch.LeaveMatch();
+                if (netMatch.InMatch()) netMatch.AbandonMatch();
+                else netMatch.LeaveMatch();
                 onlineLobby.LeaveLobby();
             }
             state = GameState::MainMenu;
@@ -2045,7 +2518,7 @@ bool Game::HandleResetAngleButtonClick() {
 void Game::DrawWindIndicator() const {
     int cx = cfg::SCREEN_WIDTH / 2;
     int cy = 40;
-    DrawTextEx(uiFont, T(TK::WindLabel, language), {static_cast<float>(cx - 30), static_cast<float>(cy - 22)}, 16, 1.0f, HudTextColor());
+    DrawText(T(TK::WindLabel, language), cx - 30, cy - 22, 16, HudTextColor());
 
     float ratio = windForce / cfg::WIND_MAX_ACCEL; // -1..1
     int arrowLen = static_cast<int>(std::fabs(ratio) * 60.0f) + 10;
@@ -2066,11 +2539,25 @@ void Game::DrawHUD() {
     const char* turnLabel = (mode == GameMode::PvAI && currentPlayer == 2)
         ? T(TK::TurnAI, language)
         : (currentPlayer == 1 ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language));
-    DrawTextEx(uiFont, turnLabel, {20, 20}, 22, 1.0f, HudTextColor());
+    DrawText(turnLabel, 20, 20, 22, HudTextColor());
 
-    // ângulo/potência do jogador ativo (útil para jogar só com mouse)
     Cannon& active = (currentPlayer == 1) ? player1 : player2;
     const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
     std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
-    DrawTextEx(uiFont, info.c_str(), {20, 48}, 18, 1.0f, HudTextColorDim());
+    DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
+}
+
+void Game::DrawOnlineCannonLabels() const {
+    auto drawLabel = [&](const Cannon& cannon, const std::string& name) {
+        if (name.empty()) return;
+        const int fs = 12;
+        int tw = MeasureText(name.c_str(), fs);
+        int tx = static_cast<int>(cannon.x - tw / 2);
+        int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 50);
+        DrawRectangle(tx - 4, ty - 2, tw + 8, fs + 4, Fade(BLACK, 0.45f));
+        DrawText(name.c_str(), tx, ty, fs, HudTextColor());
+    };
+
+    drawLabel(player1, onlineP1Name);
+    drawLabel(player2, onlineP2Name);
 }

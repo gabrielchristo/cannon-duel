@@ -1,6 +1,6 @@
 #include "Platform.h"
 
-#if CANNON_DUEL_ANDROID_BUILD
+#if CANNON_DUEL_DEBUG_MODE && CANNON_DUEL_ANDROID_BUILD
 
 #include "DebugLog.h"
 #include <android/log.h>
@@ -68,4 +68,4 @@ extern "C" int __wrap_fprintf(FILE* stream, const char* fmt, ...) {
     return 0;
 }
 
-#endif // CANNON_DUEL_ANDROID_BUILD
+#endif // CANNON_DUEL_DEBUG_MODE && CANNON_DUEL_ANDROID_BUILD

@@ -5,6 +5,7 @@
 #include "../DebugLog.h"
 #include "../Platform.h"
 #include <curl/curl.h>
+#include <mutex>
 #include <string>
 
 namespace {
@@ -13,7 +14,57 @@ size_t WriteCallback(void* contents, size_t size, size_t nmemb, void* userp) {
     out->append(static_cast<char*>(contents), size * nmemb);
     return size * nmemb;
 }
+
+void EnsureCurlGlobalInit() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        curl_global_init(CURL_GLOBAL_DEFAULT);
+    });
+}
 } // namespace
+
+SupabaseClient::SupabaseClient() {
+    EnsureCurlGlobalInit();
+}
+
+SupabaseClient::~SupabaseClient() {
+    Close();
+}
+
+void SupabaseClient::Close() {
+    if (curl_) {
+        curl_easy_cleanup(static_cast<CURL*>(curl_));
+        curl_ = nullptr;
+    }
+}
+
+void SupabaseClient::EnsureCurl() {
+    if (curl_) return;
+    CURL* curl = curl_easy_init();
+    if (!curl) return;
+    curl_ = curl;
+}
+
+void SupabaseClient::ResetCurlOptions() {
+    CURL* curl = static_cast<CURL*>(curl_);
+    if (!curl) return;
+
+    curl_easy_reset(curl);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPIDLE, 30L);
+    curl_easy_setopt(curl, CURLOPT_TCP_KEEPINTVL, 15L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 3L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 2L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+
+    TlsCaBundle ca = LoadTlsCaBundle();
+    if (ca.loaded) {
+        ApplyTlsCaToCurl(curl, ca);
+    } else if (CANNON_DUEL_MOBILE_BUILD) {
+        DebugLogf(LOG_WARNING, "SUPABASE: requisição HTTPS sem CA (curl 60 provável)");
+    }
+}
 
 void SupabaseClient::ProbeCaBundle() {
     ProbeTlsCaBundle();
@@ -22,11 +73,14 @@ void SupabaseClient::ProbeCaBundle() {
 nlohmann::json SupabaseClient::Request(const std::string& method, const std::string& urlSuffix,
                                         const nlohmann::json* body, const char* preferHeader) {
     lastOk = false;
-    CURL* curl = curl_easy_init();
+    EnsureCurl();
+    CURL* curl = static_cast<CURL*>(curl_);
     if (!curl) {
         DebugLogf(LOG_WARNING, "SUPABASE: curl_easy_init() falhou");
         return nlohmann::json();
     }
+
+    ResetCurlOptions();
 
     std::string url = std::string(supabase_config::URL) + "/rest/v1/" + urlSuffix;
     std::string responseBuffer;
@@ -38,23 +92,13 @@ nlohmann::json SupabaseClient::Request(const std::string& method, const std::str
     headers = curl_slist_append(headers, apiKeyHeader.c_str());
     headers = curl_slist_append(headers, authHeader.c_str());
     headers = curl_slist_append(headers, "Content-Type: application/json");
+    headers = curl_slist_append(headers, "Connection: keep-alive");
     if (preferHeader) headers = curl_slist_append(headers, preferHeader);
 
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseBuffer);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 5L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
-
-    TlsCaBundle ca = LoadTlsCaBundle();
-    if (ca.loaded) {
-        ApplyTlsCaToCurl(curl, ca);
-    } else if (CANNON_DUEL_MOBILE_BUILD) {
-        DebugLogf(LOG_WARNING, "SUPABASE: requisição HTTPS sem CA (curl 60 provável)");
-    }
 
     if (method == "POST") {
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -84,7 +128,6 @@ nlohmann::json SupabaseClient::Request(const std::string& method, const std::str
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &httpCode);
 
     curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
 
     if (res != CURLE_OK) {
         DebugLogf(LOG_WARNING, "SUPABASE: falha de transporte (CURLcode=%d, %s) — %s",

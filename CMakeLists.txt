@@ -10,7 +10,7 @@ endif()
 
 # NOTA: este CMakeLists.txt é usado apenas para a build DESKTOP (Linux/macOS/
 # Windows). A build Android usa um pipeline separado (ver android/CMakeLists.txt
-# + android/build_android.sh) porque o CMakeLists.txt genérico do próprio
+# + build_android.sh) porque o CMakeLists.txt genérico do próprio
 # raylib tem suporte a Android historicamente instável — o caminho oficial e
 # testado pra Android é o Makefile dedicado dele (src/Makefile), não este
 # CMakeLists.txt. Ver ANDROID.md para detalhes.
@@ -52,10 +52,9 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(raylib box2d nlohmann_json)
 
-# libcurl — usado pelas requisições HTTP do cliente Supabase. Geralmente já
-# vem instalado no sistema em distros Linux comuns; se não tiver, instale o
-# pacote de desenvolvimento (ex: `sudo apt install libcurl4-openssl-dev`).
-find_package(CURL REQUIRED)
+# libcurl 8.x (FetchContent) — HTTP + WebSocket (Supabase Realtime).
+# Evita depender do curl antigo do sistema (< 7.86 sem curl_ws_*).
+include(${CMAKE_SOURCE_DIR}/cmake/CurlWithWebSocket.cmake)
 
 # O box2d define -Werror internamente no seu CMakeLists (dependendo da
 # versão/toolchain) e a 3.1.0 dispara falsos-positivos de
@@ -74,11 +73,20 @@ file(GLOB_RECURSE CANNON_DUEL_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/src/*.cpp
 )
 
+set(CANNON_DUEL_TARGET CannonDuel)
+include(${CMAKE_SOURCE_DIR}/cmake/DebugMode.cmake)
+
 add_executable(CannonDuel ${CANNON_DUEL_SOURCES})
+
+cannon_duel_apply_debug_mode(CannonDuel)
 
 target_include_directories(CannonDuel PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-target_link_libraries(CannonDuel PRIVATE raylib box2d nlohmann_json::nlohmann_json CURL::libcurl)
+target_link_libraries(CannonDuel PRIVATE
+    raylib box2d nlohmann_json::nlohmann_json
+    libcurl OpenSSL::SSL OpenSSL::Crypto
+    pthread
+)
 
 if(APPLE)
     target_link_libraries(CannonDuel PRIVATE "-framework IOKit" "-framework Cocoa" "-framework OpenGL")

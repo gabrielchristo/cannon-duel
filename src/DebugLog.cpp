@@ -1,5 +1,6 @@
 #include "DebugLog.h"
 #include <raylib.h>
+#include <string>
 #include <cstdio>
 #include <cstdarg>
 #include <cstring>

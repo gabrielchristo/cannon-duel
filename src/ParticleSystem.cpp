@@ -4,7 +4,7 @@
 #include <algorithm>
 
 static float RandRange(float lo, float hi) {
-    return lo + static_cast<float>(rand()) / RAND_MAX * (hi - lo);
+    return lo + static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * (hi - lo);
 }
 
 void ParticleSystem::EmitExplosion(Vector2 pos, int count) {

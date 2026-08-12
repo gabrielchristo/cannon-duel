@@ -132,6 +132,8 @@ set(CMAKE_DISABLE_FIND_PACKAGE_LibSSH2 ON CACHE BOOL "" FORCE)
 set(CURL_USE_GSASL OFF CACHE BOOL "" FORCE)
 set(CURL_USE_LIBUV OFF CACHE BOOL "" FORCE)
 set(CMAKE_DISABLE_FIND_PACKAGE_OpenSSL ON CACHE BOOL "" FORCE) # garante que não tenta OpenSSL por engano (usamos mbedTLS)
+set(ENABLE_WEBSOCKETS ON CACHE BOOL "" FORCE)
+set(CURL_DISABLE_WEBSOCKETS OFF CACHE BOOL "" FORCE)
 
 # O CMakeLists.txt do próprio curl chama find_package(MbedTLS REQUIRED)
 # internamente pra decidir se o mbedTLS está disponível — esse é um "Find
@@ -183,10 +185,15 @@ file(GLOB_RECURSE CANNON_DUEL_SOURCES CONFIGURE_DEPENDS
 set(CANNON_DUEL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 include(${CANNON_DUEL_ROOT}/cmake/EmbedCaCert.cmake)
 
+set(CANNON_DUEL_TARGET CannonDuel)
+include(${CANNON_DUEL_ROOT}/cmake/DebugMode.cmake)
+
 add_library(CannonDuel SHARED
     ${CANNON_DUEL_SOURCES}
     ${NATIVE_APP_GLUE_DIR}/android_native_app_glue.c
 )
+
+cannon_duel_apply_debug_mode(CannonDuel)
 
 cannon_duel_embed_cacert(CannonDuel "${CANNON_DUEL_ROOT}")
 
@@ -197,7 +204,7 @@ target_include_directories(CannonDuel PRIVATE
 )
 
 # libraylib.a foi compilado separadamente pelo Makefile oficial do raylib
-# (ver android/build_android.sh) — aqui só apontamos pra ele como uma lib
+# (ver build_android.sh) — aqui só apontamos pra ele como uma lib
 # estática "importada" (pré-compilada), sem o CMake tentar reconstruí-la.
 add_library(raylib_prebuilt STATIC IMPORTED)
 set_target_properties(raylib_prebuilt PROPERTIES IMPORTED_LOCATION ${RAYLIB_A})
@@ -216,10 +223,12 @@ target_link_libraries(CannonDuel PRIVATE
 target_link_options(CannonDuel PRIVATE "-u" "ANativeActivity_onCreate")
 
 # Intercepta logcat/printf e manda pro overlay (DebugLog) em vez do terminal.
-target_link_options(CannonDuel PRIVATE
-    "-Wl,--wrap,__android_log_print"
-    "-Wl,--wrap,__android_log_vprint"
-    "-Wl,--wrap,printf"
-    "-Wl,--wrap,vprintf"
-    "-Wl,--wrap,fprintf"
-)
+if(CANNON_DUEL_DEBUG_MODE)
+    target_link_options(CannonDuel PRIVATE
+        "-Wl,--wrap,__android_log_print"
+        "-Wl,--wrap,__android_log_vprint"
+        "-Wl,--wrap,printf"
+        "-Wl,--wrap,vprintf"
+        "-Wl,--wrap,fprintf"
+    )
+endif()

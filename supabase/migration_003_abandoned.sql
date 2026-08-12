@@ -1,0 +1,3 @@
+-- Partida encerrada por desconexão / abandono de um jogador.
+-- status 'abandoned' + winner_player indica quem ficou na partida.
+-- (O schema original só tinha active | finished.)

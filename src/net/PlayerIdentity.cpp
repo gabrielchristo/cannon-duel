@@ -1,7 +1,8 @@
 #include "PlayerIdentity.h"
 #include "../Platform.h"
+#include "../DebugLog.h"
 
-
+#include <raylib.h>
 #include <fstream>
 #include <sstream>
 #include <cstdlib>
@@ -9,15 +10,17 @@
 #include <random>
 
 std::string PlayerIdentity::SavePath() {
-    // Fica ao lado do executável, junto com o resto do jogo — simples e
-    // suficiente pra um projeto hobby (sem depender de diretórios de config
-    // do sistema operacional).
+    // Desktop: ao lado do executável.
+    // Android: GetWorkingDirectory() aponta pro storage interno do app
+    // (sobrevive entre sessões; reinstall limpa — esperado).
+#if CANNON_DUEL_ANDROID_BUILD
+    return std::string(GetWorkingDirectory()) + "/player_identity.txt";
+#else
     return "player_identity.txt";
+#endif
 }
 
 std::string PlayerIdentity::GeneratePseudoUuid() {
-    // Não precisa ser criptograficamente forte — é só um identificador
-    // local pra distinguir jogadores no lobby, não um token de segurança.
     static std::random_device rd;
     static std::mt19937_64 rng(rd() ^ static_cast<unsigned long long>(time(nullptr)));
     std::uniform_int_distribution<int> hexDist(0, 15);
@@ -28,31 +31,44 @@ std::string PlayerIdentity::GeneratePseudoUuid() {
         if (c == 'x') {
             c = hexChars[hexDist(rng)];
         } else if (c == 'y') {
-            c = hexChars[8 + (hexDist(rng) % 4)]; // variante UUID v4 (8,9,a,b)
+            c = hexChars[8 + (hexDist(rng) % 4)];
         }
     }
     return uuid;
 }
 
 void PlayerIdentity::LoadOrCreate() {
-    std::ifstream in(SavePath());
-    if (in.good()) {
-        std::string line1, line2;
-        std::getline(in, line1);
-        std::getline(in, line2);
-        if (!line1.empty()) {
-            id = line1;
-            displayName = line2.empty() ? ("Canhoneiro#" + id.substr(0, 4)) : line2;
-            return;
+    const std::string path = SavePath();
+
+    // Preferir API raylib (Android-friendly) e fallback fstream.
+    if (FileExists(path.c_str())) {
+        char* raw = LoadFileText(path.c_str());
+        if (raw) {
+            std::istringstream in(raw);
+            std::string line1, line2;
+            std::getline(in, line1);
+            std::getline(in, line2);
+            UnloadFileText(raw);
+            // trim CR
+            if (!line1.empty() && line1.back() == '\r') line1.pop_back();
+            if (!line2.empty() && line2.back() == '\r') line2.pop_back();
+            if (!line1.empty()) {
+                id = line1;
+                displayName = line2.empty() ? ("Canhoneiro#" + id.substr(0, 4)) : line2;
+                DebugLogf(LOG_INFO, "IDENTITY: carregada id=%s nome=%s path=%s",
+                          id.c_str(), displayName.c_str(), path.c_str());
+                return;
+            }
         }
     }
 
-    // Primeira vez rodando — gera um novo identificador e um nome padrão.
     id = GeneratePseudoUuid();
     std::mt19937 rng(static_cast<unsigned int>(time(nullptr)));
     int suffix = 1000 + static_cast<int>(rng() % 9000);
     displayName = "Canhoneiro#" + std::to_string(suffix);
     Save();
+    DebugLogf(LOG_INFO, "IDENTITY: NOVA id=%s nome=%s path=%s",
+              id.c_str(), displayName.c_str(), path.c_str());
 }
 
 void PlayerIdentity::SetDisplayName(const std::string& name) {
@@ -62,7 +78,10 @@ void PlayerIdentity::SetDisplayName(const std::string& name) {
 }
 
 void PlayerIdentity::Save() const {
-    std::ofstream out(SavePath());
-    out << id << "\n" << displayName << "\n";
+    const std::string path = SavePath();
+    std::string body = id + "\n" + displayName + "\n";
+    if (!SaveFileText(path.c_str(), body.data())) {
+        std::ofstream out(path);
+        out << body;
+    }
 }
-

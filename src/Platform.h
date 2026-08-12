@@ -33,3 +33,8 @@
 #if !defined(CANNON_DUEL_HAS_EMBEDDED_CA)
     #define CANNON_DUEL_HAS_EMBEDDED_CA 0
 #endif
+
+// Definido pelo CMake (cmake/DebugMode.cmake) — padrão ON por enquanto.
+#if !defined(CANNON_DUEL_DEBUG_MODE)
+    #define CANNON_DUEL_DEBUG_MODE 0
+#endif

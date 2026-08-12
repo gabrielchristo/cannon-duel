@@ -31,10 +31,11 @@ public:
     bool queuedDoubleDamage  = false; // acabou de pegar; só vira "pending" após o tiro atual resolver
     bool pendingGuided       = false;
     int  trajectoryPreviewTurnsLeft = 0;
+    int  queuedTrajectoryPreviewTurns = 0; // acabou de pegar; só vira ativo após o tiro atual resolver
     int  shieldTurnsLeft            = 0;
 
     bool HasActiveEffectIndicator() const {
         return pendingDoubleDamage || queuedDoubleDamage || pendingGuided ||
-               trajectoryPreviewTurnsLeft > 0 || shieldTurnsLeft > 0;
+               trajectoryPreviewTurnsLeft > 0 || queuedTrajectoryPreviewTurns > 0 || shieldTurnsLeft > 0;
     }
 };

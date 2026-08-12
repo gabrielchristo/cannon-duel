@@ -117,6 +117,7 @@ private:
     std::vector<Powerup> activePowerups;
     int turnsSincePowerupCheck = 0;
     Vector2 prevProjectilePos{}; // usado para checagem de colisão "varrida" (evita atravessar em alta velocidade)
+    bool guidedDiving = false; // teleguiado: uma vez que entra na fase de "mergulho" no alvo, nunca mais volta a mirar no ápice (evita oscilação/instabilidade perto do limiar de distância)
 
     void MaybeSpawnPowerup();
     void DrawPowerup() const;

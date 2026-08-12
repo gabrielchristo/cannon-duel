@@ -13,6 +13,7 @@ void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
     queuedDoubleDamage = false;
     pendingGuided = false;
     trajectoryPreviewTurnsLeft = 0;
+    queuedTrajectoryPreviewTurns = 0;
     shieldTurnsLeft = 0;
 }
 

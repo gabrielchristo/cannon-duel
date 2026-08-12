@@ -454,7 +454,13 @@ void Game::ApplyPowerupEffect(Cannon& picker, PowerupType type) {
             picker.queuedDoubleDamage = true;
             break;
         case PowerupType::TrajectoryPreview:
-            picker.trajectoryPreviewTurnsLeft = cfg::POWERUP_TRAJECTORY_TURNS;
+            // Mesma lógica do dano em dobro: só começa a valer a partir da
+            // PRÓXIMA rodada do jogador (não durante a rodada em que ele
+            // acabou de coletar o item, já que a mira dessa rodada já
+            // aconteceu antes da bala pegar o power-up). Sem isso, o
+            // primeiro dos 2 turnos prometidos era "gasto" silenciosamente
+            // sem nunca ter sido mostrado na tela.
+            picker.queuedTrajectoryPreviewTurns = cfg::POWERUP_TRAJECTORY_TURNS;
             break;
         case PowerupType::Guided:
             picker.pendingGuided = true;
@@ -475,8 +481,15 @@ void Game::ApplyPowerupEffect(Cannon& picker, PowerupType type) {
 }
 
 void Game::TickPowerupTurnEffects(Cannon& startingTurnCannon) {
+    // O escudo protege o titular como DEFENSOR (contra ataques do
+    // adversário) — decrementar no início do turno dele é uma aproximação
+    // razoável de "uma rodada se passou". A trajetória prevista NÃO é
+    // decrementada aqui: ela é consumida no exato momento em que o tiro é
+    // disparado (ver UpdateAiming), porque decrementar aqui — antes da
+    // mira do próprio turno — "gastava" um crédito antes do jogador sequer
+    // ter a chance de ver o preview naquele turno (bug: só durava 1 rodada
+    // em vez de 2).
     if (startingTurnCannon.shieldTurnsLeft > 0) startingTurnCannon.shieldTurnsLeft--;
-    if (startingTurnCannon.trajectoryPreviewTurnsLeft > 0) startingTurnCannon.trajectoryPreviewTurnsLeft--;
 }
 
 void Game::ShowPowerupMessage(const char* text, Vector2 pos) {
@@ -693,6 +706,12 @@ void Game::UpdateAiming() {
             : active.AimDirection();
         projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
         prevProjectilePos = muzzle;
+        guidedDiving = false;
+        // Trajetória prevista é consumida no exato momento do disparo — é
+        // aqui que o jogador de fato "usou" a rodada com o preview visível.
+        if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
+            active.trajectoryPreviewTurnsLeft--;
+        }
         if (audioReady) PlaySound(sndFire);
         aimPhase = AimPhase::Angle;
         state = GameState::ProjectileFlying;
@@ -761,6 +780,10 @@ void Game::UpdateAiming() {
                 : active.AimDirection();
             projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
             prevProjectilePos = muzzle;
+            guidedDiving = false;
+            if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
+                active.trajectoryPreviewTurnsLeft--;
+            }
             if (audioReady) PlaySound(sndFire);
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
@@ -782,11 +805,24 @@ void Game::UpdateProjectileFlight(float dt) {
         // perto o suficiente para "mergulhar" sobre ele — assim o tiro nunca
         // vai em linha reta baixa e explode sem causar dano no terreno mais
         // próximo antes de chegar perto do alvo.
+        //
+        // IMPORTANTE: uma vez que entra em modo "mergulho", NUNCA mais volta
+        // pro modo "subir" — sem essa trava (guidedDiving), se a distância
+        // horizontal oscilasse pra frente e pra trás bem em cima do limiar
+        // (por causa do vento, por exemplo), o alvo da mira alternava entre
+        // "céu" e "canhão" a cada frame, fazendo o projétil guinar
+        // erraticamente pra cima e pra baixo sem parar — exatamente o
+        // comportamento instável relatado.
         Vector2 projPos = projectile.PositionPx();
-        float horizDist = std::fabs(projPos.x - opponent.x);
-        Vector2 targetPos = (horizDist > cfg::POWERUP_GUIDED_DIVE_DIST_PX)
-            ? Vector2{ opponent.x, cfg::POWERUP_GUIDED_APEX_Y_PX }
-            : Vector2{ opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+        if (!guidedDiving) {
+            float horizDist = std::fabs(projPos.x - opponent.x);
+            if (horizDist <= cfg::POWERUP_GUIDED_DIVE_DIST_PX) {
+                guidedDiving = true;
+            }
+        }
+        Vector2 targetPos = guidedDiving
+            ? Vector2{ opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f }
+            : Vector2{ opponent.x, cfg::POWERUP_GUIDED_APEX_Y_PX };
         projectile.ApplyGuidance(targetPos, cfg::POWERUP_GUIDED_TURN_RATE_DEG, dt);
     }
 
@@ -873,6 +909,13 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         if (shooter.queuedDoubleDamage) {
             shooter.pendingDoubleDamage = true;
             shooter.queuedDoubleDamage = false;
+        }
+
+        // Mesma promoção "atrasada" pra trajetória prevista — só começa a
+        // contar a partir da próxima rodada do jogador.
+        if (shooter.queuedTrajectoryPreviewTurns > 0) {
+            shooter.trajectoryPreviewTurnsLeft = shooter.queuedTrajectoryPreviewTurns;
+            shooter.queuedTrajectoryPreviewTurns = 0;
         }
     }
 

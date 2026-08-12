@@ -4,16 +4,15 @@ Rode isso na raiz do projeto:
 
   curl -o assets/certs/cacert.pem https://curl.se/ca/cacert.pem
 
-(ou baixe manualmente https://curl.se/ca/cacert.pem e salve como
-assets/certs/cacert.pem)
+Estratégia TLS por plataforma (implementada em src/net/TlsCaBundle.cpp):
 
-Esse arquivo é o pacote de certificados raiz que o curl/Mozilla mantém
-publicamente pra builds que não têm acesso ao repositório de confiança do
-sistema operacional (é exatamente o nosso caso na build Android — o curl
-que compilamos do zero com mbedTLS não tem nenhum certificado embutido).
-Sem esse arquivo em assets/certs/cacert.pem, toda requisição HTTPS do
-multiplayer online falha silenciosamente no Android.
+  Desktop (PC): lê assets/certs/cacert.pem em disco se existir; senão
+                usa o repositório de CAs do sistema operacional.
 
-No desktop isso não é estritamente necessário (o curl do sistema já
-resolve sozinho), mas o código aponta pra esse mesmo arquivo nas duas
-plataformas por consistência — então baixe de qualquer forma.
+  Android/iOS:  cacert.pem é EMBUTIDO no binário pelo CMake
+                (cmake/EmbedCaCert.cmake + xxd -i) e passado ao curl via
+                CURLOPT_CAINFO_BLOB — curl estático nessas plataformas não
+                tem CAs do SO. Mesmo módulo CMake serve pros dois.
+
+NÃO use LoadFileData() para o cacert no mobile — ftell() do raylib retorna
+0 bytes em assets empacotados.

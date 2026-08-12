@@ -81,6 +81,19 @@ fi
 
 mkdir -p "$BUILD_DIR"
 
+CACERT="$PROJECT_ROOT/assets/certs/cacert.pem"
+if [ ! -s "$CACERT" ]; then
+    echo "==> assets/certs/cacert.pem ausente — baixando de curl.se..."
+    mkdir -p "$(dirname "$CACERT")"
+    curl -fsSL -o "$CACERT" https://curl.se/ca/cacert.pem
+fi
+if [ ! -s "$CACERT" ]; then
+    echo "ERRO: assets/certs/cacert.pem não existe ou está vazio." >&2
+    echo "       Rode: curl -o assets/certs/cacert.pem https://curl.se/ca/cacert.pem" >&2
+    exit 1
+fi
+echo "==> cacert.pem OK ($(wc -c < "$CACERT") bytes)"
+
 # ---------------------------------------------------------------------------
 # 1/6: raylib via Makefile oficial
 # ---------------------------------------------------------------------------

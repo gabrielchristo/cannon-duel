@@ -180,10 +180,15 @@ file(GLOB_RECURSE CANNON_DUEL_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/*.cpp
 )
 
+set(CANNON_DUEL_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
+include(${CANNON_DUEL_ROOT}/cmake/EmbedCaCert.cmake)
+
 add_library(CannonDuel SHARED
     ${CANNON_DUEL_SOURCES}
     ${NATIVE_APP_GLUE_DIR}/android_native_app_glue.c
 )
+
+cannon_duel_embed_cacert(CannonDuel "${CANNON_DUEL_ROOT}")
 
 target_include_directories(CannonDuel PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src
@@ -209,3 +214,12 @@ target_link_libraries(CannonDuel PRIVATE
 # linker por "não ser referenciado" (ele é chamado via JNI, não por código
 # C/C++ visível estaticamente).
 target_link_options(CannonDuel PRIVATE "-u" "ANativeActivity_onCreate")
+
+# Intercepta logcat/printf e manda pro overlay (DebugLog) em vez do terminal.
+target_link_options(CannonDuel PRIVATE
+    "-Wl,--wrap,__android_log_print"
+    "-Wl,--wrap,__android_log_vprint"
+    "-Wl,--wrap,printf"
+    "-Wl,--wrap,vprintf"
+    "-Wl,--wrap,fprintf"
+)

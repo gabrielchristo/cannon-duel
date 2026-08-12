@@ -1,19 +1,20 @@
 #pragma once
+#include <raylib.h>
 #include <string>
 #include <vector>
 
-// Buffer de log temporário pro overlay na tela (Android sem logcat à mão).
-// Deliberadamente INDEPENDENTE do TraceLog do raylib — não depende do
-// nível de log configurado nem de flags de build (ex: SUPPORT_TRACELOG),
-// que podem variar entre a build desktop e a Android e filtrar mensagens
-// silenciosamente antes de chegarem em qualquer callback.
+// Buffer de log pro overlay na tela (Android sem logcat à mão).
+// InstallOverlayCapture() redireciona TraceLog, printf e logcat Android
+// pra cá — nada vai mais pro terminal/logcat.
 namespace DebugLog {
     void Push(const std::string& line);
     const std::vector<std::string>& Lines();
+
+    // Redireciona TraceLog (raylib), printf e logcat Android pro buffer do
+    // overlay — nada vai mais pro terminal/logcat. Chamar uma vez no boot.
+    void InstallOverlayCapture();
 }
 
-// Loga formatado, tanto no TraceLog padrão do raylib (stdout/logcat,
-// quando disponível) quanto no buffer acima. Use isso em vez de
-// TraceLog(...) diretamente nos arquivos de rede — garante que a mensagem
-// apareça no overlay independente de qualquer configuração de log.
+// Loga formatado no overlay via TraceLog + callback instalado por
+// InstallOverlayCapture(). Use em vez de TraceLog/printf diretos.
 void DebugLogf(int level, const char* fmt, ...);

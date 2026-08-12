@@ -2,6 +2,7 @@
 #include "Platform.h"
 #include "AssetPath.h"
 #include "DebugLog.h"
+#include "net/SupabaseClient.h"
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -18,6 +19,7 @@ float RandF(float lo, float hi) {
 } // namespace
 
 Game::Game() {
+    DebugLog::InstallOverlayCapture();
     InitWindow(cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, "Cannon Duel");
     SetTargetFPS(cfg::TARGET_FPS);
 
@@ -66,6 +68,7 @@ Game::Game() {
     InitDustMotes();
 
     playerIdentity.LoadOrCreate();
+    SupabaseClient::ProbeCaBundle();
     onlineLobby.Init(&playerIdentity);
 }
 
@@ -148,15 +151,14 @@ void Game::DrawDebugLogOverlay() const {
     }
 
     int totalLines = static_cast<int>(DebugLog::Lines().size());
-    if (totalLines == 0) return;
-    int shown = std::min(totalLines, visibleLines);
+    int shown = std::min(std::max(totalLines, 1), visibleLines);
     int panelH = headerH + lineH * shown;
     Rectangle panel = { 8, 8, static_cast<float>(panelW), static_cast<float>(panelH) };
     Rectangle closeBtn = { panel.x + panel.width - 44, panel.y + 2, 40, 36 };
 
     DrawRectangleRec(panel, Fade(BLACK, 0.82f));
     DrawRectangleLinesEx(panel, 2, Fade(YELLOW, 0.9f));
-    DrawTextEx(uiFont, "LOG TEMPORARIO (multiplayer)", {panel.x + 6, panel.y + 4}, fs, 1.0f, YELLOW);
+    DrawTextEx(uiFont, "LOG (overlay — sem logcat/terminal)", {panel.x + 6, panel.y + 4}, fs, 1.0f, YELLOW);
     DrawTextEx(uiFont, "arraste p/ rolar", {panel.x + 6, panel.y + 4 + fs + 2}, fs - 2, 1.0f, Fade(YELLOW, 0.75f));
 
     bool hoverClose = CheckCollisionPointRec(GetMousePosition(), closeBtn);
@@ -166,6 +168,12 @@ void Game::DrawDebugLogOverlay() const {
     float xw = MeasureTextEx(uiFont, "X", xFs, 1.0f).x;
     DrawTextEx(uiFont, "X", {closeBtn.x + closeBtn.width / 2 - xw / 2,
                closeBtn.y + closeBtn.height / 2 - xFs / 2}, xFs, 1.0f, WHITE);
+
+    if (totalLines == 0) {
+        DrawTextEx(uiFont, "(aguardando logs...)", {panel.x + 6, static_cast<float>(panel.y + headerH)},
+                  fs, 1.0f, Fade(WHITE, 0.6f));
+        return;
+    }
 
     int y = static_cast<int>(panel.y) + headerH;
     int start = std::clamp(debugLogScrollIndex, 0, std::max(0, totalLines - visibleLines));

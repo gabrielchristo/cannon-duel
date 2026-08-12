@@ -1,14 +1,35 @@
 #pragma once
 
-// O NDK do Android já define __ANDROID__ automaticamente para qualquer
-// código compilado com o toolchain dele — não precisamos configurar nada
-// extra no CMake para isso funcionar. Usamos essa macro para isolar, em
-// tempo de compilação, funcionalidades que só fazem sentido em desktop
-// (painel de desenvolvedor, atalhos de teclado para o 2º jogador) das que
-// valem para ambas as plataformas. O multiplayer online (src/net/) NÃO é
-// mais restrito por essa macro — compila e funciona nas duas plataformas.
+// Detecção de plataforma em tempo de compilação.
+// Usado para isolar diferenças entre desktop, Android e (futuro) iOS.
+//
+// Android: NDK define __ANDROID__ automaticamente.
+// iOS:     __APPLE__ + TARGET_OS_IPHONE (quando existir build iOS).
+// Desktop: tudo que não for mobile (Linux, macOS, Windows).
+
 #if defined(__ANDROID__)
     #define CANNON_DUEL_ANDROID_BUILD 1
 #else
     #define CANNON_DUEL_ANDROID_BUILD 0
+#endif
+
+#if defined(__APPLE__)
+    #include <TargetConditionals.h>
+    #if TARGET_OS_IPHONE
+        #define CANNON_DUEL_IOS_BUILD 1
+    #else
+        #define CANNON_DUEL_IOS_BUILD 0
+    #endif
+#else
+    #define CANNON_DUEL_IOS_BUILD 0
+#endif
+
+#define CANNON_DUEL_MOBILE_BUILD (CANNON_DUEL_ANDROID_BUILD || CANNON_DUEL_IOS_BUILD)
+#define CANNON_DUEL_DESKTOP_BUILD (!CANNON_DUEL_MOBILE_BUILD)
+
+// Definido pelo CMake (cmake/EmbedCaCert.cmake) quando cacert.pem é
+// embutido no binário via xxd -i — obrigatório em mobile (curl sem CAs
+// do sistema); opcional no desktop.
+#if !defined(CANNON_DUEL_HAS_EMBEDDED_CA)
+    #define CANNON_DUEL_HAS_EMBEDDED_CA 0
 #endif

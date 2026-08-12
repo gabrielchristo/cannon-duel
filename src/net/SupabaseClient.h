@@ -33,6 +33,9 @@ public:
     // true se a última requisição terminou sem erro de transporte/HTTP.
     bool LastRequestOk() const { return lastOk; }
 
+    // Resolve e loga o certificado CA sem fazer nenhuma requisição HTTP.
+    static void ProbeCaBundle();
+
 private:
     bool lastOk = true;
 

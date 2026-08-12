@@ -72,6 +72,7 @@ private:
     // --- áudio ---
     Sound sndFire{};
     Sound sndExplosion{};
+    Music music{};
     bool audioReady = false;
 
     // --- sprites placeholder ---
@@ -100,6 +101,17 @@ private:
     void UpdateMenuConfirmDialog(); // consome cliques enquanto o diálogo está aberto
 
     void ResetRound(unsigned int seed);
+
+    // --- resolução virtual (render texture) ---
+    // O jogo inteiro é desenhado internamente numa resolução fixa
+    // (cfg::SCREEN_WIDTH x cfg::SCREEN_HEIGHT) e depois escalada/centralizada
+    // pra caber na janela/tela real — essencial no Android, onde a
+    // NativeActivity roda sempre em tela cheia na resolução nativa do
+    // aparelho (nunca 1280x720). Sem isso, todo o layout (botões, HUD) e a
+    // leitura de toque/mouse ficam desalinhados.
+    RenderTexture2D virtualScreen{};
+    Vector2 GetVirtualMouse() const;
+    void DrawVirtualScreenScaled() const;
 
     // --- power-ups (versão Plus) ---
     std::vector<Powerup> activePowerups;

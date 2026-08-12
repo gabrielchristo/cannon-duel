@@ -39,6 +39,32 @@ PLATFORM_VERSION="android-30"   # deve bater com o que está em $ANDROID_HOME/pl
 : "${ANDROID_HOME:?defina ANDROID_HOME antes de rodar este script}"
 : "${ANDROID_NDK_HOME:?defina ANDROID_NDK_HOME antes de rodar este script}"
 
+# Checagem extra: garante que ANDROID_NDK_HOME de fato aponta pra dentro de
+# ANDROID_HOME e que o compilador existe nesse caminho — pega cedo o caso
+# clássico de ANDROID_NDK_HOME ter sido exportado com um valor "congelado"
+# de uma sessão de terminal antiga, antes de ANDROID_HOME estar definido
+# (o valor de um export não se recalcula sozinho depois).
+case "$ANDROID_NDK_HOME" in
+    "$ANDROID_HOME"/*) ;;
+    *)
+        echo "ERRO: ANDROID_NDK_HOME (\"$ANDROID_NDK_HOME\") não está dentro de ANDROID_HOME (\"$ANDROID_HOME\")." >&2
+        echo "       Isso costuma acontecer quando ANDROID_NDK_HOME foi exportado numa sessão" >&2
+        echo "       de terminal antiga, antes de ANDROID_HOME estar definido — o valor fica" >&2
+        echo "       'congelado' errado. Rode de novo:" >&2
+        echo "         export ANDROID_HOME=$ANDROID_HOME" >&2
+        echo "         export ANDROID_NDK_HOME=\$ANDROID_HOME/ndk/<versão>" >&2
+        exit 1
+        ;;
+esac
+
+CLANG_BIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android${API_LEVEL}-clang"
+if [ ! -x "$CLANG_BIN" ]; then
+    echo "ERRO: não encontrei o compilador do NDK em:" >&2
+    echo "  $CLANG_BIN" >&2
+    echo "Confira se ANDROID_NDK_HOME (\"$ANDROID_NDK_HOME\") está correto." >&2
+    exit 1
+fi
+
 BUILD_TOOLS="$ANDROID_HOME/build-tools/$BUILD_TOOLS_VERSION"
 ANDROID_JAR="$ANDROID_HOME/platforms/$PLATFORM_VERSION/android.jar"
 
@@ -110,6 +136,7 @@ echo "==> 4/6: Empacotando com aapt (não assinado, não alinhado)"
 UNALIGNED_APK="$BUILD_DIR/CannonDuel.unaligned.apk"
 "$BUILD_TOOLS/aapt" package -f -F "$UNALIGNED_APK" \
     -M "$ANDROID_DIR/AndroidManifest.xml" \
+    -S "$ANDROID_DIR/res" \
     -I "$ANDROID_JAR" \
     -A "$APK_ROOT/assets"
 (cd "$APK_ROOT" && "$BUILD_TOOLS/aapt" add "$UNALIGNED_APK" "lib/$ABI/libCannonDuel.so")

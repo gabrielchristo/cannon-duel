@@ -7,6 +7,21 @@
 #include <algorithm>
 
 namespace {
+// No desktop, os assets ficam numa pasta "assets/" ao lado do executável,
+// então os caminhos usados pelo raylib precisam do prefixo "assets/". No
+// Android, o raylib carrega arquivos de dentro do APK via AAssetManager,
+// cujos caminhos já são relativos à RAIZ da pasta assets/ do APK — incluir
+// o prefixo "assets/" de novo faria ele procurar por uma subpasta "assets/"
+// dentro de "assets/", que não existe, e o carregamento falha em silêncio
+// (é exatamente isso que fazia sprites/sons não aparecerem no Android).
+inline std::string AssetPath(const char* relative) {
+#if CANNON_DUEL_ANDROID_BUILD
+    return relative;
+#else
+    return std::string("assets/") + relative;
+#endif
+}
+
 float RandF(float lo, float hi) {
     return lo + static_cast<float>(rand()) / RAND_MAX * (hi - lo);
 }
@@ -16,19 +31,32 @@ Game::Game() {
     InitWindow(cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, "Cannon Duel");
     SetTargetFPS(cfg::TARGET_FPS);
 
+    // No Android, InitWindow ignora a largura/altura pedidas e usa sempre a
+    // resolução nativa da tela do aparelho em tela cheia — por isso
+    // renderizamos numa textura de resolução fixa e escalamos na hora de
+    // mostrar (ver DrawVirtualScreenScaled / GetVirtualMouse).
+    virtualScreen = LoadRenderTexture(cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT);
+    SetTextureFilter(virtualScreen.texture, TEXTURE_FILTER_BILINEAR);
+
     InitAudioDevice();
     audioReady = IsAudioDeviceReady();
     if (audioReady) {
-        sndFire      = LoadSound("assets/sounds/fire.wav");
-        sndExplosion = LoadSound("assets/sounds/explosion.wav");
+        sndFire      = LoadSound(AssetPath("sounds/fire.ogg").c_str());
+        sndExplosion = LoadSound(AssetPath("sounds/explosion.ogg").c_str());
+
+        music = LoadMusicStream(AssetPath("sounds/music.ogg").c_str());
+        music.looping = true;
+        if (music.frameCount > 0) {
+            SetMusicVolume(music, 0.5f);
+        }
     }
 
-    texCannonLeft   = LoadTexture("assets/sprites/cannon_left.png");
-    texCannonRight  = LoadTexture("assets/sprites/cannon_right.png");
-    texBackground   = LoadTexture("assets/sprites/background.png");
-    texBackgroundNight = LoadTexture("assets/sprites/background_night.png");
-    texTerrainTile  = LoadTexture("assets/sprites/terrain_tile.png");
-    texProjectile   = LoadTexture("assets/sprites/projectile.png");
+    texCannonLeft   = LoadTexture(AssetPath("sprites/cannon_left.png").c_str());
+    texCannonRight  = LoadTexture(AssetPath("sprites/cannon_right.png").c_str());
+    texBackground   = LoadTexture(AssetPath("sprites/background.png").c_str());
+    texBackgroundNight = LoadTexture(AssetPath("sprites/background_night.png").c_str());
+    texTerrainTile  = LoadTexture(AssetPath("sprites/terrain_tile.png").c_str());
+    texProjectile   = LoadTexture(AssetPath("sprites/projectile.png").c_str());
     spritesReady = (texCannonLeft.id != 0 && texCannonRight.id != 0);
 
     srand(static_cast<unsigned int>(time(nullptr)));
@@ -38,6 +66,7 @@ Game::~Game() {
     if (audioReady) {
         UnloadSound(sndFire);
         UnloadSound(sndExplosion);
+        UnloadMusicStream(music);
         CloseAudioDevice();
     }
     UnloadTexture(texCannonLeft);
@@ -46,6 +75,7 @@ Game::~Game() {
     UnloadTexture(texBackgroundNight);
     UnloadTexture(texTerrainTile);
     UnloadTexture(texProjectile);
+    UnloadRenderTexture(virtualScreen);
     CloseWindow();
 }
 
@@ -55,6 +85,38 @@ void Game::Run() {
         Update(dt);
         Draw();
     }
+}
+
+Vector2 Game::GetVirtualMouse() const {
+    Vector2 mouse = GetMousePosition();
+    float screenW = static_cast<float>(GetScreenWidth());
+    float screenH = static_cast<float>(GetScreenHeight());
+    float scale = std::min(screenW / cfg::SCREEN_WIDTH, screenH / cfg::SCREEN_HEIGHT);
+    float offsetX = (screenW - cfg::SCREEN_WIDTH * scale) * 0.5f;
+    float offsetY = (screenH - cfg::SCREEN_HEIGHT * scale) * 0.5f;
+
+    Vector2 v;
+    v.x = (mouse.x - offsetX) / scale;
+    v.y = (mouse.y - offsetY) / scale;
+    v.x = std::clamp(v.x, 0.0f, static_cast<float>(cfg::SCREEN_WIDTH));
+    v.y = std::clamp(v.y, 0.0f, static_cast<float>(cfg::SCREEN_HEIGHT));
+    return v;
+}
+
+void Game::DrawVirtualScreenScaled() const {
+    float screenW = static_cast<float>(GetScreenWidth());
+    float screenH = static_cast<float>(GetScreenHeight());
+    float scale = std::min(screenW / cfg::SCREEN_WIDTH, screenH / cfg::SCREEN_HEIGHT);
+
+    Rectangle src = { 0, 0, static_cast<float>(virtualScreen.texture.width),
+                      -static_cast<float>(virtualScreen.texture.height) }; // Y invertido (render texture)
+    Rectangle dst = {
+        (screenW - cfg::SCREEN_WIDTH * scale) * 0.5f,
+        (screenH - cfg::SCREEN_HEIGHT * scale) * 0.5f,
+        cfg::SCREEN_WIDTH * scale,
+        cfg::SCREEN_HEIGHT * scale
+    };
+    DrawTexturePro(virtualScreen.texture, src, dst, {0, 0}, 0.0f, WHITE);
 }
 
 // ---------------------------------------------------------------------------
@@ -118,6 +180,11 @@ void Game::StartMatch(GameMode m) {
     mode = m;
     if (mode == GameMode::PvAI) ai.SetDifficulty(0.55f);
     ResetRound(static_cast<unsigned int>(time(nullptr)) ^ rand());
+
+    // Música toca em loop só durante a partida (não no menu).
+    if (audioReady && music.frameCount > 0) {
+        PlayMusicStream(music);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +203,12 @@ const char* Game::ResolveRoundMessage() const {
 }
 
 void Game::Update(float dt) {
+    // Precisa ser chamado todo frame pro streaming da música avançar (e
+    // fazer o loop) — independe de qualquer outro estado/painel.
+    if (audioReady && music.frameCount > 0) {
+        UpdateMusicStream(music);
+    }
+
 #if !CANNON_DUEL_ANDROID_BUILD
     // Painel de desenvolvedor oculto: F9 alterna a visibilidade. Só existe
     // na build de PC — depende de teclado físico e é uma ferramenta de
@@ -209,6 +282,7 @@ void Game::Update(float dt) {
         case GameState::RoundOver:
             stateTimer -= dt;
             if (stateTimer <= 0.0f && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                if (audioReady) StopMusicStream(music);
                 state = GameState::MainMenu;
             }
             break;
@@ -216,7 +290,7 @@ void Game::Update(float dt) {
 }
 
 void Game::UpdateMainMenu() {
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     UpdateVersionSwitch(m);
     UpdateLanguageFlags(m);
 
@@ -232,7 +306,7 @@ void Game::UpdateMainMenu() {
 }
 
 void Game::UpdateAbout() {
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 100.0f, 200, 52 };
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, backBtn)) {
         state = GameState::MainMenu;
@@ -299,7 +373,7 @@ void Game::DrawPowerup() const {
 }
 
 void Game::DrawPowerupTooltip() const {
-    Vector2 mouse = GetMousePosition();
+    Vector2 mouse = GetVirtualMouse();
 
     for (const auto& pu : activePowerups) {
         if (!pu.active) continue;
@@ -474,7 +548,7 @@ void Game::DevGrantPowerupToPlayer1(PowerupType type) {
 }
 
 bool Game::UpdateDevPanel() {
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     Rectangle panel = { 16, 90, 240, 505 };
     if (!CheckCollisionPointRec(m, panel)) return false;
     if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) return true; // dentro do painel, sem clique: ainda consome (evita vazar clique pro jogo)
@@ -528,7 +602,7 @@ void Game::DrawDevPanel() const {
     bool inMatch = (state == GameState::Aiming || state == GameState::ProjectileFlying ||
                     state == GameState::TurnTransition || state == GameState::RoundOver);
 
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     float y = panel.y + 34;
     float bw = panel.width - 20, bh = 28, gap = 5;
 
@@ -893,7 +967,11 @@ void Game::EndTurn() {
 // Draw
 // ---------------------------------------------------------------------------
 void Game::Draw() {
-    BeginDrawing();
+    // Fase 1: desenha tudo numa textura de resolução fixa (cfg::SCREEN_WIDTH
+    // x cfg::SCREEN_HEIGHT) — todo o resto do código de desenho continua
+    // usando essas coordenadas fixas, sem se importar com a resolução real
+    // da janela/tela.
+    BeginTextureMode(virtualScreen);
     ClearBackground(Color{ 235, 214, 190, 255 });
 
     if (state == GameState::MainMenu) {
@@ -901,6 +979,10 @@ void Game::Draw() {
 #if !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
 #endif
+        EndTextureMode();
+        BeginDrawing();
+        ClearBackground(BLACK);
+        DrawVirtualScreenScaled();
         EndDrawing();
         return;
     }
@@ -910,6 +992,10 @@ void Game::Draw() {
 #if !CANNON_DUEL_ANDROID_BUILD
         if (devMode) DrawDevPanel();
 #endif
+        EndTextureMode();
+        BeginDrawing();
+        ClearBackground(BLACK);
+        DrawVirtualScreenScaled();
         EndDrawing();
         return;
     }
@@ -1055,6 +1141,10 @@ void Game::Draw() {
         DrawMenuConfirmDialog();
     }
 
+    EndTextureMode();
+    BeginDrawing();
+    ClearBackground(BLACK);
+    DrawVirtualScreenScaled();
     EndDrawing();
 }
 
@@ -1174,7 +1264,7 @@ void Game::DrawMainMenu() {
     int tw = MeasureText(title, fs);
     DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 160, fs, Color{40, 30, 20, 255});
 
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     DrawVersionSwitch(m);
     DrawLanguageFlags(m);
 
@@ -1225,7 +1315,7 @@ void Game::DrawAbout() {
     int cw = MeasureText(credit, fsC);
     DrawText(credit, cfg::SCREEN_WIDTH / 2 - cw / 2, y + 20, fsC, Color{200, 120, 40, 255});
 
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 100.0f, 200, 52 };
     bool hover = CheckCollisionPointRec(m, backBtn);
     DrawRectangleRec(backBtn, hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
@@ -1237,7 +1327,7 @@ void Game::DrawAbout() {
 }
 
 void Game::UpdateMenuConfirmDialog() {
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     float cx = cfg::SCREEN_WIDTH / 2.0f, cy = cfg::SCREEN_HEIGHT / 2.0f;
     Rectangle yesBtn = { cx - 130, cy + 20, 120, 48 };
     Rectangle noBtn  = { cx + 10,  cy + 20, 120, 48 };
@@ -1246,6 +1336,7 @@ void Game::UpdateMenuConfirmDialog() {
         if (CheckCollisionPointRec(m, yesBtn)) {
             showMenuConfirm = false;
             projectile.Destroy();
+            if (audioReady) StopMusicStream(music);
             state = GameState::MainMenu;
         } else if (CheckCollisionPointRec(m, noBtn)) {
             showMenuConfirm = false;
@@ -1271,7 +1362,7 @@ void Game::DrawMenuConfirmDialog() const {
     int tw2 = MeasureText(sub, fs2);
     DrawText(sub, static_cast<int>(cx - tw2 / 2), static_cast<int>(cy - 28), fs2, Color{90, 80, 70, 255});
 
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     Rectangle yesBtn = { cx - 130, cy + 20, 120, 48 };
     Rectangle noBtn  = { cx + 10,  cy + 20, 120, 48 };
 
@@ -1295,7 +1386,7 @@ void Game::DrawMenuConfirmDialog() const {
 
 void Game::DrawMenuButton() const {
     Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 16.0f, 134.0f, 40.0f };
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     bool hover = CheckCollisionPointRec(m, r);
 
     DrawRectangleRec(r, hover ? Color{235, 235, 235, 235} : Color{20, 20, 20, 170});
@@ -1311,7 +1402,7 @@ void Game::DrawMenuButton() const {
 
 bool Game::HandleMenuButtonClick() {
     Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 16.0f, 134.0f, 40.0f };
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetMousePosition(), r)) {
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetVirtualMouse(), r)) {
         return true;
     }
     return false;
@@ -1322,7 +1413,7 @@ void Game::DrawResetAngleButton() const {
     // tanto no PC (via mouse) quanto no Android (via toque), equivalente à
     // tecla B do atalho de teclado exclusivo de PC.
     Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 66.0f, 134.0f, 40.0f };
-    Vector2 m = GetMousePosition();
+    Vector2 m = GetVirtualMouse();
     bool hover = CheckCollisionPointRec(m, r);
 
     DrawRectangleRec(r, hover ? Color{235, 235, 235, 235} : Color{20, 20, 20, 170});
@@ -1338,7 +1429,7 @@ void Game::DrawResetAngleButton() const {
 
 bool Game::HandleResetAngleButtonClick() {
     Rectangle r = { cfg::SCREEN_WIDTH - 150.0f, 66.0f, 134.0f, 40.0f };
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetMousePosition(), r)) {
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(GetVirtualMouse(), r)) {
         return true;
     }
     return false;

@@ -11,6 +11,7 @@
 
     <application
         android:label="Cannon Duel"
+        android:icon="@mipmap/ic_launcher"
         android:hasCode="false"
         android:screenOrientation="landscape">
 

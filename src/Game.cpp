@@ -550,7 +550,42 @@ void Game::UpdateAiming() {
 
     if (isAITurn) {
         // IA "pensa" e atira quase imediatamente (poderia adicionar delay/timer)
-        ai.ComputeShot(active, other, windForce);
+        float targetX = other.x;
+        float targetY = other.groundY;
+
+        // Versão Plus: a IA às vezes prefere mirar num power-up no mapa em
+        // vez de atacar o adversário diretamente — com prioridade maior
+        // quando está com pouca vida (cura/escudo) e uma chance geral menor
+        // pros demais casos, pra não ficar sempre ignorando o adversário.
+        if (version == GameVersion::Plus && !activePowerups.empty()) {
+            float healthRatio = active.health / cfg::CANNON_MAX_HEALTH;
+            int chosenIdx = -1;
+            float bestPriority = 0.0f;
+
+            for (size_t i = 0; i < activePowerups.size(); ++i) {
+                const Powerup& pu = activePowerups[i];
+                float priority = 0.25f; // chance-base de considerar qualquer power-up
+
+                if (healthRatio < 0.45f &&
+                    (pu.type == PowerupType::Heal || pu.type == PowerupType::Shield)) {
+                    priority = 0.85f; // prioridade alta quando a vida está baixa
+                } else if (pu.type == PowerupType::DoubleDamage || pu.type == PowerupType::Guided) {
+                    priority = 0.4f; // vantagens ofensivas valem um pouco mais que a base
+                }
+
+                if (priority > bestPriority) {
+                    bestPriority = priority;
+                    chosenIdx = static_cast<int>(i);
+                }
+            }
+
+            if (chosenIdx >= 0 && RandF(0.0f, 1.0f) < bestPriority) {
+                targetX = activePowerups[static_cast<size_t>(chosenIdx)].x;
+                targetY = terrain.HeightAt(targetX);
+            }
+        }
+
+        ai.ComputeShot(active, targetX, targetY, windForce);
 
         Vector2 muzzle = active.MuzzlePosition();
         // Teleguiado sempre sai com um ângulo mínimo elevado, garantindo que

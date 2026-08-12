@@ -12,9 +12,9 @@ static float RandRange(float lo, float hi) {
 // ângulo/potência que atingiriam a distância horizontal até o alvo, depois
 // aplica um pequeno offset dependendo da dificuldade e compensa o vento
 // "chutando" a potência um pouco mais forte contra o vento contrário.
-void AI::ComputeShot(Cannon& me, const Cannon& target, float windForce) {
-    float dx = std::fabs(target.x - me.x);
-    float dy = (target.groundY - me.groundY); // diferença de altura entre bases
+void AI::ComputeShot(Cannon& me, float targetX, float targetY, float windForce) {
+    float dx = std::fabs(targetX - me.x);
+    float dy = (targetY - me.groundY); // diferença de altura entre a base do canhão e o alvo
 
     float distM = cfg::PxToM(dx);
     float g = cfg::GRAVITY_MPS2;
@@ -30,7 +30,7 @@ void AI::ComputeShot(Cannon& me, const Cannon& target, float windForce) {
     float v = std::sqrt(std::max(0.01f, (g * distM) / std::max(0.15f, sin2)));
 
     // Compensa vento: quanto mais vento contrário, mais potência.
-    float side = (target.x > me.x) ? 1.0f : -1.0f;
+    float side = (targetX > me.x) ? 1.0f : -1.0f;
     float windAgainst = -windForce * side; // >0 significa vento contra
     v += windAgainst * 0.6f;
 

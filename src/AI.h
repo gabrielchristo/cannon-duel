@@ -7,8 +7,10 @@ class AI {
 public:
     void SetDifficulty(float skill01) { skill = skill01; } // 0 = fraca, 1 = precisa
 
-    // Calcula mira (grava direto em 'me') mirando no alvo, considerando o vento.
-    void ComputeShot(Cannon& me, const Cannon& target, float windForce);
+    // Calcula mira (grava direto em 'me') mirando num alvo (targetX, targetY)
+    // — pode ser o canhão adversário ou, na versão Plus, um power-up no mapa
+    // — considerando o vento atual.
+    void ComputeShot(Cannon& me, float targetX, float targetY, float windForce);
 
 private:
     float skill = 0.6f;

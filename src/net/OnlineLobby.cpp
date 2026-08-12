@@ -1,5 +1,5 @@
 #include "OnlineLobby.h"
-
+#include <raylib.h>
 
 using json = nlohmann::json;
 
@@ -11,6 +11,8 @@ void OnlineLobby::Init(PlayerIdentity* id) {
     pendingChallengeId.clear();
     pendingChallengeOpponentId.clear();
     pendingChallengeOpponentName.clear();
+    TraceLog(LOG_INFO, "LOBBY: inicializado com player_id=%s nome=%s",
+             id ? id->Id().c_str() : "(nulo)", id ? id->DisplayName().c_str() : "(nulo)");
 }
 
 void OnlineLobby::EnsurePlayerRegistered() {
@@ -22,8 +24,19 @@ void OnlineLobby::EnsurePlayerRegistered() {
         { "id", identity->Id() },
         { "display_name", identity->DisplayName() }
     };
-    client.Upsert("players", body);
-    registeredPlayer = true; // não insiste a cada frame, só uma vez por sessão de lobby
+    client.Upsert("players", body, "id");
+
+    // Só marca como registrado se a requisição de fato deu certo — senão,
+    // a linha em "players" nunca chega a existir, e toda tentativa futura
+    // de registrar presença falha em silêncio (lobby_presence.player_id
+    // tem uma foreign key pra players(id)). Sem essa checagem, os dois
+    // lados ficavam "conectados" mas nenhum via o outro no lobby.
+    if (client.LastRequestOk()) {
+        registeredPlayer = true;
+        TraceLog(LOG_INFO, "LOBBY: jogador registrado com sucesso em 'players'");
+    } else {
+        TraceLog(LOG_WARNING, "LOBBY: falha ao registrar jogador em 'players' — tentando de novo no próximo ciclo");
+    }
 }
 
 void OnlineLobby::UpsertPresence() {
@@ -49,7 +62,9 @@ void OnlineLobby::UpsertPresence() {
         { "losses", myLosses },
         { "status", "idle" }
     };
-    client.Upsert("lobby_presence", body);
+    client.Upsert("lobby_presence", body, "player_id");
+    TraceLog(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
+             "LOBBY: upsert de presença %s", client.LastRequestOk() ? "OK" : "FALHOU");
 }
 
 void OnlineLobby::RefreshPlayerList() {
@@ -64,7 +79,10 @@ void OnlineLobby::RefreshPlayerList() {
         "select=player_id,display_name,wins,losses,last_seen&order=last_seen.desc&limit=30");
 
     players.clear();
-    if (!rows.is_array()) return;
+    if (!rows.is_array()) {
+        TraceLog(LOG_WARNING, "LOBBY: RefreshPlayerList não recebeu um array (requisição falhou?)");
+        return;
+    }
 
     for (auto& row : rows) {
         std::string pid = row.value("player_id", "");
@@ -76,6 +94,8 @@ void OnlineLobby::RefreshPlayerList() {
         card.losses = row.value("losses", 0);
         players.push_back(card);
     }
+    TraceLog(LOG_INFO, "LOBBY: %d linha(s) em lobby_presence, %d jogador(es) na lista (excluindo eu mesmo)",
+             static_cast<int>(rows.size()), static_cast<int>(players.size()));
 }
 
 void OnlineLobby::RefreshIncomingChallenges() {

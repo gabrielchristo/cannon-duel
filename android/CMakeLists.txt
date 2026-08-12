@@ -92,6 +92,47 @@ set(CMAKE_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)
 # FetchContent, sem instalação).
 set(CURL_ENABLE_EXPORT_TARGET OFF CACHE BOOL "" FORCE)
 
+# Desliga tudo que a gente não usa (só faz GET/POST/PATCH/DELETE simples de
+# JSON pro Supabase) — reduz tempo de build e evita que o CMake do curl
+# tente auto-detectar bibliotecas opcionais que não existem no sysroot do
+# NDK (foi exatamente isso que quebrou com libidn2: o curl encontrou
+# alguma pista de que ela existia — provavelmente cache antigo de uma
+# tentativa anterior — e tentou usar sem o header estar realmente lá).
+# CMAKE_DISABLE_FIND_PACKAGE_<Nome> força qualquer find_package(<Nome>)
+# chamado internamente pelo curl a sempre reportar "não encontrado",
+# independente de cache ou de qualquer coisa parecida existir no sistema.
+set(CURL_DISABLE_IDN ON CACHE BOOL "" FORCE)
+# ATENÇÃO: "CURL_DISABLE_IDN" não é a variável que realmente controla isso
+# no CMake do curl (deixamos ela por precaução, mas sozinha não bastou).
+# O nome real é USE_LIBIDN2 — e pior, o curl detecta o libidn2 via
+# pkg-config (pkg_check_modules), não via find_package() do CMake, então
+# CMAKE_DISABLE_FIND_PACKAGE_Libidn2 (abaixo) não pega esse caso sozinho.
+# Foi por isso que a primeira tentativa não resolveu.
+set(USE_LIBIDN2 OFF CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_Libidn2 ON CACHE BOOL "" FORCE)
+
+set(USE_NGHTTP2 OFF CACHE BOOL "" FORCE)          # HTTP/2 — não precisamos
+set(CMAKE_DISABLE_FIND_PACKAGE_NGHTTP2 ON CACHE BOOL "" FORCE)
+
+set(CURL_BROTLI OFF CACHE BOOL "" FORCE)          # compressão Brotli
+set(CMAKE_DISABLE_FIND_PACKAGE_Brotli ON CACHE BOOL "" FORCE)
+set(CURL_ZSTD OFF CACHE BOOL "" FORCE)            # compressão Zstd
+set(CMAKE_DISABLE_FIND_PACKAGE_Zstd ON CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_ZLIB ON CACHE BOOL "" FORCE)
+
+set(ENABLE_ARES OFF CACHE BOOL "" FORCE)          # DNS assíncrono (c-ares)
+set(CMAKE_DISABLE_FIND_PACKAGE_Cares ON CACHE BOOL "" FORCE)
+
+set(CURL_USE_LIBPSL OFF CACHE BOOL "" FORCE)      # public suffix list
+set(CMAKE_DISABLE_FIND_PACKAGE_Libpsl ON CACHE BOOL "" FORCE)
+
+set(CURL_USE_LIBSSH2 OFF CACHE BOOL "" FORCE)     # SCP/SFTP — já desligado via CMAKE_USE_LIBSSH2, redundante mas garante
+set(CMAKE_DISABLE_FIND_PACKAGE_LibSSH2 ON CACHE BOOL "" FORCE)
+
+set(CURL_USE_GSASL OFF CACHE BOOL "" FORCE)
+set(CURL_USE_LIBUV OFF CACHE BOOL "" FORCE)
+set(CMAKE_DISABLE_FIND_PACKAGE_OpenSSL ON CACHE BOOL "" FORCE) # garante que não tenta OpenSSL por engano (usamos mbedTLS)
+
 # O CMakeLists.txt do próprio curl chama find_package(MbedTLS REQUIRED)
 # internamente pra decidir se o mbedTLS está disponível — esse é um "Find
 # module" clássico baseado em variável, que procura bibliotecas JÁ

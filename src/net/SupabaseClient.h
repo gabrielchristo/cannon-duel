@@ -21,10 +21,11 @@ public:
     // PATCH /rest/v1/<table>?<filter>   (ex.: "id=eq.<uuid>")
     nlohmann::json Update(const std::string& table, const std::string& filter, const nlohmann::json& body);
 
-    // Upsert via header Prefer: resolution=merge-duplicates (precisa de uma
-    // constraint UNIQUE/PK na coluna de conflito, que já configuramos no
-    // schema.sql pra players/lobby_presence).
-    nlohmann::json Upsert(const std::string& table, const nlohmann::json& body);
+    // Upsert via header Prefer: resolution=merge-duplicates. 'onConflictColumn'
+    // é obrigatório e explícito (query param on_conflict=<coluna>) — depender
+    // da inferência implícita da PK do PostgREST se mostrou pouco confiável
+    // na prática (upserts falhando silenciosamente sem esse parâmetro).
+    nlohmann::json Upsert(const std::string& table, const nlohmann::json& body, const std::string& onConflictColumn);
 
     // DELETE /rest/v1/<table>?<filter>
     void Delete(const std::string& table, const std::string& filter);

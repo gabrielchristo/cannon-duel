@@ -1,5 +1,6 @@
 #include "Game.h"
 #include "Platform.h"
+#include "AssetPath.h"
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
@@ -7,21 +8,6 @@
 #include <algorithm>
 
 namespace {
-// No desktop, os assets ficam numa pasta "assets/" ao lado do executável,
-// então os caminhos usados pelo raylib precisam do prefixo "assets/". No
-// Android, o raylib carrega arquivos de dentro do APK via AAssetManager,
-// cujos caminhos já são relativos à RAIZ da pasta assets/ do APK — incluir
-// o prefixo "assets/" de novo faria ele procurar por uma subpasta "assets/"
-// dentro de "assets/", que não existe, e o carregamento falha em silêncio
-// (é exatamente isso que fazia sprites/sons não aparecerem no Android).
-inline std::string AssetPath(const char* relative) {
-#if CANNON_DUEL_ANDROID_BUILD
-    return relative;
-#else
-    return std::string("assets/") + relative;
-#endif
-}
-
 float RandF(float lo, float hi) {
     return lo + static_cast<float>(rand()) / RAND_MAX * (hi - lo);
 }
@@ -331,18 +317,18 @@ void Game::UpdateMainMenu() {
     UpdateVersionSwitch(m);
     UpdateLanguageFlags(m);
 
-    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
-    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
-    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 558, 280, 56 };
-    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 634, 280, 52 };
+    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 265, 280, 56 };
+    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 341, 280, 56 };
+    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 417, 280, 56 };
+    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 493, 280, 56 };
+    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 569, 280, 56 };
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (CheckCollisionPointRec(m, btn1P)) StartMatch(GameMode::PvAI);
         else if (CheckCollisionPointRec(m, btn2P)) StartMatch(GameMode::PvP);
+        else if (CheckCollisionPointRec(m, btnOnline)) state = GameState::OnlineLobby;
         else if (CheckCollisionPointRec(m, btnAbout)) state = GameState::About;
         else if (CheckCollisionPointRec(m, btnInstructions)) state = GameState::Instructions;
-        else if (CheckCollisionPointRec(m, btnOnline)) state = GameState::OnlineLobby;
     }
 }
 
@@ -1577,7 +1563,7 @@ void Game::Draw() {
 
 void Game::UpdateVersionSwitch(Vector2 mouse) {
     float cx = cfg::SCREEN_WIDTH / 2.0f;
-    Rectangle full = { cx - 150, 240, 300, 50 };
+    Rectangle full = { cx - 150, 175, 300, 50 };
     Rectangle leftHalf  = { full.x, full.y, full.width / 2, full.height };
     Rectangle rightHalf = { full.x + full.width / 2, full.y, full.width / 2, full.height };
 
@@ -1589,7 +1575,7 @@ void Game::UpdateVersionSwitch(Vector2 mouse) {
 
 void Game::DrawVersionSwitch(Vector2 mouse) {
     float cx = cfg::SCREEN_WIDTH / 2.0f;
-    Rectangle full = { cx - 150, 240, 300, 50 };
+    Rectangle full = { cx - 150, 175, 300, 50 };
     Rectangle leftHalf  = { full.x, full.y, full.width / 2, full.height };
     Rectangle rightHalf = { full.x + full.width / 2, full.y, full.width / 2, full.height };
 
@@ -1689,16 +1675,17 @@ void Game::DrawMainMenu() {
     const char* title = T(TK::Title, language);
     int fs = 64;
     int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 160, fs, Color{40, 30, 20, 255});
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 95, fs, Color{40, 30, 20, 255});
 
     Vector2 m = GetVirtualMouse();
     DrawVersionSwitch(m);
     DrawLanguageFlags(m);
 
-    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 330, 280, 56 };
-    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 406, 280, 56 };
-    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 482, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 558, 280, 56 };
+    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 265, 280, 56 };
+    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 341, 280, 56 };
+    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 417, 280, 56 };
+    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 493, 280, 56 };
+    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 569, 280, 56 };
 
     auto drawButton = [&](Rectangle r, const char* label) {
         bool hover = CheckCollisionPointRec(m, r);
@@ -1712,17 +1699,9 @@ void Game::DrawMainMenu() {
 
     drawButton(btn1P, T(TK::OnePlayer, language));
     drawButton(btn2P, T(TK::TwoPlayers, language));
+    drawButton(btnOnline, T(TK::OnlineButton, language));
     drawButton(btnAbout, T(TK::AboutButton, language));
     drawButton(btnInstructions, T(TK::InstructionsButton, language));
-
-    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 634, 280, 52 };
-    bool onlineHover = CheckCollisionPointRec(m, btnOnline);
-    DrawRectangleRec(btnOnline, onlineHover ? Color{100, 190, 110, 255} : Color{70, 160, 85, 255});
-    DrawRectangleLinesEx(btnOnline, 2, Color{20, 45, 25, 255});
-    const char* onlineLabel = T(TK::OnlineButton, language);
-    int olw = MeasureText(onlineLabel, 22);
-    DrawText(onlineLabel, static_cast<int>(btnOnline.x + btnOnline.width / 2 - olw / 2),
-             static_cast<int>(btnOnline.y + btnOnline.height / 2 - 11), 22, WHITE);
 }
 
 void Game::DrawInstructions() {

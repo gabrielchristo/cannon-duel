@@ -71,3 +71,9 @@ __pycache__/
 # Identidade local (UUID do jogador — não commitar)
 # ---------------------------------------------------------------------------
 player_identity.txt
+
+# ---------------------------------------------------------------------------
+# Guias offline de desenvolvimento (não commitar)
+# ---------------------------------------------------------------------------
+/TODO.md
+/docs/current-state.md

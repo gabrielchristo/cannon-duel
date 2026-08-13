@@ -13,7 +13,7 @@
 #      do NDK, linkando o libraylib.a do passo 1 como lib pré-compilada.
 #
 # Pré-requisitos (variáveis de ambiente já devem estar setadas):
-#   ANDROID_HOME       -> raiz do SDK (ex: /home/gabriel/.android_SDK)
+#   ANDROID_HOME       -> raiz do SDK (ex: $HOME/.android_SDK)
 #   ANDROID_NDK_HOME    -> raiz do NDK (ex: $ANDROID_HOME/ndk/27.0.12077973)
 #
 # Uso:

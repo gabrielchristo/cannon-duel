@@ -12,17 +12,102 @@ Guia para agentes de IA (Cursor, Copilot, etc.) trabalhando neste repositório.
 
 Documentação detalhada em [`docs/`](docs/).
 
-## Build rápido
+## Build
+
+### Linux (Ubuntu/Debian) — dependências via `apt`
+
+O CMake baixa raylib, Box2D, nlohmann/json (e curl+mbedTLS no caso do
+Android) automaticamente via `FetchContent` — mas algumas bibliotecas de
+sistema (compilador, ferramentas de janela/áudio do Linux que o raylib
+precisa, e a libcurl usada pelo multiplayer online) precisam estar
+instaladas antes:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+sudo apt update
+sudo apt install -y \
+    build-essential cmake git pkg-config \
+    libcurl4-openssl-dev \
+    libgl1-mesa-dev libx11-dev libxrandr-dev libxi-dev \
+    libxcursor-dev libxinerama-dev libxkbcommon-dev \
+    libwayland-dev libasound2-dev
+```
+
+### Compilando (Linux/macOS)
+
+Pré-requisitos: CMake >= 3.16, um compilador C++17 e conexão com a internet
+na primeira configuração (o CMake baixa raylib, Box2D e nlohmann/json via
+`FetchContent`).
+
+```bash
+./run_cmake.sh          # debug   -> build/
+./run_cmake.sh release  # release -> build_release/
+./build_pc.sh           # debug
+./build_pc.sh release   # release
+./run_pc.sh             # debug
+./run_pc.sh release     # release
+```
+
+Equivalente manual (debug, pasta `build/`; troque por `build_release` e
+`-DCMAKE_BUILD_TYPE=Release` pra release):
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-Wno-error=maybe-uninitialized"
 cmake --build build -j
 ./build/CannonDuel
 ```
 
-Android: ver [`ANDROID.md`](ANDROID.md) e `./build_android.sh`.
+A flag `-DCMAKE_C_FLAGS="-Wno-error=maybe-uninitialized"` evita que um
+falso-positivo do GCC dentro do próprio código do Box2D (não é bug seu)
+quebre a build — ver detalhes na seção [Notas de build](#notas-de-build)
+abaixo.
 
-Dependências Linux: `build-essential`, `cmake`, `libcurl4-openssl-dev`, libs X11/Wayland/ALSA (ver [`README.md`](README.md)).
+Windows (Visual Studio):
+```bash
+cmake -S . -B build
+cmake --build build --config Debug
+build\Debug\CannonDuel.exe
+
+cmake -S . -B build_release
+cmake --build build_release --config Release
+build_release\Release\CannonDuel.exe
+```
+
+### Android
+
+Veja [ANDROID.md](ANDROID.md) — inclui o passo a passo completo de como
+instalar o Android SDK/NDK via linha de comando (sem precisar do Android
+Studio) e como gerar o `.apk`. Resumo rápido, se você já sabe o que está
+fazendo:
+
+- **Android SDK**: `build-tools`, `platform-tools` e `platforms` de alguma
+  API (ex: `android-30`) instalados via `sdkmanager`.
+- **Android NDK**: instalado via `sdkmanager "ndk;<versão>"` (ex:
+  `ndk;27.0.12077973`), apontado pela variável `ANDROID_NDK_HOME`.
+- **JDK**: usado pelo `apksigner`/`keytool` na hora de assinar o APK.
+
+```bash
+export ANDROID_HOME=/caminho/pro/seu/sdk
+export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<versão instalada>
+./build_android.sh debug
+```
+
+### Notas de build
+
+- **Erro do Box2D com `-Werror=maybe-uninitialized`**: algumas versões do
+  GCC disparam um falso-positivo desse warning dentro do próprio código do
+  Box2D (não é bug seu). Resolvido tanto pela flag `-DCMAKE_C_FLAGS=...`
+  acima quanto por um `target_compile_options(box2d PRIVATE -Wno-error)`
+  que já vem no `CMakeLists.txt` — a flag no comando é uma camada extra de
+  segurança caso o seu toolchain específico ainda reclame.
+- **`libcurl4-openssl-dev`** é necessário porque o multiplayer online
+  (`src/net/`) usa `libcurl` pra falar com o Supabase — ver a seção
+  [Multiplayer — checklist antes de testar](#multiplayer--checklist-antes-de-testar) abaixo.
+
+## Como jogar
+
+- Todo o jogo é jogável **apenas com o mouse**, no mecanismo clássico do jogo original:
+  1. Uma linha oscila continuamente de 0° a 90° na direção do oponente — **clique** para travar o ângulo.
+  2. Uma barra oscila de verde (fraco) a vermelho (forte) — **clique** de novo para travar a força e disparar.
+- No menu principal, clique em "1 JOGADOR" (vs IA) ou "2 JOGADORES".
 
 ## Estrutura do código
 
@@ -49,6 +134,46 @@ src/
 └── net/                    # Supabase, Realtime, lobby, sync de partida
 ```
 
+## Arquitetura (visão rápida)
+
+| Arquivo | Responsabilidade |
+|---|---|
+| `Config.h` | Constantes globais (escala física, tela, balanceamento) |
+| `PhysicsWorld` | Wrapper fino sobre o mundo Box2D v3 |
+| `Terrain` | Heightmap 1D, geração procedural (midpoint displacement), colisão por raycast 1D, destruição (crateras) e "chain shape" reconstruída no Box2D para os canhões |
+| `Cannon` | Estado do canhão (posição, ângulo, força, vida) e desenho |
+| `Projectile` | Corpo dinâmico do Box2D (bala/bullet com CCD) |
+| `ParticleSystem` | Partículas de explosão (fogo + destroços) |
+| `AI` | Estimativa balística (equação de alcance) + erro humano configurável |
+| `Game` | Máquina de estados (menu → mira → voo → resolução → próximo turno) |
+
+### Terreno destrutível
+
+O terreno é um heightmap (uma altura por coluna de pixel). A colisão do
+projétil usa esse heightmap diretamente (muito mais barato que regenerar um
+polígono complexo do Box2D a cada impacto). Uma "chain shape" simplificada
+(amostrada a cada poucos pixels) é reconstruída no Box2D só para dar suporte
+físico aos canhões sobre o terreno.
+
+Ao explodir, `Terrain::Explode` subtrai altura das colunas dentro do raio de
+impacto (formato de meia-lua), simulando a cratera em tempo real.
+
+### Vento
+
+Sorteado a cada turno dentro de `[-WIND_MAX_FORCE, WIND_MAX_FORCE]` e aplicado
+como força horizontal contínua no projétil (`b2Body_ApplyForceToCenter`) a
+cada passo de física. A IA compensa a potência do tiro considerando o vento.
+
+## Assets
+
+Sprites, sons e música ficam em `assets/`, todos gerados/incluídos no
+repositório — nada pendente pra rodar o jogo do zero. Os scripts em
+`tools/` (`gen_sprites.py`, `gen_sounds.py`, `gen_icon.py`) regeneram esses
+assets caso você queira ajustar cores/formas/efeitos.
+
+A música de fundo (`assets/sounds/music.ogg` e `music2.ogg`) é sorteada
+aleatoriamente a cada partida.
+
 ## Convenções
 
 - **Constantes de jogo:** sempre em `src/Config.h` (`namespace cfg`), não magic numbers espalhados.
@@ -73,10 +198,18 @@ src/
 | UI pós-partida / rematch | `GameOnline.cpp`, `GameDraw.cpp`, `GameCore.cpp` |
 | Android | `android/`, `Platform.h`, `build_android.sh` |
 
-## Multiplayer — checklist antes de testar
+## Multiplayer online
 
-1. Preencher `src/net/SupabaseConfig.h` (URL + anon key).
-2. Aplicar `supabase/schema.sql` + migrations `001`–`011` no Supabase.
+Lobby público + partidas sincronizadas via Supabase (sem sistema de
+login/conta — só um identificador leve gerado localmente). Veja
+`src/net/` pro código e `supabase/schema.sql` pro schema do banco.
+
+### Checklist antes de testar
+
+1. Preencher `src/net/SupabaseConfig.h` com a URL e a chave do seu próprio
+   projeto Supabase.
+2. Aplicar `supabase/schema.sql` + migrations `001`–`011` no SQL Editor do
+   painel Supabase.
 3. Habilitar Realtime nas tabelas (migration 005 + 011).
 
 Ver [`docs/networking.md`](docs/networking.md).
@@ -97,8 +230,7 @@ Ver [`docs/networking.md`](docs/networking.md).
 | [`docs/networking.md`](docs/networking.md) | Supabase, Realtime, sync de turnos |
 | [`docs/physics.md`](docs/physics.md) | Box2D, terreno, vento, projétil |
 | [`docs/game-design.md`](docs/game-design.md) | Regras, modos, power-ups, composições |
-| [`docs/roadmap.md`](docs/roadmap.md) | Features planejadas |
-| [`docs/current-state.md`](docs/current-state.md) | Estado atual da branch e trabalho recente |
+| [`docs/web.md`](docs/web.md) | Build Web (WebAssembly), OPFS, limitações |
 
 ## Referência original
 

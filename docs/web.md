@@ -8,8 +8,7 @@ espírito de "sem dependências pesadas de IDE").
 ## Por quê
 
 Web é o único jeito de jogar Cannon Duel sem instalar nada e sem publicar
-em loja — inclusive em iOS, onde não há build nativa planejada. Ver
-`TODO.md` e [`roadmap.md`](roadmap.md).
+em loja — inclusive em iOS, onde não há build nativa planejada.
 
 ## Como builda
 
@@ -83,10 +82,10 @@ qualquer outro caminho.
 - `fetch()`/WebSocket exigem `http://`/`https://`; abrir o `.html` como
   `file://` não funciona (rodar com `python3 -m http.server`).
 
-## Pendências (ver `roadmap.md` / `TODO.md`)
+## Pendências
 
 - Publicar de fato no GitHub Pages (hoje só builda localmente).
 - Persistir UUID/nome do jogador é crítico — são as credenciais do jogador
-  nessa versão (não há login, ver `TODO.md`). Validar em browser real que a
-  migração pra OPFS preserva esse arquivo entre reloads (só foi validada
-  por compilação até agora, não em runtime — ver nota abaixo).
+  nessa versão (não há login). Validar em browser real que a migração pra
+  OPFS preserva esse arquivo entre reloads (só foi validada por compilação
+  até agora, não em runtime — ver nota abaixo).

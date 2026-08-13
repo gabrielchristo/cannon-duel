@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Cannon Duel</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      background: #0c0e14;
+      color: #e8e8e8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    #wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 12px;
+    }
+    canvas#canvas {
+      background: #000;
+      image-rendering: pixelated;
+      max-width: 100vw;
+      max-height: 90vh;
+      aspect-ratio: 1280 / 720;
+      width: min(100vw, 177.7vh);
+      outline: none;
+      touch-action: none;
+    }
+    #loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      position: absolute;
+    }
+    #loading.hidden { display: none; }
+    #loading-title {
+      font-size: 20px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #ffb347;
+    }
+    #progress-track {
+      width: 280px;
+      height: 8px;
+      border-radius: 4px;
+      background: #232733;
+      overflow: hidden;
+    }
+    #progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #ffb347;
+      transition: width 0.15s ease-out;
+    }
+    #status-text {
+      font-size: 13px;
+      color: #9aa0ad;
+    }
+  </style>
+</head>
+<body>
+  <div id="wrap">
+    <canvas id="canvas" width="1280" height="720" tabindex="-1"></canvas>
+    <div id="loading">
+      <div id="loading-title">Cannon Duel</div>
+      <div id="progress-track"><div id="progress-fill"></div></div>
+      <div id="status-text">carregando…</div>
+    </div>
+  </div>
+
+  <script>
+    var statusText = document.getElementById('status-text');
+    var progressFill = document.getElementById('progress-fill');
+    var loadingBox = document.getElementById('loading');
+
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      setStatus: function (text) {
+        if (!text) {
+          loadingBox.classList.add('hidden');
+          return;
+        }
+        statusText.textContent = text;
+      },
+      totalDependencies: 0,
+      monitorRunDependencies: function (left) {
+        this.totalDependencies = Math.max(this.totalDependencies, left);
+        var done = this.totalDependencies - left;
+        var pct = this.totalDependencies ? Math.round((done / this.totalDependencies) * 100) : 0;
+        progressFill.style.width = pct + '%';
+        Module.setStatus(left ? 'carregando… (' + done + '/' + this.totalDependencies + ')' : 'iniciando…');
+        if (left === 0) {
+          setTimeout(function () { loadingBox.classList.add('hidden'); }, 300);
+        }
+      },
+      print: function (text) { console.log(text); },
+      printErr: function (text) { console.error(text); },
+    };
+
+    window.onerror = function (msg) {
+      Module.setStatus('Erro: ' + msg);
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

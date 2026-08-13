@@ -13,6 +13,12 @@
     #define CANNON_DUEL_ANDROID_BUILD 0
 #endif
 
+#if defined(__EMSCRIPTEN__)
+    #define CANNON_DUEL_WEB_BUILD 1
+#else
+    #define CANNON_DUEL_WEB_BUILD 0
+#endif
+
 #if defined(__APPLE__)
     #include <TargetConditionals.h>
     #if TARGET_OS_IPHONE
@@ -25,7 +31,11 @@
 #endif
 
 #define CANNON_DUEL_MOBILE_BUILD (CANNON_DUEL_ANDROID_BUILD || CANNON_DUEL_IOS_BUILD)
-#define CANNON_DUEL_DESKTOP_BUILD (!CANNON_DUEL_MOBILE_BUILD)
+// AssetPath.h só distingue mobile (bundle na raiz) de tudo mais (pasta
+// "assets/" ao lado do binário/preloaded no FS virtual) — web cai em
+// "tudo mais" de propósito, já que os assets são pré-carregados em
+// "assets/..." no MEMFS, igual ao desktop.
+#define CANNON_DUEL_DESKTOP_BUILD (!CANNON_DUEL_MOBILE_BUILD && !CANNON_DUEL_WEB_BUILD)
 
 // Definido pelo CMake (cmake/EmbedCaCert.cmake) quando cacert.pem é
 // embutido no binário via xxd -i — obrigatório em mobile (curl sem CAs

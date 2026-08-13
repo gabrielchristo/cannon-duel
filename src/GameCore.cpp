@@ -15,6 +15,10 @@
 #include <string>
 #include <vector>
 
+#if CANNON_DUEL_WEB_BUILD
+#include <emscripten/emscripten.h>
+#endif
+
 Game::Game() {
 #if CANNON_DUEL_DEBUG_MODE
     DebugLog::InstallOverlayCapture();
@@ -91,12 +95,29 @@ Game::~Game() {
     CloseWindow();
 }
 
+#if CANNON_DUEL_WEB_BUILD
+void Game::WebMainLoopStep(void* userData) {
+    Game* game = static_cast<Game*>(userData);
+    float dt = GetFrameTime();
+    game->Update(dt);
+    game->Draw();
+}
+#endif
+
 void Game::Run() {
+#if CANNON_DUEL_WEB_BUILD
+    // WASM roda dentro do loop de eventos do browser — não dá pra ter um
+    // while(...) bloqueante aqui. emscripten_set_main_loop_arg chama
+    // WebMainLoopStep uma vez por requestAnimationFrame (fps=0) e devolve
+    // o controle pro navegador entre frames.
+    emscripten_set_main_loop_arg(WebMainLoopStep, this, 0, 1);
+#else
     while (!WindowShouldClose()) {
         float dt = GetFrameTime();
         Update(dt);
         Draw();
     }
+#endif
 }
 // ---------------------------------------------------------------------------
 // Setup de partida
@@ -226,6 +247,11 @@ void Game::Update(float dt) {
         return;
     }
 #endif
+
+    // No-op fora do build web (lá a fila de rede roda numa thread de
+    // fundo de verdade); no web, drena um job de HTTP por frame já que
+    // não há thread bloqueante disponível (ver NetWorker::Tick).
+    GlobalNetWorker().Tick();
 
     // Precisa ser chamado todo frame pro streaming da música avançar (e
     // fazer o loop) — independe de qualquer outro estado/painel.

@@ -34,6 +34,12 @@ public:
 private:
     void Update(float dt);
     void Draw();
+#if CANNON_DUEL_WEB_BUILD
+    // Trampolim pra emscripten_set_main_loop_arg (ver Game::Run) — o
+    // browser não aceita um while(...) bloqueante, então cada frame vem
+    // como uma chamada dessa função.
+    static void WebMainLoopStep(void* userData);
+#endif
 
     // --- telas de menu / lobby ---
     void UpdateMainMenu();

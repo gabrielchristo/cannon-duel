@@ -31,6 +31,12 @@ public:
 
     void Stop();
 
+    // Web build only: não há thread de fundo (WASM sem pthreads não roda
+    // socket bloqueante numa outra thread). Chamado uma vez por frame pelo
+    // loop principal; processa um job da fila por chamada. No-op nas outras
+    // plataformas (a thread de fundo já cuida disso).
+    void Tick();
+
 private:
     void EnsureThread();
     void ThreadMain();

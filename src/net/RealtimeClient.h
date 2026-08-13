@@ -10,7 +10,14 @@
 
 #include <nlohmann/json.hpp>
 
-// Supabase Realtime (Phoenix) via libcurl WebSocket (curl_ws_*).
+#include "../Platform.h"
+#if CANNON_DUEL_WEB_BUILD
+#include <emscripten/websocket.h>
+#endif
+
+// Supabase Realtime (Phoenix) via libcurl WebSocket (curl_ws_*) no
+// desktop/Android; via emscripten_websocket (browser) no web — ver
+// web/net/RealtimeClient.web.cpp.
 // - postgres_changes (CDC) para tabelas
 // - broadcast para mira / eventos leves
 // Poll HTTP fica só como fallback lento.
@@ -52,8 +59,23 @@ private:
     void HandleServerMessage(const std::string& raw);
     static std::string MakeWsUrl();
 
+#if CANNON_DUEL_WEB_BUILD
+    void SendJoinWeb();
+    void FlushOutboxWeb();
+    static EM_BOOL OnWebOpen(int eventType, const EmscriptenWebSocketOpenEvent* e, void* userData);
+    static EM_BOOL OnWebMessage(int eventType, const EmscriptenWebSocketMessageEvent* e, void* userData);
+    static EM_BOOL OnWebClose(int eventType, const EmscriptenWebSocketCloseEvent* e, void* userData);
+    static EM_BOOL OnWebError(int eventType, const EmscriptenWebSocketErrorEvent* e, void* userData);
+    std::vector<PostgresSub> pendingJoinSubs_;
+    double lastHeartbeatMs_ = 0.0;
+#endif
+
     std::thread thread_;
     std::atomic<bool> stop_{false};
+    // Web build only: handle do emscripten_websocket_new (EMSCRIPTEN_WEBSOCKET_T,
+    // que é só um int) — sem thread nem curl disponíveis em WASM sem
+    // pthreads, ver web/net/RealtimeClient.web.cpp.
+    int wsHandle_ = 0;
     std::atomic<bool> connected_{false};
     std::atomic<int> refCounter_{1};
 

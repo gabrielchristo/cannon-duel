@@ -10,12 +10,20 @@
 #include <ctime>
 #include <random>
 
+#if CANNON_DUEL_WEB_BUILD
+#include "WebIdbfs.h"
+#endif
+
 std::string PlayerIdentity::SavePath() {
     // Desktop: ao lado do executável.
     // Android: GetWorkingDirectory() aponta pro storage interno do app
     // (sobrevive entre sessões; reinstall limpa — esperado).
+    // Web: MEMFS não sobrevive a reload — "/idbfs" é espelhado pra
+    // IndexedDB via WebIdbfsMountAndSyncIn()/WebIdbfsSyncOut().
 #if CANNON_DUEL_ANDROID_BUILD
     return std::string(GetWorkingDirectory()) + "/player_identity.txt";
+#elif CANNON_DUEL_WEB_BUILD
+    return "/idbfs/player_identity.txt";
 #else
     return "player_identity.txt";
 #endif
@@ -39,6 +47,9 @@ std::string PlayerIdentity::GeneratePseudoUuid() {
 }
 
 void PlayerIdentity::LoadOrCreate() {
+#if CANNON_DUEL_WEB_BUILD
+    WebIdbfsMountAndSyncIn();
+#endif
     const std::string path = SavePath();
 
     // Preferir API raylib (Android-friendly) e fallback fstream.
@@ -86,4 +97,7 @@ void PlayerIdentity::Save() const {
         std::ofstream out(path);
         out << body;
     }
+#if CANNON_DUEL_WEB_BUILD
+    WebIdbfsSyncOut();
+#endif
 }

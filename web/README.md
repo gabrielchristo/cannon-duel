@@ -52,9 +52,12 @@ pra fora do repo). Passos manuais:
   `EM_ASYNC_JS` + `-sASYNCIFY`) e `web/net/RealtimeClient.web.cpp`
   (`emscripten_websocket`). Mesma API pública — nenhum outro arquivo em
   `src/` precisou mudar por causa disso.
-- **Identidade do jogador**: `player_identity.txt` é espelhado numa
-  IndexedDB via IDBFS (`web/WebIdbfs.h/.cpp`), porque o filesystem em
-  memória do WASM não sobrevive a um reload da página.
+- **Identidade do jogador**: `player_identity.txt` é persistido em
+  `/opfs` via WASMFS + backend OPFS (`web/WebOpfs.h/.cpp`), porque o
+  filesystem em memória do WASM não sobrevive a um reload da página.
+  `std::ifstream`/`std::ofstream` funcionam direto contra esse caminho
+  depois do mount (sem sync manual como o IDBFS antigo exigia) — ver
+  `docs/web.md`.
 - **Assets**: empacotados no `.data` via `--preload-file assets@assets` —
   `AssetPath.h` não precisou mudar (mesmo prefixo `"assets/"` do desktop).
 - **Sem pthreads**: GitHub Pages não seta os headers COOP/COEP que

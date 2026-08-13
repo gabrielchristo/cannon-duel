@@ -95,7 +95,7 @@ if(EMSCRIPTEN)
     list(APPEND CANNON_DUEL_SOURCES
         ${CMAKE_SOURCE_DIR}/web/net/SupabaseClient.web.cpp
         ${CMAKE_SOURCE_DIR}/web/net/RealtimeClient.web.cpp
-        ${CMAKE_SOURCE_DIR}/web/WebIdbfs.cpp
+        ${CMAKE_SOURCE_DIR}/web/WebOpfs.cpp
     )
 endif()
 
@@ -117,9 +117,15 @@ if(EMSCRIPTEN)
     # -sASYNCIFY: deixa EM_ASYNC_JS (fetch síncrono-aparente no
     #   SupabaseClient web) suspender/retomar a pilha C++ sem precisar de
     #   pthreads/SharedArrayBuffer (GitHub Pages não seta os headers
-    #   COOP/COEP que pthreads exigiriam).
+    #   COOP/COEP que pthreads exigiriam). Também é o que permite montar o
+    #   backend OPFS (WebOpfs.cpp) na thread principal: sem Asyncify (nem
+    #   JSPI, nem pthreads) o wasmfs_create_opfs_backend() do WASMFS
+    #   trava/assert, porque não tem como suspender a call stack C++
+    #   enquanto a Promise do OPFS resolve no event loop do browser.
+    # -sWASMFS: filesystem layer usado por WebOpfs.cpp (backend OPFS) —
+    #   substituiu o IDBFS antigo (que exigia FS.syncfs manual em volta de
+    #   toda leitura/escrita). Compatível com --preload-file abaixo.
     # -lwebsocket.js: API emscripten_websocket usada pelo RealtimeClient web.
-    # -lidbfs.js: persistência do player_identity.txt entre reloads.
     # -sEXPORTED_RUNTIME_METHODS=HEAPF32: Emscripten recente parou de expor
     #   Module.HEAPF32 por padrão; o backend Web Audio (ScriptProcessorNode)
     #   do miniaudio embutido no raylib acessa Module.HEAPF32.buffer
@@ -131,11 +137,11 @@ if(EMSCRIPTEN)
     target_link_options(CannonDuel PRIVATE
         -sUSE_GLFW=3
         -sASYNCIFY
+        -sWASMFS
         -sALLOW_MEMORY_GROWTH=1
         -sFORCE_FILESYSTEM=1
         -sEXPORTED_RUNTIME_METHODS=HEAPF32
         -lwebsocket.js
-        -lidbfs.js
         --preload-file ${CMAKE_SOURCE_DIR}/assets@assets
         --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html
     )

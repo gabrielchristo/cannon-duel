@@ -11,19 +11,19 @@
 #include <random>
 
 #if CANNON_DUEL_WEB_BUILD
-#include "WebIdbfs.h"
+#include "WebOpfs.h"
 #endif
 
 std::string PlayerIdentity::SavePath() {
     // Desktop: ao lado do executável.
     // Android: GetWorkingDirectory() aponta pro storage interno do app
     // (sobrevive entre sessões; reinstall limpa — esperado).
-    // Web: MEMFS não sobrevive a reload — "/idbfs" é espelhado pra
-    // IndexedDB via WebIdbfsMountAndSyncIn()/WebIdbfsSyncOut().
+    // Web: MEMFS não sobrevive a reload — "/opfs" é o backend OPFS do
+    // WASMFS, montado via WebOpfsMount().
 #if CANNON_DUEL_ANDROID_BUILD
     return std::string(GetWorkingDirectory()) + "/player_identity.txt";
 #elif CANNON_DUEL_WEB_BUILD
-    return "/idbfs/player_identity.txt";
+    return "/opfs/player_identity.txt";
 #else
     return "player_identity.txt";
 #endif
@@ -48,7 +48,7 @@ std::string PlayerIdentity::GeneratePseudoUuid() {
 
 void PlayerIdentity::LoadOrCreate() {
 #if CANNON_DUEL_WEB_BUILD
-    WebIdbfsMountAndSyncIn();
+    WebOpfsMount();
 #endif
     const std::string path = SavePath();
 
@@ -93,11 +93,10 @@ void PlayerIdentity::SetDisplayName(const std::string& name) {
 void PlayerIdentity::Save() const {
     const std::string path = SavePath();
     std::string body = id + "\n" + displayName + "\n";
+    // OPFS grava direto no write/close (sem etapa de sync separada, ao
+    // contrário do FS.syncfs que o IDBFS antigo exigia).
     if (!SaveFileText(path.c_str(), body.data())) {
         std::ofstream out(path);
         out << body;
     }
-#if CANNON_DUEL_WEB_BUILD
-    WebIdbfsSyncOut();
-#endif
 }

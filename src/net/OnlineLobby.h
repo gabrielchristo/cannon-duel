@@ -1,6 +1,7 @@
 #pragma once
 #include "../Platform.h"
 #include "../GameTypes.h"
+#include "../MatchRoster.h"
 
 #include <vector>
 #include <string>
@@ -9,16 +10,6 @@
 #include "SupabaseClient.h"
 #include "RealtimeClient.h"
 #include <nlohmann/json.hpp>
-
-enum class OnlineChallengeFormat { Duel1v1, Team2v2 };
-
-inline const char* OnlineChallengeFormatDb(OnlineChallengeFormat f) {
-    return (f == OnlineChallengeFormat::Team2v2) ? "team_2v2" : "duel_1v1";
-}
-
-inline OnlineChallengeFormat ParseOnlineChallengeFormat(const std::string& s) {
-    return (s == "team_2v2") ? OnlineChallengeFormat::Team2v2 : OnlineChallengeFormat::Duel1v1;
-}
 
 struct LobbyPlayerCard {
     std::string playerId;
@@ -43,11 +34,16 @@ struct ActiveMatchCard {
     bool isPlus = false;
 };
 
+enum class OutgoingChallengeResult {
+    None,
+    Declined,
+    Expired,
+};
+
 struct IncomingChallenge {
     std::string challengeId;
     std::string fromPlayerId;
     std::string fromDisplayName;
-    OnlineChallengeFormat format = OnlineChallengeFormat::Duel1v1;
     GameVersion challengeVersion = GameVersion::Classic;
 };
 
@@ -57,22 +53,33 @@ struct IncomingTeamInvite {
     std::string fromPlayerId;
     std::string fromDisplayName;
     char team = 'a';
+    GameVersion roomVersion = GameVersion::Classic;
+};
+
+struct TeamRoomMember {
+    std::string playerId;
+    std::string displayName;
+    int slot = 0;
 };
 
 struct TeamRoomView {
     std::string roomId;
-    std::string captainAId;
-    std::string captainAName;
-    std::string captainBId;
-    std::string captainBName;
-    std::string partnerAId;
-    std::string partnerAName;
-    std::string partnerBId;
-    std::string partnerBName;
+    std::vector<TeamRoomMember> teamA;
+    std::vector<TeamRoomMember> teamB;
     GameVersion version = GameVersion::Classic;
     std::string status;
     bool amCaptain = false;
     char myTeam = '\0';
+
+    int TeamACount() const { return static_cast<int>(teamA.size()); }
+    int TeamBCount() const { return static_cast<int>(teamB.size()); }
+    MatchComposition Composition() const {
+        return { std::max(1, TeamACount()), std::max(1, TeamBCount()) };
+    }
+    bool CanInvite(char team) const {
+        return (team == 'a') ? (TeamACount() < MatchRoster::kMaxPerTeam)
+                             : (TeamBCount() < MatchRoster::kMaxPerTeam);
+    }
 };
 
 struct MatchStart {
@@ -82,8 +89,8 @@ struct MatchStart {
     std::string opponentName;
     unsigned int terrainSeed = 0;
     bool isPlus = false;
-    MatchFormat format = MatchFormat::Duel1v1;
-    std::string playerNames[4];
+    MatchComposition composition;
+    std::string playerNames[MatchRoster::kMaxCannons];
 };
 
 class OnlineLobby {
@@ -105,7 +112,7 @@ public:
     const std::vector<IncomingTeamInvite>& IncomingTeamInvites() const { return incomingTeamInvites; }
     const TeamRoomView* ActiveTeamRoom() const { return inTeamRoom_ ? &teamRoom_ : nullptr; }
 
-    void SendChallenge(const LobbyPlayerCard& target, OnlineChallengeFormat format, GameVersion ver);
+    void SendChallenge(const LobbyPlayerCard& target, GameVersion ver);
     void AcceptChallenge(const IncomingChallenge& challenge);
     void DeclineChallenge(const IncomingChallenge& challenge);
 
@@ -122,8 +129,12 @@ public:
     bool PollMatchStart(MatchStart& out);
     bool PollEnterTeamRoom(std::string& roomIdOut);
     bool HasPendingOutgoingChallenge() const { return !pendingChallengeId.empty(); }
-    const OnlineChallengeFormat& PendingChallengeFormat() const { return pendingChallengeFormat_; }
     const GameVersion& PendingChallengeVersion() const { return pendingChallengeVersion_; }
+    bool HasChallengeResultNotice() const {
+        return challengeResult_ != OutgoingChallengeResult::None && challengeResultTimer_ > 0.0f;
+    }
+    OutgoingChallengeResult ChallengeResult() const { return challengeResult_; }
+    const std::string& ChallengeResultOpponentName() const { return challengeResultOpponent_; }
 
     void ReportMatchResult(bool won);
     bool UpdateDisplayName(const std::string& rawName, std::string& outSanitized);
@@ -162,12 +173,15 @@ private:
     float pendingChallengeTimer_ = 0.0f;
     static constexpr float MATCH_HEARTBEAT_SEC = 2.5f;
     static constexpr float CHALLENGE_TIMEOUT_SEC = 10.0f;
+    static constexpr float CHALLENGE_RESULT_DISPLAY_SEC = 4.0f;
 
     std::string pendingChallengeId;
     std::string pendingChallengeOpponentId;
     std::string pendingChallengeOpponentName;
-    OnlineChallengeFormat pendingChallengeFormat_ = OnlineChallengeFormat::Duel1v1;
     GameVersion pendingChallengeVersion_ = GameVersion::Classic;
+    OutgoingChallengeResult challengeResult_ = OutgoingChallengeResult::None;
+    std::string challengeResultOpponent_;
+    float challengeResultTimer_ = 0.0f;
 
     bool registeredPlayer = false;
     bool realtimeStarted_ = false;
@@ -199,10 +213,15 @@ private:
     void TickPendingChallenge(float dt);
     void ExpirePendingChallenge();
     void TryResolveAcceptedChallenge();
+    void ClearPendingChallengeState();
+    void NotifyChallengeResult(OutgoingChallengeResult result);
+    void TickChallengeResultDisplay(float dt);
     void TryResolveTeamRoomMatchStart();
     void MaybeCleanupGhostPresence();
     void SyncLobbyData(bool upsertPresence);
     float PollIntervalSec() const;
     int MyPlayerNumberInRoom(const TeamRoomView& room) const;
     void BuildMatchStartFromRow(const nlohmann::json& mrow, const TeamRoomView& room);
+    void InsertRoomCaptains(const std::string& roomId, const std::string& captainA,
+                            const std::string& captainB);
 };

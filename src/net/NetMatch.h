@@ -1,6 +1,7 @@
 #pragma once
 #include "../Platform.h"
 #include "../GameTypes.h"
+#include "../MatchRoster.h"
 
 #include <atomic>
 #include <deque>
@@ -18,8 +19,10 @@ struct RemoteTurnResult {
     float windAtShot = 0.0f;
     float impactX = 0, impactY = 0;
     float craterRadius = 0;
-    float damageP1 = 0, damageP2 = 0;
-    float damageP3 = 0, damageP4 = 0;
+    float damages[MatchRoster::kMaxCannons] = {};
+    float healthAfter[MatchRoster::kMaxCannons] = {};
+    int healthAfterCount = 0;
+    bool hasHealthAfter = false;
     float nextWind = 0;
     int nextTurnPlayer = 1;
     bool matchOver = false;
@@ -80,12 +83,13 @@ class NetMatch {
 public:
     void Begin(const std::string& matchId, int myPlayerNumber,
                const std::string& opponentId, const std::string& opponentName,
-               MatchFormat format = MatchFormat::Duel1v1);
-    void BeginSpectating(const std::string& matchId, int currentTurnPlayer, int lastTurnNumber);
+               const MatchComposition& composition);
+    void BeginSpectating(const std::string& matchId, int currentTurnPlayer, int lastTurnNumber,
+                         const MatchComposition& composition);
     void Pump(float dt);
 
     int MyPlayerNumber() const { return myPlayerNumber; }
-    MatchFormat GetMatchFormat() const { return matchFormat_; }
+    MatchComposition GetComposition() const { return composition_; }
     int AbandonWinnerPlayer() const;
     bool IsSpectator() const { return myPlayerNumber == 0; }
     int SyncedCurrentTurnPlayer() const { return syncedCurrentTurnPlayer; }
@@ -98,7 +102,8 @@ public:
 
     void SubmitMyTurn(float shootAngle, float shootPower, float windAtShot,
                        float impactX, float impactY, float craterRadius,
-                       float damageP1, float damageP2, float damageP3, float damageP4,
+                       const float damages[MatchRoster::kMaxCannons],
+                       const float healthAfter[MatchRoster::kMaxCannons],
                        float nextWind, int nextTurnPlayer,
                        bool matchOver, int winnerPlayer,
                        int pickedPowerupType = -1, float pickedPowerupX = 0.0f);
@@ -125,6 +130,8 @@ public:
     int TurnsCompleted() const { return lastSeenTurnNumber; }
 
     bool PollOpponentTurn(RemoteTurnResult& out);
+    // Vida autoritativa que chegou depois do turno já ter sido consumido (race postgres/broadcast).
+    bool PollHealthResync(RemoteTurnResult& out);
     bool PollSpectatorMatchEnded(int& winnerOut);
     DisconnectResult PollDisconnect();
     int TakeAbandonWinner();
@@ -136,10 +143,13 @@ public:
                            float x = 0.0f, float value = 0.0f);
     bool PollDevCommand(DevCommand& out);
     void DevSyncTurnTo(int nextPlayer);
+    void SyncTurnTo(int nextPlayer);
 
     static RemoteTurnResult ParseTurnJson(const nlohmann::json& row);
+    static RemoteTurnResult ParseTurnPayload(const nlohmann::json& payload);
 
 private:
+    bool TryEnqueueRemoteTurn(const RemoteTurnResult& turn);
     void SchedulePoll();
     float PollIntervalSec() const;
     void ApplyTurnRecord(const nlohmann::json& row);
@@ -151,7 +161,7 @@ private:
 
     std::string matchId;
     int myPlayerNumber = 1;
-    MatchFormat matchFormat_ = MatchFormat::Duel1v1;
+    MatchComposition composition_ = { 1, 1 };
     std::string opponentId;
     std::string opponentName;
     int syncedCurrentTurnPlayer = 1;
@@ -167,6 +177,8 @@ private:
     mutable std::mutex mu_;
     bool hasPendingTurn_ = false;
     RemoteTurnResult pendingTurn_{};
+    bool hasPendingHealthResync_ = false;
+    RemoteTurnResult pendingHealthResync_{};
     int cachedCurrentTurnPlayer_ = 1;
     DisconnectResult pendingDisconnect_ = DisconnectResult::None;
     int pendingAbandonWinner_ = 0;
@@ -202,5 +214,8 @@ private:
     static constexpr float LIVE_AIM_HTTP_INTERVAL_SEC = 0.35f;
     static constexpr float PROJ_PUBLISH_INTERVAL_SEC = 0.04f; // ~25 Hz
     static constexpr int PARTICIPANT_STALE_SEC = 8;
+    static constexpr float MATCH_START_PRESENCE_GRACE_SEC = 20.0f;
     static constexpr size_t MAX_LIVE_SAMPLES = 256;
+
+    float presenceGraceRemaining_ = 0.0f;
 };

@@ -69,10 +69,16 @@ RemoteTurnResult NetMatch::ParseTurnJson(const json& row) {
     turn.impactX = JsonFloat(row, "impact_x", 0.0f);
     turn.impactY = JsonFloat(row, "impact_y", 0.0f);
     turn.craterRadius = JsonFloat(row, "crater_radius", 0.0f);
-    turn.damageP1 = JsonFloat(row, "damage_p1", 0.0f);
-    turn.damageP2 = JsonFloat(row, "damage_p2", 0.0f);
-    turn.damageP3 = JsonFloat(row, "damage_p3", 0.0f);
-    turn.damageP4 = JsonFloat(row, "damage_p4", 0.0f);
+    for (int i = 0; i < MatchRoster::kMaxCannons; ++i) {
+        const std::string dmgKey = "damage_p" + std::to_string(i + 1);
+        turn.damages[i] = JsonFloat(row, dmgKey.c_str(), 0.0f);
+        const std::string hpKey = "health_after_p" + std::to_string(i + 1);
+        if (row.contains(hpKey)) {
+            turn.healthAfter[i] = JsonFloat(row, hpKey.c_str(), cfg::CANNON_MAX_HEALTH);
+            turn.healthAfterCount = i + 1;
+            turn.hasHealthAfter = true;
+        }
+    }
     turn.nextWind = JsonFloat(row, "next_wind", 0.0f);
     turn.nextTurnPlayer = JsonInt(row, "next_turn_player", 1);
     turn.matchOver = JsonBool(row, "match_over", false);
@@ -82,30 +88,82 @@ RemoteTurnResult NetMatch::ParseTurnJson(const json& row) {
     return turn;
 }
 
-void NetMatch::ApplyTurnRecord(const json& row) {
-    const int shooterPlayer = JsonInt(row, "shooter_player", 1);
-    const int turnNumber = JsonInt(row, "turn_number", 0);
-    if (turnNumber <= 0) return;
+RemoteTurnResult NetMatch::ParseTurnPayload(const json& payload) {
+    RemoteTurnResult turn;
+    turn.turnNumber = JsonInt(payload, "turn_number", 0);
+    turn.shooterPlayer = JsonInt(payload, "shooter", 1);
+    turn.shootAngle = JsonFloat(payload, "shoot_angle", 45.0f);
+    turn.shootPower = JsonFloat(payload, "shoot_power", 0.5f);
+    turn.windAtShot = JsonFloat(payload, "wind_at_shot", 0.0f);
+    turn.impactX = JsonFloat(payload, "impact_x", 0.0f);
+    turn.impactY = JsonFloat(payload, "impact_y", 0.0f);
+    turn.craterRadius = JsonFloat(payload, "crater_radius", 0.0f);
+    turn.nextWind = JsonFloat(payload, "next_wind", 0.0f);
+    turn.nextTurnPlayer = JsonInt(payload, "next_turn_player", 1);
+    turn.matchOver = JsonBool(payload, "match_over", false);
+    turn.winnerPlayer = JsonInt(payload, "winner_player", 0);
+    turn.pickedPowerupType = JsonInt(payload, "picked_powerup_type", -1);
+    turn.pickedPowerupX = JsonFloat(payload, "picked_powerup_x", 0.0f);
 
-    if (myPlayerNumber != 0 && shooterPlayer == myPlayerNumber) {
+    if (payload.contains("damages") && payload["damages"].is_array()) {
+        const json& arr = payload["damages"];
+        for (int i = 0; i < MatchRoster::kMaxCannons && i < static_cast<int>(arr.size()); ++i) {
+            turn.damages[i] = arr[i].is_number() ? arr[i].get<float>() : 0.0f;
+        }
+    }
+    if (payload.contains("health_after") && payload["health_after"].is_array()) {
+        const json& arr = payload["health_after"];
+        turn.healthAfterCount = static_cast<int>(arr.size());
+        turn.hasHealthAfter = turn.healthAfterCount > 0;
+        for (int i = 0; i < MatchRoster::kMaxCannons && i < turn.healthAfterCount; ++i) {
+            turn.healthAfter[i] = arr[i].is_number() ? arr[i].get<float>() : cfg::CANNON_MAX_HEALTH;
+        }
+    }
+    return turn;
+}
+
+bool NetMatch::TryEnqueueRemoteTurn(const RemoteTurnResult& turn) {
+    if (turn.turnNumber <= 0) return false;
+
+    if (myPlayerNumber != 0 && turn.shooterPlayer == myPlayerNumber) {
         std::lock_guard lock(mu_);
-        if (turnNumber > lastSeenTurnNumber) lastSeenTurnNumber = turnNumber;
-        return;
+        if (turn.turnNumber > lastSeenTurnNumber) lastSeenTurnNumber = turn.turnNumber;
+        return false;
     }
 
-    RemoteTurnResult turn = ParseTurnJson(row);
     std::lock_guard lock(mu_);
-    if (turnNumber <= lastSeenTurnNumber) return;
-    if (turnNumber != lastSeenTurnNumber + 1) {
-        DebugLogf(LOG_WARNING, "NET: turno #%d fora de ordem (esperado #%d)",
-                  turnNumber, lastSeenTurnNumber + 1);
-        return;
+    if (turn.turnNumber <= lastSeenTurnNumber) {
+        if (turn.hasHealthAfter && turn.turnNumber == lastSeenTurnNumber) {
+            pendingHealthResync_ = turn;
+            hasPendingHealthResync_ = true;
+            DebugLogf(LOG_INFO, "NET: turno #%d — re-sync de vida autoritativa", turn.turnNumber);
+        }
+        return false;
     }
-    if (hasPendingTurn_ && pendingTurn_.turnNumber >= turnNumber) return;
+    if (turn.turnNumber != lastSeenTurnNumber + 1) {
+        DebugLogf(LOG_WARNING, "NET: turno #%d fora de ordem (esperado #%d)",
+                  turn.turnNumber, lastSeenTurnNumber + 1);
+        return false;
+    }
+    if (hasPendingTurn_ && pendingTurn_.turnNumber == turn.turnNumber) {
+        if (turn.hasHealthAfter && !pendingTurn_.hasHealthAfter) {
+            pendingTurn_ = turn;
+            DebugLogf(LOG_INFO, "NET: turno #%d atualizado com vida autoritativa", turn.turnNumber);
+        }
+        return false;
+    }
+    if (hasPendingTurn_ && pendingTurn_.turnNumber >= turn.turnNumber) return false;
+
     pendingTurn_ = turn;
     hasPendingTurn_ = true;
-    DebugLogf(LOG_INFO, "NET: turno remoto #%d enfileirado (atirador P%d)",
-              turn.turnNumber, turn.shooterPlayer);
+    DebugLogf(LOG_INFO, "NET: turno remoto #%d enfileirado (atirador P%d hp=%d)",
+              turn.turnNumber, turn.shooterPlayer, turn.hasHealthAfter ? 1 : 0);
+    return true;
+}
+
+void NetMatch::ApplyTurnRecord(const json& row) {
+    RemoteTurnResult turn = ParseTurnJson(row);
+    TryEnqueueRemoteTurn(turn);
 }
 
 void NetMatch::ApplyLiveAimFromRecord(const json& row) {
@@ -144,7 +202,7 @@ void NetMatch::ApplyMatchRecord(const json& row) {
         if (status == "abandoned" && !disconnectReported_) {
             const int winner = JsonInt(row, "winner_player", 0);
             pendingAbandonWinner_ = winner;
-            pendingDisconnect_ = OnlineDidIWin(winner, myPlayerNumber, matchFormat_)
+            pendingDisconnect_ = OnlineDidIWin(winner, myPlayerNumber, composition_)
                 ? DisconnectResult::OpponentLeft
                 : DisconnectResult::MatchAbandoned;
         }
@@ -155,13 +213,13 @@ void NetMatch::ApplyMatchRecord(const json& row) {
 
 void NetMatch::SignalParticipantLeft(int leavingPlayerNum) {
     if (myPlayerNumber == 0 || leavingPlayerNum <= 0) return;
-    const int winner = WinnerWhenPlayerLeaves(leavingPlayerNum, matchFormat_);
+    const int winner = WinnerWhenPlayerLeaves(leavingPlayerNum, composition_);
     if (winner == 0) return;
 
     std::lock_guard lock(mu_);
     if (disconnectReported_ || pendingDisconnect_ != DisconnectResult::None) return;
     pendingAbandonWinner_ = winner;
-    pendingDisconnect_ = OnlineDidIWin(winner, myPlayerNumber, matchFormat_)
+    pendingDisconnect_ = OnlineDidIWin(winner, myPlayerNumber, composition_)
         ? DisconnectResult::OpponentLeft
         : DisconnectResult::MatchAbandoned;
     DebugLogf(LOG_INFO, "NET: jogador P%d saiu — vencedor=%d eu=P%d",
@@ -172,7 +230,11 @@ void NetMatch::CheckParticipantsPresence(SupabaseClient& client, const json& mat
     if (myPlayerNumber == 0 || matchId.empty()) return;
     if (json_helpers::Str(matchRow, "status", "active") != "active") return;
 
-    const int participantCount = IsTeamMode(matchFormat_) ? 4 : 2;
+    const MatchComposition comp = ParseMatchComposition(
+        json_helpers::Str(matchRow, "match_format", "duel_1v1"),
+        json_helpers::Int(matchRow, "team_a_count", 0),
+        json_helpers::Int(matchRow, "team_b_count", 0));
+    const int participantCount = std::max(comp.TotalPlayers(), composition_.TotalPlayers());
     std::vector<std::pair<int, std::string>> participants;
     participants.reserve(static_cast<size_t>(participantCount));
     for (int p = 1; p <= participantCount; ++p) {
@@ -227,7 +289,7 @@ void NetMatch::CheckParticipantsPresence(SupabaseClient& client, const json& mat
                       playerNum, pid.c_str(), matchId.c_str());
             client.Update("matches", "id=eq." + matchId + "&status=eq.active", {
                 { "status", "abandoned" },
-                { "winner_player", WinnerWhenPlayerLeaves(playerNum, matchFormat_) }
+                { "winner_player", WinnerWhenPlayerLeaves(playerNum, comp) }
             });
             SignalParticipantLeft(playerNum);
             return;
@@ -311,6 +373,14 @@ void NetMatch::ApplyBroadcast(const json& envelope) {
         s.y = liveShotEndY_;
         if (JsonFloat(p, "t", -1.0f) >= 0.0f) s.t = JsonFloat(p, "t", s.t);
         liveSamples_.push_back(s);
+        return;
+    }
+
+    if (event == "turn_result") {
+        const int shooter = JsonInt(p, "shooter", 0);
+        if (shooter == 0 || shooter == myPlayerNumber) return;
+        RemoteTurnResult turn = ParseTurnPayload(p);
+        TryEnqueueRemoteTurn(turn);
         return;
     }
 
@@ -440,16 +510,17 @@ void NetMatch::ClearLiveShot() {
 
 void NetMatch::Begin(const std::string& id, int myPlayerNum,
                       const std::string& oppId, const std::string& oppName,
-                      MatchFormat format) {
+                      const MatchComposition& composition) {
     matchId = id;
     myPlayerNumber = myPlayerNum;
-    matchFormat_ = format;
+    composition_ = composition;
     opponentId = oppId;
     opponentName = oppName;
     syncedCurrentTurnPlayer = 1;
     cachedCurrentTurnPlayer_ = 1;
     lastSeenTurnNumber = 0;
     pollTimer = 0.0f;
+    presenceGraceRemaining_ = (myPlayerNum != 0) ? MATCH_START_PRESENCE_GRACE_SEC : 0.0f;
     liveAimPublishTimer_ = 0.0f;
     projPublishTimer_ = 0.0f;
     localShotFlightT_ = 0.0f;
@@ -462,6 +533,8 @@ void NetMatch::Begin(const std::string& id, int myPlayerNum,
     {
         std::lock_guard lock(mu_);
         hasPendingTurn_ = false;
+        hasPendingHealthResync_ = false;
+        pendingHealthResync_ = {};
         pendingDisconnect_ = DisconnectResult::None;
         pendingAbandonWinner_ = 0;
         disconnectReported_ = false;
@@ -501,8 +574,9 @@ void NetMatch::Begin(const std::string& id, int myPlayerNum,
     SchedulePoll();
 }
 
-void NetMatch::BeginSpectating(const std::string& id, int currentTurnPlayer, int lastTurnNumber) {
-    Begin(id, 0, "", "", MatchFormat::Duel1v1);
+void NetMatch::BeginSpectating(const std::string& id, int currentTurnPlayer, int lastTurnNumber,
+                               const MatchComposition& composition) {
+    Begin(id, 0, "", "", composition);
     syncedCurrentTurnPlayer = currentTurnPlayer;
     cachedCurrentTurnPlayer_ = currentTurnPlayer;
     lastSeenTurnNumber = lastTurnNumber;
@@ -527,6 +601,9 @@ void NetMatch::Pump(float dt) {
     }
 
     pollTimer += dt;
+    if (presenceGraceRemaining_ > 0.0f) {
+        presenceGraceRemaining_ = std::max(0.0f, presenceGraceRemaining_ - dt);
+    }
     if (pollTimer >= PollIntervalSec()) {
         pollTimer = 0.0f;
         SchedulePoll();
@@ -580,16 +657,17 @@ void NetMatch::SchedulePoll() {
 
     const std::string matchIdCopy = matchId;
     const int nextTurn = lastSeenTurnNumber + 1;
+    const bool checkPresence = (presenceGraceRemaining_ <= 0.0f);
 
-    GlobalNetWorker().Post([this, matchIdCopy, nextTurn](SupabaseClient& client) {
+    GlobalNetWorker().Post([this, matchIdCopy, nextTurn, checkPresence](SupabaseClient& client) {
         json matchRows = client.Select("matches",
-            "select=status,winner_player,current_turn_player,match_format,"
-            "player1_id,player2_id,player3_id,player4_id,"
+            "select=status,winner_player,current_turn_player,match_format,team_a_count,team_b_count,"
+            "player1_id,player2_id,player3_id,player4_id,player5_id,player6_id,player7_id,player8_id,player9_id,player10_id,"
             "live_shooter,live_angle,live_power,live_aim_phase&id=eq." + matchIdCopy);
 
         if (matchRows.is_array() && !matchRows.empty()) {
             const json& mrow = matchRows[0];
-            if (json_helpers::Str(mrow, "status", "active") == "active") {
+            if (json_helpers::Str(mrow, "status", "active") == "active" && checkPresence) {
                 CheckParticipantsPresence(client, mrow);
             }
             ApplyMatchRecord(mrow);
@@ -650,8 +728,12 @@ bool NetMatch::PollDevCommand(DevCommand& out) {
 }
 
 void NetMatch::DevSyncTurnTo(int nextPlayer) {
+    SyncTurnTo(nextPlayer);
+}
+
+void NetMatch::SyncTurnTo(int nextPlayer) {
     if (!active_.load() || matchId.empty()) return;
-    const int maxPlayer = IsTeamMode(matchFormat_) ? 4 : 2;
+    const int maxPlayer = composition_.TotalPlayers();
     if (nextPlayer < 1 || nextPlayer > maxPlayer) return;
 
     syncedCurrentTurnPlayer = nextPlayer;
@@ -671,7 +753,8 @@ void NetMatch::DevSyncTurnTo(int nextPlayer) {
 
 void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot,
                              float impactX, float impactY, float craterRadius,
-                             float damageP1, float damageP2, float damageP3, float damageP4,
+                             const float damages[MatchRoster::kMaxCannons],
+                             const float healthAfter[MatchRoster::kMaxCannons],
                              float nextWind, int nextTurnPlayer,
                              bool matchOver, int winnerPlayer,
                              int pickedPowerupType, float pickedPowerupX) {
@@ -689,14 +772,39 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
     const std::string matchIdCopy = matchId;
     const int turnNum = lastSeenTurnNumber;
     const int shooter = myPlayerNumber;
+    const int playerCount = std::clamp(composition_.TotalPlayers(), 1, MatchRoster::kMaxCannons);
 
-    DebugLogf(LOG_INFO, "NET: SubmitMyTurn #%d atirador=P%d proximo=P%d pickup=%d",
-              turnNum, shooter, nextTurnPlayer, pickedPowerupType);
+    DebugLogf(LOG_INFO, "NET: SubmitMyTurn #%d atirador=P%d proximo=P%d pickup=%d hp=%.0f/%.0f/%.0f",
+              turnNum, shooter, nextTurnPlayer, pickedPowerupType,
+              playerCount >= 1 ? healthAfter[0] : 0.0f,
+              playerCount >= 2 ? healthAfter[1] : 0.0f,
+              playerCount >= 3 ? healthAfter[2] : 0.0f);
 
     if (realtime_.IsConnected()) {
-        realtime_.SendBroadcast("turn_submitted", {
+        json damagesArr = json::array();
+        json healthArr = json::array();
+        for (int i = 0; i < playerCount; ++i) {
+            damagesArr.push_back(damages[i]);
+            healthArr.push_back(healthAfter[i]);
+        }
+        realtime_.SendBroadcast("turn_result", {
             { "turn_number", turnNum },
-            { "shooter", shooter }
+            { "shooter", shooter },
+            { "player_count", playerCount },
+            { "shoot_angle", shootAngle },
+            { "shoot_power", shootPower },
+            { "wind_at_shot", windAtShot },
+            { "impact_x", impactX },
+            { "impact_y", impactY },
+            { "crater_radius", craterRadius },
+            { "damages", damagesArr },
+            { "health_after", healthArr },
+            { "next_wind", nextWind },
+            { "next_turn_player", nextTurnPlayer },
+            { "match_over", matchOver },
+            { "winner_player", winnerPlayer },
+            { "picked_powerup_type", pickedPowerupType },
+            { "picked_powerup_x", pickedPowerupX }
         });
     }
 
@@ -711,10 +819,6 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
             { "impact_x", impactX },
             { "impact_y", impactY },
             { "crater_radius", craterRadius },
-            { "damage_p1", damageP1 },
-            { "damage_p2", damageP2 },
-            { "damage_p3", damageP3 },
-            { "damage_p4", damageP4 },
             { "next_wind", nextWind },
             { "next_turn_player", nextTurnPlayer },
             { "match_over", matchOver },
@@ -722,6 +826,9 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
             { "picked_powerup_type", pickedPowerupType },
             { "picked_powerup_x", pickedPowerupX }
         };
+        for (int i = 0; i < playerCount; ++i) {
+            body["damage_p" + std::to_string(i + 1)] = damages[i];
+        }
         json inserted = client.Insert("match_turns", body);
         if (!inserted.is_array() || inserted.empty()) {
             DebugLogf(LOG_WARNING, "NET: Insert match_turns #%d FALHOU", turnNum);
@@ -760,6 +867,14 @@ bool NetMatch::PollOpponentTurn(RemoteTurnResult& out) {
     return true;
 }
 
+bool NetMatch::PollHealthResync(RemoteTurnResult& out) {
+    std::lock_guard lock(mu_);
+    if (!hasPendingHealthResync_) return false;
+    out = pendingHealthResync_;
+    hasPendingHealthResync_ = false;
+    return true;
+}
+
 bool NetMatch::PollSpectatorMatchEnded(int& winnerOut) {
     if (myPlayerNumber != 0) return false;
     std::lock_guard lock(mu_);
@@ -789,10 +904,7 @@ int NetMatch::TakeAbandonWinner() {
 
 int NetMatch::AbandonWinnerPlayer() const {
     if (myPlayerNumber == 0) return 0;
-    if (!IsTeamMode(matchFormat_)) {
-        return (myPlayerNumber == 1) ? 2 : 1;
-    }
-    return (myPlayerNumber <= 2) ? 2 : 1;
+    return WinnerWhenPlayerLeaves(myPlayerNumber, composition_);
 }
 
 void NetMatch::AbandonMatch() {

@@ -25,6 +25,7 @@ void Cannon::SetAim(float pAngleDeg, float pPower01) {
 
 void Cannon::TakeDamage(float dmg) {
     health = std::max(0.0f, health - dmg);
+    if (health <= 0.5f) health = 0.0f;
 }
 
 Vector2 Cannon::AimDirection() const {

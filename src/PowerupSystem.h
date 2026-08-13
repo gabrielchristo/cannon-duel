@@ -25,6 +25,8 @@ public:
 
     void Draw(const Terrain& terrain) const;
     void DrawTooltip(const Terrain& terrain, Vector2 mouse, Lang lang) const;
+    bool ConsumesPointerPress(const Terrain& terrain, Vector2 point, Lang lang);
+    void UpdatePinnedTooltip(float dt);
 
     void ShowMessage(const char* text, Vector2 pos);
     void UpdateMessageTimer(float dt);
@@ -68,6 +70,11 @@ private:
     float messageTimer_ = 0.0f;
     Vector2 messagePos_{};
 
+    int pinnedTooltipIndex_ = -1;
+    float pinnedTooltipTimer_ = 0.0f;
+
     PowerupType RollWeightedType(float roll01) const;
     void PushSpawn(float x, PowerupType type);
+    bool PointerOverPowerup(const Terrain& terrain, Vector2 point, int* outIndex) const;
+    void DrawTooltipForPowerup(const Powerup& pu, Vector2 anchor, Lang lang) const;
 };

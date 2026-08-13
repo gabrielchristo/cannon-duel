@@ -7,16 +7,21 @@
 #include <array>
 #include <vector>
 
-// Roster de canhões por equipe — extensível para 1v1, 2v2 e futuro 3v3.
+// Roster de canhões por equipe — extensível até 5v5 online.
 class MatchRoster {
 public:
-    static constexpr int kMaxCannons = 6;
+    static constexpr int kMaxCannons = 10;
+    static constexpr int kMaxPerTeam = 5;
 
     void Setup(MatchFormat format, Terrain& terrain);
+    void SetupComposition(const MatchComposition& comp, Terrain& terrain);
 
     MatchFormat Format() const { return format_; }
-    int PerTeam() const { return perTeam_; }
-    int CannonCount() const { return perTeam_ * 2; }
+    MatchComposition Composition() const { return { perTeamA_, perTeamB_ }; }
+    int PerTeam() const { return std::max(perTeamA_, perTeamB_); }
+    int PerTeamA() const { return perTeamA_; }
+    int PerTeamB() const { return perTeamB_; }
+    int CannonCount() const { return perTeamA_ + perTeamB_; }
 
     Cannon& At(int slot);
     const Cannon& At(int slot) const;
@@ -32,6 +37,9 @@ public:
 
     // Opção B: A0 → B0 → A1 → B1 → … (generalizado para N por equipe).
     int NextSlotInterleaved(int currentSlot) const;
+    int NextLivingSlotInterleaved(int currentSlot) const;
+    int NextLivingPlayerNum(int currentPlayerNum) const;
+    bool IsPlayerAlive(int playerNum) const;
 
     int LowestHpEnemySlot(int shooterSlot) const;
 
@@ -51,8 +59,10 @@ public:
 
 private:
     MatchFormat format_ = MatchFormat::Duel1v1;
-    int perTeam_ = 1;
+    int perTeamA_ = 1;
+    int perTeamB_ = 1;
     std::array<Cannon, kMaxCannons> cannons_{};
 
     void PlaceCannons(Terrain& terrain);
+    float TeamSpacing(int count) const;
 };

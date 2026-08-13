@@ -8,8 +8,29 @@
 #include <cstdlib>
 #include <ctime>
 #include <unordered_map>
+#include <unordered_set>
 
 using json = nlohmann::json;
+
+namespace {
+
+void SortMembers(std::vector<TeamRoomMember>& members) {
+    std::sort(members.begin(), members.end(),
+              [](const TeamRoomMember& a, const TeamRoomMember& b) { return a.slot < b.slot; });
+}
+
+std::vector<std::string> CollectRoomPlayerIds(const TeamRoomView& room) {
+    std::vector<std::string> ids;
+    for (const TeamRoomMember& m : room.teamA) {
+        if (!m.playerId.empty()) ids.push_back(m.playerId);
+    }
+    for (const TeamRoomMember& m : room.teamB) {
+        if (!m.playerId.empty()) ids.push_back(m.playerId);
+    }
+    return ids;
+}
+
+} // namespace
 
 bool OnlineLobby::PollEnterTeamRoom(std::string& roomIdOut) {
     if (!hasEnterTeamRoom_) return false;
@@ -17,6 +38,16 @@ bool OnlineLobby::PollEnterTeamRoom(std::string& roomIdOut) {
     hasEnterTeamRoom_ = false;
     enterTeamRoomId_.clear();
     return true;
+}
+
+void OnlineLobby::InsertRoomCaptains(const std::string& roomId, const std::string& captainA,
+                                     const std::string& captainB) {
+    client.Insert("team_room_members", json{
+        { "room_id", roomId }, { "team", "a" }, { "slot", 0 }, { "player_id", captainA }
+    });
+    client.Insert("team_room_members", json{
+        { "room_id", roomId }, { "team", "b" }, { "slot", 0 }, { "player_id", captainB }
+    });
 }
 
 bool OnlineLobby::LoadTeamRoom(const std::string& roomId, TeamRoomView& out) {
@@ -27,18 +58,39 @@ bool OnlineLobby::LoadTeamRoom(const std::string& roomId, TeamRoomView& out) {
 
     const json& r = rows[0];
     out.roomId = roomId;
-    out.captainAId = json_helpers::Str(r, "captain_a_id");
-    out.captainBId = json_helpers::Str(r, "captain_b_id");
-    out.partnerAId = json_helpers::Str(r, "partner_a_id");
-    out.partnerBId = json_helpers::Str(r, "partner_b_id");
     out.status = json_helpers::Str(r, "status", "recruiting");
     out.version = (json_helpers::Str(r, "version", "classic") == "plus")
         ? GameVersion::Plus : GameVersion::Classic;
+    out.teamA.clear();
+    out.teamB.clear();
 
-    std::vector<std::string> ids;
-    for (const std::string* pid : { &out.captainAId, &out.captainBId, &out.partnerAId, &out.partnerBId }) {
-        if (!pid->empty()) ids.push_back(*pid);
+    json members = client.Select("team_room_members",
+        "select=team,slot,player_id&room_id=eq." + roomId + "&order=slot.asc");
+    if (members.is_array() && !members.empty()) {
+        for (const auto& m : members) {
+            TeamRoomMember tm;
+            tm.playerId = json_helpers::Str(m, "player_id");
+            tm.slot = json_helpers::Int(m, "slot", 0);
+            const std::string team = json_helpers::Str(m, "team", "a");
+            if (team == "b") out.teamB.push_back(tm);
+            else out.teamA.push_back(tm);
+        }
+    } else {
+        // Fallback legado partner_a/b
+        const std::string capA = json_helpers::Str(r, "captain_a_id");
+        const std::string capB = json_helpers::Str(r, "captain_b_id");
+        const std::string partA = json_helpers::Str(r, "partner_a_id");
+        const std::string partB = json_helpers::Str(r, "partner_b_id");
+        if (!capA.empty()) out.teamA.push_back({ capA, "", 0 });
+        if (!partA.empty()) out.teamA.push_back({ partA, "", 1 });
+        if (!capB.empty()) out.teamB.push_back({ capB, "", 0 });
+        if (!partB.empty()) out.teamB.push_back({ partB, "", 1 });
     }
+
+    SortMembers(out.teamA);
+    SortMembers(out.teamB);
+
+    std::vector<std::string> ids = CollectRoomPlayerIds(out);
     std::sort(ids.begin(), ids.end());
     ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
 
@@ -61,16 +113,24 @@ bool OnlineLobby::LoadTeamRoom(const std::string& roomId, TeamRoomView& out) {
         auto it = names.find(id);
         return (it != names.end()) ? it->second : "???";
     };
-    out.captainAName = nameOf(out.captainAId);
-    out.captainBName = nameOf(out.captainBId);
-    out.partnerAName = nameOf(out.partnerAId);
-    out.partnerBName = nameOf(out.partnerBId);
+    for (TeamRoomMember& m : out.teamA) m.displayName = nameOf(m.playerId);
+    for (TeamRoomMember& m : out.teamB) m.displayName = nameOf(m.playerId);
 
     const std::string me = identity->Id();
-    out.amCaptain = (me == out.captainAId || me == out.captainBId);
+    out.amCaptain = false;
     out.myTeam = '\0';
-    if (me == out.captainAId || me == out.partnerAId) out.myTeam = 'a';
-    else if (me == out.captainBId || me == out.partnerBId) out.myTeam = 'b';
+    for (const TeamRoomMember& m : out.teamA) {
+        if (m.playerId == me) {
+            out.myTeam = 'a';
+            if (m.slot == 0) out.amCaptain = true;
+        }
+    }
+    for (const TeamRoomMember& m : out.teamB) {
+        if (m.playerId == me) {
+            out.myTeam = 'b';
+            if (m.slot == 0) out.amCaptain = true;
+        }
+    }
     return true;
 }
 
@@ -91,6 +151,28 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
 
     incomingTeamInvites.clear();
     if (!rows.is_array()) return;
+
+    std::unordered_map<std::string, std::string> roomVersions;
+    std::unordered_set<std::string> roomIds;
+    for (const auto& row : rows) {
+        const std::string rid = json_helpers::Str(row, "room_id");
+        if (!rid.empty()) roomIds.insert(rid);
+    }
+    if (!roomIds.empty()) {
+        std::string roomInList;
+        size_t ridx = 0;
+        for (const std::string& rid : roomIds) {
+            if (ridx++ > 0) roomInList += ",";
+            roomInList += rid;
+        }
+        json roomRows = client.Select("team_rooms", "select=id,version&id=in.(" + roomInList + ")");
+        if (roomRows.is_array()) {
+            for (const auto& rr : roomRows) {
+                roomVersions[json_helpers::Str(rr, "id")] =
+                    json_helpers::Str(rr, "version", "classic");
+            }
+        }
+    }
 
     std::unordered_map<std::string, std::string> fromNames;
     for (const auto& row : rows) {
@@ -122,6 +204,9 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
         inv.team = teamStr.empty() ? 'a' : teamStr[0];
         auto it = fromNames.find(inv.fromPlayerId);
         inv.fromDisplayName = (it != fromNames.end()) ? it->second : "???";
+        const auto vit = roomVersions.find(inv.roomId);
+        inv.roomVersion = (vit != roomVersions.end() && vit->second == "plus")
+            ? GameVersion::Plus : GameVersion::Classic;
         incomingTeamInvites.push_back(inv);
     }
 }
@@ -133,12 +218,16 @@ void OnlineLobby::EnsureTeamRealtime() {
     teamRealtime_.SetOnPostgres("team_rooms", [this](const json&) {
         dirtyTeamRoom_.store(true);
     });
+    teamRealtime_.SetOnPostgres("team_room_members", [this](const json&) {
+        dirtyTeamRoom_.store(true);
+    });
     teamRealtime_.SetOnPostgres("team_invites", [this](const json&) {
         dirtyTeamRoom_.store(true);
     });
 
     std::vector<RealtimeClient::PostgresSub> subs = {
         { "*", "public", "team_rooms", "id=eq." + activeTeamRoomId_ },
+        { "*", "public", "team_room_members", "room_id=eq." + activeTeamRoomId_ },
         { "*", "public", "team_invites", "to_player_id=eq." + identity->Id() },
     };
     teamRealtime_.Start("team:" + identity->Id(), subs);
@@ -153,7 +242,7 @@ void OnlineLobby::EnterTeamRoom(const std::string& roomId) {
     RefreshTeamRoom();
     EnsureTeamRealtime();
     if (registeredPlayer) UpsertPresenceWithStatus("team_room", roomId);
-    DebugLogf(LOG_INFO, "LOBBY: entrou na sala de equipes %s", roomId.c_str());
+    DebugLogf(LOG_INFO, "LOBBY: entrou na sala de composicao %s", roomId.c_str());
 }
 
 void OnlineLobby::LeaveTeamRoom() {
@@ -197,7 +286,7 @@ void OnlineLobby::UpdateTeamRoom(float dt) {
     RefreshIncomingTeamInvites();
 
     if (teamRoom_.status == "cancelled") {
-        DebugLogf(LOG_INFO, "LOBBY: sala de equipes cancelada");
+        DebugLogf(LOG_INFO, "LOBBY: sala cancelada");
         LeaveTeamRoom();
         return;
     }
@@ -208,10 +297,15 @@ void OnlineLobby::UpdateTeamRoom(float dt) {
 int OnlineLobby::MyPlayerNumberInRoom(const TeamRoomView& room) const {
     if (!identity) return 0;
     const std::string me = identity->Id();
-    if (me == room.captainAId) return 1;
-    if (me == room.partnerAId) return 2;
-    if (me == room.captainBId) return 3;
-    if (me == room.partnerBId) return 4;
+    int playerNum = 1;
+    for (const TeamRoomMember& m : room.teamA) {
+        if (m.playerId == me) return playerNum;
+        ++playerNum;
+    }
+    for (const TeamRoomMember& m : room.teamB) {
+        if (m.playerId == me) return playerNum;
+        ++playerNum;
+    }
     return 0;
 }
 
@@ -220,20 +314,64 @@ void OnlineLobby::BuildMatchStartFromRow(const json& mrow, const TeamRoomView& r
     readyMatch.myPlayerNumber = MyPlayerNumberInRoom(room);
     readyMatch.terrainSeed = static_cast<unsigned int>(json_helpers::Int64(mrow, "terrain_seed", 0));
     readyMatch.isPlus = (json_helpers::Str(mrow, "version", "classic") == "plus");
-    readyMatch.format = MatchFormat::Team2v2;
+    const MatchComposition roomComp = room.Composition();
+    readyMatch.composition = ParseMatchComposition(
+        json_helpers::Str(mrow, "match_format", MatchFormatDb(roomComp).c_str()),
+        json_helpers::Int(mrow, "team_a_count", roomComp.teamA),
+        json_helpers::Int(mrow, "team_b_count", roomComp.teamB));
+    if (readyMatch.composition.TotalPlayers() != roomComp.TotalPlayers()) {
+        DebugLogf(LOG_WARNING,
+                  "LOBBY: composicao DB (%dx%d) difere da sala (%dx%d) — usando sala",
+                  readyMatch.composition.teamA, readyMatch.composition.teamB,
+                  roomComp.teamA, roomComp.teamB);
+        readyMatch.composition = roomComp;
+    }
 
-    readyMatch.playerNames[0] = room.captainAName;
-    readyMatch.playerNames[1] = room.partnerAName;
-    readyMatch.playerNames[2] = room.captainBName;
-    readyMatch.playerNames[3] = room.partnerBName;
+    for (auto& name : readyMatch.playerNames) {
+        name.clear();
+    }
+
+    int idx = 0;
+    for (const TeamRoomMember& m : room.teamA) {
+        if (idx < MatchRoster::kMaxCannons) readyMatch.playerNames[idx++] = m.displayName;
+    }
+    for (const TeamRoomMember& m : room.teamB) {
+        if (idx < MatchRoster::kMaxCannons) readyMatch.playerNames[idx++] = m.displayName;
+    }
+
+    const int totalPlayers = readyMatch.composition.TotalPlayers();
+    if (idx < totalPlayers) {
+        std::string pidList;
+        for (int p = idx; p < totalPlayers && p < MatchRoster::kMaxCannons; ++p) {
+            const std::string key = "player" + std::to_string(p + 1) + "_id";
+            const std::string pid = json_helpers::Str(mrow, key.c_str());
+            if (pid.empty()) continue;
+            if (!pidList.empty()) pidList += ",";
+            pidList += pid;
+        }
+        if (!pidList.empty()) {
+            std::unordered_map<std::string, std::string> names;
+            json prows = client.Select("players", "select=id,display_name&id=in.(" + pidList + ")");
+            if (prows.is_array()) {
+                for (const auto& p : prows) {
+                    names[json_helpers::Str(p, "id")] = json_helpers::Str(p, "display_name", "???");
+                }
+            }
+            for (int p = idx; p < totalPlayers && p < MatchRoster::kMaxCannons; ++p) {
+                const std::string key = "player" + std::to_string(p + 1) + "_id";
+                const std::string pid = json_helpers::Str(mrow, key.c_str());
+                readyMatch.playerNames[p] = names.count(pid) ? names.at(pid) : "???";
+            }
+        }
+    }
 
     const std::string me = identity->Id();
-    if (me == room.captainAId || me == room.partnerAId) {
-        readyMatch.opponentId = room.captainBId;
-        readyMatch.opponentName = room.captainBName;
+    if (TeamOfPlayerNum(readyMatch.myPlayerNumber, readyMatch.composition) == 0) {
+        readyMatch.opponentId = room.teamB.empty() ? "" : room.teamB[0].playerId;
+        readyMatch.opponentName = room.teamB.empty() ? "???" : room.teamB[0].displayName;
     } else {
-        readyMatch.opponentId = room.captainAId;
-        readyMatch.opponentName = room.captainAName;
+        readyMatch.opponentId = room.teamA.empty() ? "" : room.teamA[0].playerId;
+        readyMatch.opponentName = room.teamA.empty() ? "???" : room.teamA[0].displayName;
     }
 }
 
@@ -253,7 +391,7 @@ void OnlineLobby::TryResolveTeamRoomMatchStart() {
     RefreshTeamRoom();
     const int myNum = MyPlayerNumberInRoom(teamRoom_);
     if (myNum == 0) {
-        DebugLogf(LOG_WARNING, "LOBBY: partida 2x2 pronta mas jogador nao mapeado na sala");
+        DebugLogf(LOG_WARNING, "LOBBY: partida pronta mas jogador nao mapeado na sala");
         return;
     }
 
@@ -262,12 +400,14 @@ void OnlineLobby::TryResolveTeamRoomMatchStart() {
 
     BuildMatchStartFromRow(matchRows[0], teamRoom_);
     hasReadyMatch = true;
-    DebugLogf(LOG_INFO, "LOBBY: partida 2x2 pronta match=%s eu=P%d",
-              matchId.c_str(), readyMatch.myPlayerNumber);
+    DebugLogf(LOG_INFO, "LOBBY: partida pronta match=%s eu=P%d (%dx%d)",
+              matchId.c_str(), readyMatch.myPlayerNumber,
+              readyMatch.composition.teamA, readyMatch.composition.teamB);
 }
 
 void OnlineLobby::SendTeamInvite(const LobbyPlayerCard& target) {
     if (!identity || !teamRoom_.amCaptain || activeTeamRoomId_.empty()) return;
+    if (!teamRoom_.CanInvite(teamRoom_.myTeam)) return;
 
     const char* teamStr = (teamRoom_.myTeam == 'b') ? "b" : "a";
     json body = {
@@ -283,13 +423,30 @@ void OnlineLobby::SendTeamInvite(const LobbyPlayerCard& target) {
 void OnlineLobby::AcceptTeamInvite(const IncomingTeamInvite& invite) {
     if (!identity) return;
 
-    const std::string col = (invite.team == 'b') ? "partner_b_id" : "partner_a_id";
-    client.Update("team_rooms", "id=eq." + invite.roomId, json{ { col, identity->Id() } });
+    RefreshTeamRoom();
+    TeamRoomView room;
+    if (!LoadTeamRoom(invite.roomId, room)) return;
+
+    const char* teamStr = (invite.team == 'b') ? "b" : "a";
+    const std::vector<TeamRoomMember>& teamMembers = (invite.team == 'b') ? room.teamB : room.teamA;
+    if (static_cast<int>(teamMembers.size()) >= MatchRoster::kMaxPerTeam) return;
+
+    int nextSlot = 0;
+    for (const TeamRoomMember& m : teamMembers) {
+        nextSlot = std::max(nextSlot, m.slot + 1);
+    }
+
+    client.Insert("team_room_members", json{
+        { "room_id", invite.roomId },
+        { "team", teamStr },
+        { "slot", nextSlot },
+        { "player_id", identity->Id() }
+    });
     client.Update("team_invites", "id=eq." + invite.inviteId, json{ { "status", "accepted" } });
 
     enterTeamRoomId_ = invite.roomId;
     hasEnterTeamRoom_ = true;
-    DebugLogf(LOG_INFO, "LOBBY: aceitei convite de equipe sala=%s", invite.roomId.c_str());
+    DebugLogf(LOG_INFO, "LOBBY: aceitei convite sala=%s slot=%d", invite.roomId.c_str(), nextSlot);
 }
 
 void OnlineLobby::DeclineTeamInvite(const IncomingTeamInvite& invite) {
@@ -307,8 +464,8 @@ void OnlineLobby::LeaveTeamAsPartner() {
     if (!identity || activeTeamRoomId_.empty() || teamRoom_.amCaptain) return;
     if (teamRoom_.myTeam != 'a' && teamRoom_.myTeam != 'b') return;
 
-    const std::string col = (teamRoom_.myTeam == 'b') ? "partner_b_id" : "partner_a_id";
-    client.Update("team_rooms", "id=eq." + activeTeamRoomId_, json{ { col, nullptr } });
+    client.Delete("team_room_members",
+        "room_id=eq." + activeTeamRoomId_ + "&player_id=eq." + identity->Id());
 
     json invites = client.Select("team_invites",
         "select=id&room_id=eq." + activeTeamRoomId_ +
@@ -328,30 +485,41 @@ void OnlineLobby::LeaveTeamAsPartner() {
 
 void OnlineLobby::StartTeamMatch() {
     if (!identity || !teamRoom_.amCaptain || activeTeamRoomId_.empty()) return;
-    if (teamRoom_.partnerAId.empty() || teamRoom_.partnerBId.empty()) return;
 
     RefreshTeamRoom();
-    if (teamRoom_.partnerAId.empty() || teamRoom_.partnerBId.empty()) return;
+    if (teamRoom_.teamA.empty() || teamRoom_.teamB.empty()) return;
 
     json check = client.Select("team_rooms", "select=status&id=eq." + activeTeamRoomId_);
     if (!check.is_array() || check.empty()) return;
     if (json_helpers::Str(check[0], "status") != "recruiting") return;
 
+    const MatchComposition comp = teamRoom_.Composition();
     const unsigned int seed = static_cast<unsigned int>(rand()) ^ static_cast<unsigned int>(time(nullptr));
     const bool isPlus = (teamRoom_.version == GameVersion::Plus);
 
     json matchBody = {
-        { "player1_id", teamRoom_.captainAId },
-        { "player2_id", teamRoom_.partnerAId },
-        { "player3_id", teamRoom_.captainBId },
-        { "player4_id", teamRoom_.partnerBId },
         { "terrain_seed", static_cast<long long>(seed) },
         { "version", isPlus ? "plus" : "classic" },
-        { "match_format", "team_2v2" },
+        { "match_format", MatchFormatDb(comp) },
+        { "team_a_count", comp.teamA },
+        { "team_b_count", comp.teamB },
         { "current_turn_player", 1 },
         { "wind", 0.0f },
         { "status", "active" }
     };
+
+    int playerIdx = 1;
+    for (const TeamRoomMember& m : teamRoom_.teamA) {
+        if (playerIdx > MatchRoster::kMaxCannons) break;
+        matchBody["player" + std::to_string(playerIdx) + "_id"] = m.playerId;
+        ++playerIdx;
+    }
+    for (const TeamRoomMember& m : teamRoom_.teamB) {
+        if (playerIdx > MatchRoster::kMaxCannons) break;
+        matchBody["player" + std::to_string(playerIdx) + "_id"] = m.playerId;
+        ++playerIdx;
+    }
+
     json created = client.Insert("matches", matchBody);
     if (!created.is_array() || created.empty()) return;
 
@@ -363,12 +531,16 @@ void OnlineLobby::StartTeamMatch() {
         { "match_id", matchId }
     });
 
-    BuildMatchStartFromRow(created[0], teamRoom_);
+    json matchRows = client.Select("matches", "select=*&id=eq." + matchId);
+    if (!matchRows.is_array() || matchRows.empty()) return;
+
+    BuildMatchStartFromRow(matchRows[0], teamRoom_);
     if (readyMatch.myPlayerNumber == 0) {
-        DebugLogf(LOG_WARNING, "LOBBY: capitao nao mapeado ao iniciar partida 2x2");
+        DebugLogf(LOG_WARNING, "LOBBY: capitao nao mapeado ao iniciar partida");
         hasReadyMatch = false;
         return;
     }
     hasReadyMatch = true;
-    DebugLogf(LOG_INFO, "LOBBY: capitão iniciou partida 2x2 match=%s", matchId.c_str());
+    DebugLogf(LOG_INFO, "LOBBY: capitao iniciou partida %dx%d match=%s",
+              comp.teamA, comp.teamB, matchId.c_str());
 }

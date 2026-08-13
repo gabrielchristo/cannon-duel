@@ -1,6 +1,7 @@
 #pragma once
 
 #include <raylib.h>
+#include <array>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,7 @@
 #include "ScreenEffects.h"
 #include "Localization.h"
 #include "Platform.h"
+#include "ScrollList.h"
 #include "VirtualScreen.h"
 
 #include "net/PlayerIdentity.h"
@@ -68,7 +70,10 @@ private:
     float SeededWind(int turnIndex) const;
     void ConsumeRemotePowerupPickups();
     void ApplyRemoteTurnDamage(const RemoteTurnResult& turn);
+    void SyncCannonHealthFromTurn(const RemoteTurnResult& turn);
     void ApplyOnlineNamesFromMatchStart(const MatchStart& ms);
+    int ResolveOnlineTurnPlayer(int proposedPlayer) const;
+    void MaybeAdvancePastDeadOnlineTurn(float dt);
 
     // --- gameplay local ---
     void UpdateFormatSelect();
@@ -229,10 +234,16 @@ private:
     int opponentAimForTurn = 0;
     bool onlineWinByDisconnect = false;
     bool isSpectating = false;
+    float onlineDeadTurnSkipCooldown_ = 0.0f;
 
-    OnlineChallengeFormat onlineChallengeFormat = OnlineChallengeFormat::Duel1v1;
-    std::string onlineP1Name;
-    std::string onlineP2Name;
-    std::string onlineP3Name;
-    std::string onlineP4Name;
+    MatchComposition matchComposition = { 1, 1 };
+    std::array<std::string, MatchRoster::kMaxCannons> onlinePlayerNames{};
+
+    ScrollListState onlineLobbyScroll_;
+    ScrollListState onlineTeamInviteScroll_;
+
+    bool IsTeamGame() const {
+        if (mode == GameMode::Online) return matchComposition.IsTeamGame();
+        return IsTeamMode(matchFormat);
+    }
 };

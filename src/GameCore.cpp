@@ -144,7 +144,18 @@ void Game::ResetRound(unsigned int seed) {
     terrain.GenerateRandom(seed);
     terrain.RebuildPhysicsBody(physics.Id());
 
-    roster.Setup(matchFormat, terrain);
+    if (mode == GameMode::Online) {
+        roster.SetupComposition(matchComposition, terrain);
+        for (int i = 0; i < roster.CannonCount(); ++i) {
+            Cannon& c = roster.At(i);
+            if (c.health <= 0.0f) {
+                DebugLogf(LOG_WARNING, "ROSTER: slot %d com vida zerada apos setup — corrigindo", i);
+                c.health = cfg::CANNON_MAX_HEALTH;
+            }
+        }
+    } else {
+        roster.Setup(matchFormat, terrain);
+    }
 
     currentPlayer = 1;
     if (mode == GameMode::Online) {
@@ -162,6 +173,9 @@ void Game::ResetRound(unsigned int seed) {
 
     powerups.Reset();
     powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS * roster.PerTeam());
+    if (mode == GameMode::Online && matchComposition.IsTeamGame()) {
+        powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS * std::max(matchComposition.teamA, matchComposition.teamB));
+    }
     remoteReplayT = 0.0f;
     remoteReplayAimTimer = 0.0f;
     opponentAimPlayer = 0;
@@ -228,7 +242,8 @@ void Game::Update(float dt) {
             onlineLobby.HeartbeatInMatch(dt);
         }
         netMatch.Pump(dt);
-        currentPlayer = netMatch.SyncedCurrentTurnPlayer();
+        currentPlayer = ResolveOnlineTurnPlayer(netMatch.SyncedCurrentTurnPlayer());
+        MaybeAdvancePastDeadOnlineTurn(dt);
 
         DisconnectResult disc = netMatch.PollDisconnect();
         if (!isSpectating && disc != DisconnectResult::None) {
@@ -263,6 +278,11 @@ void Game::Update(float dt) {
         // Coleta de power-up anunciada pelo adversário (some do mapa na hora).
         if (version == GameVersion::Plus) {
             ConsumeRemotePowerupPickups();
+        }
+
+        RemoteTurnResult healthResync;
+        while (netMatch.PollHealthResync(healthResync)) {
+            SyncCannonHealthFromTurn(healthResync);
         }
 
         if (state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
@@ -374,6 +394,7 @@ void Game::Update(float dt) {
 
         effects.UpdateShake(dt);
         powerups.UpdateMessageTimer(dt);
+        powerups.UpdatePinnedTooltip(dt);
 
     switch (state) {
         case GameState::MainMenu:

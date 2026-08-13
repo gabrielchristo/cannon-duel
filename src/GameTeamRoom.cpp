@@ -1,40 +1,112 @@
 #include "Game.h"
 #include "Config.h"
+#include "ScrollList.h"
 #include "VirtualScreen.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
 
 namespace {
 
-const char* ChallengeFormatLabel(OnlineChallengeFormat f, Lang lang) {
-    return (f == OnlineChallengeFormat::Team2v2)
-        ? T(TK::OnlineFormat2v2, lang) : T(TK::OnlineFormat1v1, lang);
-}
-
 const char* ChallengeVersionLabel(GameVersion v, Lang lang) {
     return (v == GameVersion::Plus) ? T(TK::PlusLabel, lang) : T(TK::ClassicLabel, lang);
 }
 
-Rectangle OnlineTeamSlotRect(int team, int slotIndex) {
-    const float panelW = 280.0f;
-    const float x = (team == 0) ? cfg::SCREEN_WIDTH / 2.0f - panelW - 24.0f
-                                : cfg::SCREEN_WIDTH / 2.0f + 24.0f;
-    return { x, 130.0f + slotIndex * 78.0f, panelW, 68.0f };
+std::string CompositionLabel(const MatchComposition& comp) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%dx%d", comp.teamA, comp.teamB);
+    return buf;
 }
 
-Rectangle OnlineTeamInviteBtnRect(int listIndex) {
-    return { cfg::SCREEN_WIDTH / 2.0f + 220.0f, 350.0f + listIndex * 74.0f, 130.0f, 46.0f };
+constexpr float kPanelW = 260.0f;
+constexpr float kSlotH = 52.0f;
+constexpr float kSlotGap = 8.0f;
+constexpr float kTeamsTop = 112.0f;
+constexpr float kFooterY = cfg::SCREEN_HEIGHT - 64.0f;
+
+int DisplaySlotCount(int memberCount) {
+    return std::max(1, std::min(memberCount + 1, MatchRoster::kMaxPerTeam));
 }
 
-Rectangle OnlineTeamCardRect(int listIndex) {
-    return { cfg::SCREEN_WIDTH / 2.0f - 350.0f, 350.0f + listIndex * 74.0f, 700.0f, 66.0f };
+float TeamSlotsHeight(int slotCount) {
+    if (slotCount <= 0) return 0.0f;
+    return static_cast<float>(slotCount) * kSlotH + static_cast<float>(slotCount - 1) * kSlotGap;
+}
+
+float TeamPanelX(int team) {
+    return (team == 0) ? cfg::SCREEN_WIDTH / 2.0f - kPanelW - 20.0f
+                       : cfg::SCREEN_WIDTH / 2.0f + 20.0f;
+}
+
+Rectangle TeamSlotRect(int team, int slotIndex, int slotCount) {
+    return { TeamPanelX(team), kTeamsTop + slotIndex * (kSlotH + kSlotGap), kPanelW, kSlotH };
+}
+
+float InviteSectionTop(int slotsA, int slotsB) {
+    const float teamsBottom = kTeamsTop + TeamSlotsHeight(std::max(slotsA, slotsB));
+    return teamsBottom + 18.0f;
+}
+
+ScrollListLayout TeamInviteListLayout(float inviteTop, int candidateCount) {
+    ScrollListLayout layout;
+    const float listTop = inviteTop + 28.0f;
+    layout.viewport = {
+        cfg::SCREEN_WIDTH / 2.0f - 340.0f,
+        listTop,
+        694.0f,
+        std::max(0.0f, kFooterY - 8.0f - listTop)
+    };
+    layout.rowHeight = 58.0f;
+    layout.itemCount = candidateCount;
+    return layout;
+}
+
+Rectangle InviteCardRect(const Rectangle& row) {
+    return { row.x, row.y + 3.0f, row.width, 52.0f };
+}
+
+Rectangle InviteBtnRect(const Rectangle& card) {
+    return { card.x + card.width - 140.0f, card.y + 6.0f, 130.0f, 40.0f };
+}
+
+void DrawInviteRow(const LobbyPlayerCard& p, const Rectangle& card, Lang lang, Vector2 mouse) {
+    DrawRectangleRec(card, Color{250, 240, 225, 255});
+    DrawRectangleLinesEx(card, 2, Color{60, 45, 30, 200});
+    DrawText(p.displayName.c_str(), static_cast<int>(card.x + 14), static_cast<int>(card.y + 16), 16,
+             Color{35, 25, 15, 255});
+
+    Rectangle btn = InviteBtnRect(card);
+    bool hover = CheckCollisionPointRec(mouse, btn);
+    DrawRectangleRec(btn, hover ? Color{100, 190, 110, 255} : Color{70, 160, 85, 255});
+    DrawRectangleLinesEx(btn, 2, Color{20, 45, 25, 255});
+    const char* lbl = T(TK::OnlineTeamInviteButton, lang);
+    int lw = MeasureText(lbl, 15);
+    DrawText(lbl, static_cast<int>(btn.x + btn.width / 2 - lw / 2),
+             static_cast<int>(btn.y + 12), 15, WHITE);
+}
+
+Rectangle CancelBtnRect() {
+    return { cfg::SCREEN_WIDTH / 2.0f - 230.0f, kFooterY, 200.0f, 48.0f };
+}
+
+Rectangle StartBtnRect() {
+    return { cfg::SCREEN_WIDTH / 2.0f + 30.0f, kFooterY, 200.0f, 48.0f };
+}
+
+Rectangle LeaveBtnRect() {
+    return { cfg::SCREEN_WIDTH / 2.0f - 120.0f, kFooterY, 240.0f, 48.0f };
 }
 
 bool PlayerInTeamRoom(const TeamRoomView& room, const std::string& playerId) {
-    return playerId == room.captainAId || playerId == room.partnerAId
-        || playerId == room.captainBId || playerId == room.partnerBId;
+    for (const TeamRoomMember& m : room.teamA) {
+        if (m.playerId == playerId) return true;
+    }
+    for (const TeamRoomMember& m : room.teamB) {
+        if (m.playerId == playerId) return true;
+    }
+    return false;
 }
 
 bool CanInviteFromLobby(const LobbyPlayerCard& p, const TeamRoomView& room) {
@@ -44,10 +116,8 @@ bool CanInviteFromLobby(const LobbyPlayerCard& p, const TeamRoomView& room) {
     return true;
 }
 
-bool MyTeamSlotFull(const TeamRoomView& room) {
-    if (room.myTeam == 'a') return !room.partnerAId.empty();
-    if (room.myTeam == 'b') return !room.partnerBId.empty();
-    return true;
+bool MyTeamCanInvite(const TeamRoomView& room) {
+    return room.amCaptain && room.CanInvite(room.myTeam);
 }
 
 std::vector<const LobbyPlayerCard*> BuildInviteCandidates(const std::vector<LobbyPlayerCard>& players,
@@ -58,6 +128,54 @@ std::vector<const LobbyPlayerCard*> BuildInviteCandidates(const std::vector<Lobb
         if (CanInviteFromLobby(p, room)) out.push_back(&p);
     }
     return out;
+}
+
+void DrawHeader(const TeamRoomView& room, Lang lang) {
+    const MatchComposition comp = room.Composition();
+    std::string titleStr = std::string(T(TK::OnlineTeamRoomTitle, lang)) + "  "
+        + CompositionLabel(comp);
+    int tw = MeasureText(titleStr.c_str(), 22);
+    DrawText(titleStr.c_str(), cfg::SCREEN_WIDTH / 2 - tw / 2, 20, 22, Color{40, 30, 20, 255});
+
+    const char* verLbl = ChallengeVersionLabel(room.version, lang);
+    int vw = MeasureText(verLbl, 16);
+    DrawText(verLbl, cfg::SCREEN_WIDTH / 2 - vw / 2, 50, 16,
+             room.version == GameVersion::Plus ? Color{200, 90, 30, 255} : Color{80, 65, 45, 255});
+
+    const char* hint = T(TK::OnlineTeamCompositionHint, lang);
+    int hw = MeasureText(hint, 14);
+    DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, 74, 14, Color{110, 95, 75, 255});
+}
+
+void DrawTeamColumn(int team, const std::vector<TeamRoomMember>& members, Lang lang) {
+    const int slots = DisplaySlotCount(static_cast<int>(members.size()));
+    const char* lbl = (team == 0) ? T(TK::OnlineTeamLabelA, lang) : T(TK::OnlineTeamLabelB, lang);
+    const float panelX = TeamPanelX(team);
+    int law = MeasureText(lbl, 16);
+    DrawText(lbl, static_cast<int>(panelX + kPanelW / 2 - law / 2), 92, 16,
+             team == 0 ? Color{60, 90, 160, 255} : Color{180, 70, 50, 255});
+
+    for (int s = 0; s < slots; ++s) {
+        Rectangle slot = TeamSlotRect(team, s, slots);
+        const bool filled = s < static_cast<int>(members.size());
+        DrawRectangleRec(slot, filled ? Color{250, 240, 225, 255} : Color{220, 210, 195, 255});
+        DrawRectangleLinesEx(slot, 2, Color{60, 45, 30, 200});
+        if (filled) {
+            const TeamRoomMember& mem = members[static_cast<size_t>(s)];
+            DrawText(mem.displayName.c_str(), static_cast<int>(slot.x + 12), static_cast<int>(slot.y + 16), 16,
+                     Color{35, 25, 15, 255});
+            if (mem.slot == 0) {
+                const char* cap = (lang == Lang::PT_BR) ? "Capitao" : "Captain";
+                DrawText(cap, static_cast<int>(slot.x + slot.width - 72), static_cast<int>(slot.y + 6), 13,
+                         Color{100, 85, 65, 255});
+            }
+        } else {
+            const char* empty = T(TK::OnlineTeamSlotEmpty, lang);
+            int ew = MeasureText(empty, 14);
+            DrawText(empty, static_cast<int>(slot.x + slot.width / 2 - ew / 2),
+                     static_cast<int>(slot.y + 18), 14, Color{120, 105, 85, 255});
+        }
+    }
 }
 
 } // namespace
@@ -79,35 +197,47 @@ void Game::UpdateOnlineTeamRoom() {
     }
 
     Vector2 m = ::GetVirtualMouse();
+    const int slotsA = DisplaySlotCount(room->TeamACount());
+    const int slotsB = DisplaySlotCount(room->TeamBCount());
+    const float inviteTop = InviteSectionTop(slotsA, slotsB);
 
-    Rectangle cancelBtn = { cfg::SCREEN_WIDTH / 2.0f - 230.0f, cfg::SCREEN_HEIGHT - 68.0f, 200.0f, 48.0f };
-    Rectangle startBtn  = { cfg::SCREEN_WIDTH / 2.0f + 30.0f,  cfg::SCREEN_HEIGHT - 68.0f, 200.0f, 48.0f };
-    Rectangle leaveBtn  = { cfg::SCREEN_WIDTH / 2.0f - 120.0f, cfg::SCREEN_HEIGHT - 68.0f, 240.0f, 48.0f };
+    if (MyTeamCanInvite(*room)) {
+        const auto candidates = BuildInviteCandidates(onlineLobby.Players(), *room);
+        ScrollListLayout inviteLayout = TeamInviteListLayout(inviteTop, static_cast<int>(candidates.size()));
+        UpdateScrollList(onlineTeamInviteScroll_, inviteLayout, m);
+    }
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-        if (room->amCaptain && CheckCollisionPointRec(m, cancelBtn)) {
+        if (room->amCaptain && CheckCollisionPointRec(m, CancelBtnRect())) {
             onlineLobby.CancelTeamRoom();
             state = GameState::OnlineLobby;
             return;
         }
-        if (!room->amCaptain && CheckCollisionPointRec(m, leaveBtn)) {
+        if (!room->amCaptain && CheckCollisionPointRec(m, LeaveBtnRect())) {
             onlineLobby.LeaveTeamAsPartner();
             state = GameState::OnlineLobby;
             return;
         }
-        if (room->amCaptain && CheckCollisionPointRec(m, startBtn)
-            && !room->partnerAId.empty() && !room->partnerBId.empty()) {
+        if (room->amCaptain && CheckCollisionPointRec(m, StartBtnRect())
+            && !room->teamA.empty() && !room->teamB.empty()) {
             onlineLobby.StartTeamMatch();
             return;
         }
 
-        if (room->amCaptain && !MyTeamSlotFull(*room)) {
+        if (MyTeamCanInvite(*room)) {
             const auto candidates = BuildInviteCandidates(onlineLobby.Players(), *room);
-            for (int i = 0; i < static_cast<int>(candidates.size()) && i < 6; ++i) {
-                Rectangle btn = OnlineTeamInviteBtnRect(i);
-                if (CheckCollisionPointRec(m, btn)) {
-                    onlineLobby.SendTeamInvite(*candidates[static_cast<size_t>(i)]);
-                    break;
+            ScrollListLayout inviteLayout = TeamInviteListLayout(inviteTop, static_cast<int>(candidates.size()));
+
+            if (ScrollListPointInViewport(inviteLayout, m)
+                && !CheckCollisionPointRec(m, ScrollListTrack(inviteLayout))) {
+                for (int i = 0; i < static_cast<int>(candidates.size()); ++i) {
+                    Rectangle row = ScrollListRowRect(inviteLayout, onlineTeamInviteScroll_, i);
+                    if (!ScrollListRowVisible(inviteLayout, row)) continue;
+                    Rectangle card = InviteCardRect(row);
+                    if (CheckCollisionPointRec(m, InviteBtnRect(card))) {
+                        onlineLobby.SendTeamInvite(*candidates[static_cast<size_t>(i)]);
+                        break;
+                    }
                 }
             }
         }
@@ -121,88 +251,58 @@ void Game::DrawOnlineTeamRoom() {
     const TeamRoomView* room = onlineLobby.ActiveTeamRoom();
     if (!room) return;
 
-    const char* title = T(TK::OnlineTeamRoomTitle, language);
-    int tw = MeasureText(title, 26);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 24, 26, Color{40, 30, 20, 255});
+    DrawHeader(*room, language);
 
-    const char* verLbl = ChallengeVersionLabel(room->version, language);
-    int vw = MeasureText(verLbl, 18);
-    DrawText(verLbl, cfg::SCREEN_WIDTH / 2 - vw / 2, 58, 18,
-             room->version == GameVersion::Plus ? Color{200, 90, 30, 255} : Color{80, 65, 45, 255});
+    DrawTeamColumn(0, room->teamA, language);
+    DrawTeamColumn(1, room->teamB, language);
 
-    auto drawSlot = [&](int team, int slotIndex, const std::string& name, bool filled) {
-        Rectangle slot = OnlineTeamSlotRect(team, slotIndex);
-        DrawRectangleRec(slot, filled ? Color{250, 240, 225, 255} : Color{220, 210, 195, 255});
-        DrawRectangleLinesEx(slot, 2, Color{60, 45, 30, 200});
-        if (filled) {
-            DrawText(name.c_str(), static_cast<int>(slot.x + 14), static_cast<int>(slot.y + 22), 18,
-                     Color{35, 25, 15, 255});
-        } else {
-            const char* empty = T(TK::OnlineTeamSlotEmpty, language);
-            int ew = MeasureText(empty, 16);
-            DrawText(empty, static_cast<int>(slot.x + slot.width / 2 - ew / 2),
-                     static_cast<int>(slot.y + 24), 16, Color{120, 105, 85, 255});
-        }
-    };
+    const int slotsA = DisplaySlotCount(room->TeamACount());
+    const int slotsB = DisplaySlotCount(room->TeamBCount());
+    const float inviteTop = InviteSectionTop(slotsA, slotsB);
 
-    const char* lblA = T(TK::OnlineTeamLabelA, language);
-    const char* lblB = T(TK::OnlineTeamLabelB, language);
-    int law = MeasureText(lblA, 18);
-    int lbw = MeasureText(lblB, 18);
-    DrawText(lblA, static_cast<int>(OnlineTeamSlotRect(0, 0).x + 140 - law / 2), 104, 18, Color{60, 90, 160, 255});
-    DrawText(lblB, static_cast<int>(OnlineTeamSlotRect(1, 0).x + 140 - lbw / 2), 104, 18, Color{180, 70, 50, 255});
-
-    drawSlot(0, 0, room->captainAName, true);
-    drawSlot(0, 1, room->partnerAName, !room->partnerAId.empty());
-    drawSlot(1, 0, room->captainBName, true);
-    drawSlot(1, 1, room->partnerBName, !room->partnerBId.empty());
-
-    if (room->partnerAId.empty() || room->partnerBId.empty()) {
-        const char* wait = T(TK::OnlineTeamWaitingPartners, language);
-        int ww = MeasureText(wait, 16);
-        DrawText(wait, cfg::SCREEN_WIDTH / 2 - ww / 2, 292, 16, Color{100, 85, 65, 255});
-    }
-
-    if (room->amCaptain && !MyTeamSlotFull(*room)) {
+    if (MyTeamCanInvite(*room)) {
         const char* listTitle = T(TK::OnlineTeamLobbyInviteTitle, language);
-        int ltw = MeasureText(listTitle, 16);
-        DrawText(listTitle, cfg::SCREEN_WIDTH / 2 - ltw / 2, 322, 16, Color{80, 65, 45, 255});
+        int ltw = MeasureText(listTitle, 15);
+        DrawText(listTitle, cfg::SCREEN_WIDTH / 2 - ltw / 2, static_cast<int>(inviteTop), 15,
+                 Color{80, 65, 45, 255});
 
         const auto candidates = BuildInviteCandidates(onlineLobby.Players(), *room);
         if (candidates.empty()) {
             const char* none = T(TK::OnlineNoPlayers, language);
-            int nw = MeasureText(none, 16);
-            DrawText(none, cfg::SCREEN_WIDTH / 2 - nw / 2, 360, 16, Color{100, 85, 65, 255});
+            int nw = MeasureText(none, 15);
+            DrawText(none, cfg::SCREEN_WIDTH / 2 - nw / 2, static_cast<int>(inviteTop + 34), 15,
+                     Color{100, 85, 65, 255});
+        } else {
+            ScrollListLayout inviteLayout = TeamInviteListLayout(inviteTop, static_cast<int>(candidates.size()));
+            const Rectangle& vp = inviteLayout.viewport;
+            BeginScissorMode(static_cast<int>(vp.x), static_cast<int>(vp.y),
+                             static_cast<int>(vp.width), static_cast<int>(vp.height));
+            for (int i = 0; i < static_cast<int>(candidates.size()); ++i) {
+                Rectangle row = ScrollListRowRect(inviteLayout, onlineTeamInviteScroll_, i);
+                if (!ScrollListRowVisible(inviteLayout, row)) continue;
+                DrawInviteRow(*candidates[static_cast<size_t>(i)], InviteCardRect(row), language, m);
+            }
+            EndScissorMode();
+            DrawScrollListBar(onlineTeamInviteScroll_, inviteLayout);
         }
-        for (int i = 0; i < static_cast<int>(candidates.size()) && i < 6; ++i) {
-            const LobbyPlayerCard& p = *candidates[static_cast<size_t>(i)];
-
-            Rectangle card = OnlineTeamCardRect(i);
-            DrawRectangleRec(card, Color{250, 240, 225, 255});
-            DrawRectangleLinesEx(card, 2, Color{60, 45, 30, 200});
-            DrawText(p.displayName.c_str(), static_cast<int>(card.x + 16), static_cast<int>(card.y + 22), 18,
-                     Color{35, 25, 15, 255});
-
-            Rectangle btn = OnlineTeamInviteBtnRect(i);
-            bool hover = CheckCollisionPointRec(m, btn);
-            DrawRectangleRec(btn, hover ? Color{100, 190, 110, 255} : Color{70, 160, 85, 255});
-            DrawRectangleLinesEx(btn, 2, Color{20, 45, 25, 255});
-            const char* lbl = T(TK::OnlineTeamInviteButton, language);
-            int lw = MeasureText(lbl, 16);
-            DrawText(lbl, static_cast<int>(btn.x + btn.width / 2 - lw / 2),
-                     static_cast<int>(btn.y + 14), 16, WHITE);
-        }
-    } else if (room->amCaptain && MyTeamSlotFull(*room)) {
-        const char* fullMsg = (language == Lang::PT_BR) ? "Sua equipe esta completa." : "Your team is full.";
-        int fw = MeasureText(fullMsg, 16);
-        DrawText(fullMsg, cfg::SCREEN_WIDTH / 2 - fw / 2, 340, 16, Color{80, 120, 70, 255});
+    } else if (room->amCaptain && !room->CanInvite(room->myTeam)) {
+        const char* fullMsg = (language == Lang::PT_BR)
+            ? "Sua equipe esta completa (max 5)." : "Your team is full (max 5).";
+        int fw = MeasureText(fullMsg, 15);
+        DrawText(fullMsg, cfg::SCREEN_WIDTH / 2 - fw / 2, static_cast<int>(inviteTop + 8), 15,
+                 Color{80, 120, 70, 255});
+    } else if (!room->amCaptain) {
+        const char* waitMsg = (language == Lang::PT_BR)
+            ? "Aguardando o capitao iniciar a partida..." : "Waiting for captain to start the match...";
+        int ww = MeasureText(waitMsg, 15);
+        DrawText(waitMsg, cfg::SCREEN_WIDTH / 2 - ww / 2, static_cast<int>(inviteTop + 8), 15,
+                 Color{100, 85, 65, 255});
     }
 
     if (room->amCaptain) {
-        Rectangle cancelBtn = { cfg::SCREEN_WIDTH / 2.0f - 230.0f, cfg::SCREEN_HEIGHT - 68.0f, 200.0f, 48.0f };
-        Rectangle startBtn  = { cfg::SCREEN_WIDTH / 2.0f + 30.0f,  cfg::SCREEN_HEIGHT - 68.0f, 200.0f, 48.0f };
-        bool canStart = !room->partnerAId.empty() && !room->partnerBId.empty();
+        bool canStart = !room->teamA.empty() && !room->teamB.empty();
 
+        Rectangle cancelBtn = CancelBtnRect();
         bool hoverC = CheckCollisionPointRec(m, cancelBtn);
         DrawRectangleRec(cancelBtn, hoverC ? Color{210, 90, 80, 255} : Color{180, 65, 55, 255});
         DrawRectangleLinesEx(cancelBtn, 2, Color{50, 15, 10, 255});
@@ -211,6 +311,7 @@ void Game::DrawOnlineTeamRoom() {
         DrawText(cLbl, static_cast<int>(cancelBtn.x + cancelBtn.width / 2 - clw / 2),
                  static_cast<int>(cancelBtn.y + 14), 18, WHITE);
 
+        Rectangle startBtn = StartBtnRect();
         bool hoverS = canStart && CheckCollisionPointRec(m, startBtn);
         DrawRectangleRec(startBtn, canStart
             ? (hoverS ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255})
@@ -221,7 +322,7 @@ void Game::DrawOnlineTeamRoom() {
         DrawText(sLbl, static_cast<int>(startBtn.x + startBtn.width / 2 - slw / 2),
                  static_cast<int>(startBtn.y + 14), 18, Color{40, 25, 10, 255});
     } else {
-        Rectangle leaveBtn = { cfg::SCREEN_WIDTH / 2.0f - 120.0f, cfg::SCREEN_HEIGHT - 68.0f, 240.0f, 48.0f };
+        Rectangle leaveBtn = LeaveBtnRect();
         bool hoverL = CheckCollisionPointRec(m, leaveBtn);
         DrawRectangleRec(leaveBtn, hoverL ? Color{210, 90, 80, 255} : Color{180, 65, 55, 255});
         DrawRectangleLinesEx(leaveBtn, 2, Color{50, 15, 10, 255});

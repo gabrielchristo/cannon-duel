@@ -4,7 +4,7 @@
 
 enum class PowerupType {
     DoubleDamage,   // 1. dano em dobro no próximo acerto (projétil em chamas)
-    TrajectoryPreview, // 2. trajetória prevista por 2 rodadas
+    TrajectoryPreview, // trajetória prevista por 1 rodada
     Guided,         // 3. próximo tiro teleguiado, dano menor (mais raro)
     Heal,           // 4. cura entre 1/4 e 1/2 da vida total
     Shield,         // 5. escudo por 2 rodadas

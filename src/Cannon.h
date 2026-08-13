@@ -11,7 +11,7 @@ public:
     void SetAim(float angleDeg, float power01); // power01 em [0,1]
     void TakeDamage(float dmg);
 
-    bool IsAlive() const { return health > 0.0f; }
+    bool IsAlive() const { return health > 0.5f; }
     float HealthRatio() const { return health / cfg::CANNON_MAX_HEALTH; }
 
     Vector2 MuzzlePosition() const; // ponta do cano, em px, ponto de spawn do projétil

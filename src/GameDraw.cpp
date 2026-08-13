@@ -123,10 +123,11 @@ void Game::Draw() {
     terrain.Draw();
     for (int i = 0; i < roster.CannonCount(); ++i) {
         const int playerNum = i + 1;
-        const bool isActive = (currentPlayer == playerNum && state != GameState::RoundOver);
+        const bool isActive = (currentPlayer == playerNum && state != GameState::RoundOver &&
+                               roster.At(i).IsAlive());
         Texture2D* tex = nullptr;
         if (spritesReady) {
-            if (IsTeamMode(matchFormat)) {
+            if (IsTeamGame()) {
                 tex = roster.SpriteForTeamSlot(i, &texCannon1, &texCannon2, &texCannon3, &texCannon4);
             } else {
                 tex = roster.SpriteForSlot(i, &texCannonLeft, &texCannonRight);

@@ -495,12 +495,12 @@ void Game::DrawHUD() {
         turnLabel = T(TK::TurnAI, language);
     } else if (IsTeamMode(matchFormat) && mode == GameMode::PvP) {
         turnLabel = (ActiveSlot() == 0) ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language);
-    } else if (IsTeamMode(matchFormat)) {
+    } else if (IsTeamGame()) {
         const int slot = ActiveSlot();
         const int team = roster.TeamOfSlot(slot);
-        const int cannonIdx = (team == 0) ? slot + 1 : slot - roster.PerTeam() + 1;
+        const int teamSlot = (team == 0) ? slot : (slot - roster.PerTeamA());
         const char* teamLetter = (team == 0) ? "A" : "B";
-        snprintf(turnBuf, sizeof(turnBuf), T(TK::TurnTeamFmt, language), teamLetter, cannonIdx);
+        snprintf(turnBuf, sizeof(turnBuf), T(TK::TurnTeamFmt, language), teamLetter, teamSlot + 1);
         turnLabel = turnBuf;
     } else {
         turnLabel = (currentPlayer == 1) ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language);
@@ -511,9 +511,25 @@ void Game::DrawHUD() {
         ? netMatch.MyPlayerNumber() : currentPlayer;
     if (hudPlayer >= 1 && hudPlayer <= roster.CannonCount()) {
         Cannon& active = GetCannon(hudPlayer);
-        const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
-        std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
-        DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
+        const bool pt = (language == Lang::PT_BR);
+        const char* angleLabel = pt ? "Angulo:" : "Angle:";
+        const char* forceLabel = pt ? "Forca:" : "Power:";
+        const int labelFs = 18;
+        const int y = 48;
+        const int angleLabelX = 20;
+        const int angleValueX = angleLabelX + MeasureText(angleLabel, labelFs) + 6;
+        const int forceLabelX = angleValueX + MeasureText("-90.0", labelFs) + 16;
+        const int forceValueX = forceLabelX + MeasureText(forceLabel, labelFs) + 6;
+
+        char angleBuf[16];
+        char forceBuf[16];
+        snprintf(angleBuf, sizeof(angleBuf), "%6.1f", active.angleDeg);
+        snprintf(forceBuf, sizeof(forceBuf), "%6.1f%%", active.power01 * 100.0f);
+
+        DrawText(angleLabel, angleLabelX, y, labelFs, HudTextColorDim());
+        DrawText(angleBuf, angleValueX, y, labelFs, HudTextColorDim());
+        DrawText(forceLabel, forceLabelX, y, labelFs, HudTextColorDim());
+        DrawText(forceBuf, forceValueX, y, labelFs, HudTextColorDim());
     }
 }
 
@@ -523,15 +539,13 @@ void Game::DrawOnlineCannonLabels() const {
         const int fs = 12;
         int tw = MeasureText(name.c_str(), fs);
         int tx = static_cast<int>(cannon.x - tw / 2);
-        int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 50);
+        int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 62);
         DrawRectangle(tx - 4, ty - 2, tw + 8, fs + 4, Fade(BLACK, 0.45f));
         DrawText(name.c_str(), tx, ty, fs, WHITE);
     };
 
-    drawLabel(GetCannon(1), onlineP1Name);
-    drawLabel(GetCannon(2), onlineP2Name);
-    if (IsTeamMode(matchFormat)) {
-        drawLabel(GetCannon(3), onlineP3Name);
-        drawLabel(GetCannon(4), onlineP4Name);
+    const int count = std::min(roster.CannonCount(), MatchRoster::kMaxCannons);
+    for (int i = 0; i < count; ++i) {
+        drawLabel(GetCannon(i + 1), onlinePlayerNames[static_cast<size_t>(i)]);
     }
 }

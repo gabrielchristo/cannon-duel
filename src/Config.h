@@ -19,6 +19,13 @@ constexpr float TERRAIN_MIN_HEIGHT   = 120.0f;        // altura mínima (px a pa
 constexpr float TERRAIN_MAX_HEIGHT   = 380.0f;
 constexpr float CRATER_RADIUS_PX     = 42.0f;         // raio da cratera de explosão
 
+// Online: crateras menores conforme mais jogadores (2→100%, 10→55%).
+inline float OnlineCraterRadiusMult(int playerCount) {
+    const int n = (playerCount < 2) ? 2 : (playerCount > 10 ? 10 : playerCount);
+    const float t = static_cast<float>(n - 2) / 8.0f;
+    return 1.0f - t * 0.45f;
+}
+
 // ---- Canhão ----
 constexpr float CANNON_MAX_HEALTH    = 180.0f; // = 3x EXPLOSION_DAMAGE_MAX (3 acertos diretos derrubam o canhão)
 constexpr float CANNON_BODY_RADIUS_PX = 18.0f;
@@ -45,12 +52,13 @@ constexpr float POWERUP_TRAJECTORY_AIM_SLOWDOWN = 5.0f;
 // ---- Power-ups (versão Plus) ----
 constexpr float POWERUP_RADIUS_PX          = 16.0f;
 constexpr float POWERUP_HIT_TOLERANCE_PX   = 14.0f; // folga extra pra facilitar o acerto
+constexpr float POWERUP_MIN_PICKUP_TRAVEL_PX = 12.0f; // evita coleta fantasma no spawn do projetil
 constexpr int   POWERUP_MAX_ACTIVE         = 6;     // limite pra não acumular infinitamente
 constexpr int   POWERUP_SPAWN_EVERY_TURNS  = 4;    // ~2 rodadas completas (2 jogadores)
 constexpr float POWERUP_HEAL_MIN_RATIO     = 0.25f;
 constexpr float POWERUP_HEAL_MAX_RATIO     = 0.5f;
 constexpr int   POWERUP_SHIELD_TURNS       = 2;
-constexpr int   POWERUP_TRAJECTORY_TURNS   = 2;
+constexpr int   POWERUP_TRAJECTORY_TURNS   = 1;
 constexpr float POWERUP_GUIDED_DAMAGE_MULT = 0.5f;
 constexpr float POWERUP_GUIDED_MIN_ANGLE_DEG = 75.0f;    // evita disparo para baixo no teleguiado
 constexpr float POWERUP_GUIDED_FLIGHT_SEC    = 1.85f;    // duração do arco cinemático (sempre acerta)

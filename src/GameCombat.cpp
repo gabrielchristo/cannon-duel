@@ -30,19 +30,24 @@ bool Game::IsLocalHumanTurn() const {
     if (mode == GameMode::Online) {
         if (isSpectating) return false;
         if (!netMatch.IsMyTurn()) return false;
+        if (!roster.IsPlayerAlive(netMatch.MyPlayerNumber())) return false;
         if (currentPlayer != netMatch.MyPlayerNumber()) return false;
         const int mySlot = netMatch.MyPlayerNumber() - 1;
         return mySlot >= 0 && mySlot < roster.CannonCount();
     }
-    return roster.IsHumanSlot(ActiveSlot(), mode);
+    return roster.IsHumanSlot(ActiveSlot(), mode) && roster.IsPlayerAlive(currentPlayer);
 }
 
 void Game::UpdateAiming() {
-    if (mode == GameMode::Online && !netMatch.IsMyTurn()) {
-        return;
+    if (mode == GameMode::Online) {
+        if (!netMatch.IsMyTurn()) return;
+        if (!roster.IsPlayerAlive(netMatch.MyPlayerNumber())) return;
     }
 
-    const int activeSlot = (mode == GameMode::Online) ? (netMatch.MyPlayerNumber() - 1) : ActiveSlot();
+    const int activeSlot = [&]() {
+        int slot = (mode == GameMode::Online) ? (netMatch.MyPlayerNumber() - 1) : ActiveSlot();
+        return std::clamp(slot, 0, std::max(0, roster.CannonCount() - 1));
+    }();
     Cannon& active = roster.At(activeSlot);
 
     const bool isAITurn = roster.IsAISlot(ActiveSlot(), mode);
@@ -113,6 +118,15 @@ void Game::UpdateAiming() {
     bool resetPressed = IsKeyPressed(KEY_B);
 #endif
 
+    auto pointerConfirmsAim = [&]() -> bool {
+        if (!(IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || confirmPressed)) return false;
+        if (version == GameVersion::Plus &&
+            powerups.ConsumesPointerPress(terrain, ::GetVirtualMouse(), language)) {
+            return false;
+        }
+        return true;
+    };
+
     if (aimPhase == AimPhase::Angle) {
         float period = cfg::ANGLE_OSC_PERIOD_SEC *
             ((version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0)
@@ -122,7 +136,7 @@ void Game::UpdateAiming() {
         float angle = -90.0f + tri * 180.0f;
         active.SetAim(angle, active.power01);
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || confirmPressed) {
+        if (pointerConfirmsAim()) {
             aimPhase = AimPhase::Power;
             aimOscTimer = 0.0f;
         }
@@ -143,7 +157,7 @@ void Game::UpdateAiming() {
             return;
         }
 
-        if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) || confirmPressed) {
+        if (pointerConfirmsAim()) {
             Vector2 muzzle = active.MuzzlePosition();
             Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
                 ? active.DirectionAtAngle(std::max(active.angleDeg, cfg::POWERUP_GUIDED_MIN_ANGLE_DEG))
@@ -286,6 +300,7 @@ void Game::UpdateProjectileFlight(float dt) {
         if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
 
         Cannon& target = roster.At(i);
+        if (!target.IsAlive()) continue;
         Vector2 targetBase = { target.x, target.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
         float distToTarget = std::sqrt(std::pow(pos.x - targetBase.x, 2) + std::pow(pos.y - targetBase.y, 2));
         if (distToTarget <= cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX) {
@@ -317,6 +332,10 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
     float craterRadius = cfg::CRATER_RADIUS_PX * radiusMult;
     float explosionRadius = cfg::EXPLOSION_RADIUS_PX * radiusMult;
 
+    if (mode == GameMode::Online) {
+        craterRadius *= cfg::OnlineCraterRadiusMult(matchComposition.TotalPlayers());
+    }
+
     particles.EmitExplosion(impactPos, 50);
     terrain.Explode(impactPos.x, impactPos.y, craterRadius);
 
@@ -326,13 +345,15 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
     }
 
     const int shooterSlot = ActiveSlot();
+    const bool teamGame = IsTeamGame();
     const bool friendlyFire = FriendlyFireEnabled(matchFormat, version);
-    float dmgAppliedP1 = 0.0f, dmgAppliedP2 = 0.0f, dmgAppliedP3 = 0.0f, dmgAppliedP4 = 0.0f;
+    float dmgApplied[MatchRoster::kMaxCannons] = {};
 
     for (int i = 0; i < roster.CannonCount(); ++i) {
         if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
 
         Cannon& c = roster.At(i);
+        if (!c.IsAlive()) continue;
         Vector2 base = { c.x, c.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
         float dist = std::sqrt(std::pow(impactPos.x - base.x, 2) + std::pow(impactPos.y - base.y, 2));
         if (dist > explosionRadius) continue;
@@ -345,10 +366,7 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         if (c.shieldTurnsLeft > 0) dmg = 0.0f;
 
         c.TakeDamage(dmg);
-        if (i == 0) dmgAppliedP1 = dmg;
-        else if (i == 1) dmgAppliedP2 = dmg;
-        else if (i == 2) dmgAppliedP3 = dmg;
-        else if (i == 3) dmgAppliedP4 = dmg;
+        if (i < MatchRoster::kMaxCannons) dmgApplied[i] = dmg;
     }
 
     for (int i = 0; i < roster.CannonCount(); ++i) {
@@ -356,16 +374,16 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         c.groundY = terrain.HeightAt(c.x);
     }
 
-    if (IsTeamMode(matchFormat)) {
+    if (teamGame) {
         const bool team0Buried = roster.IsTeamBuried(0, terrain);
         const bool team1Buried = roster.IsTeamBuried(1, terrain);
         if (team0Buried || team1Buried) {
             if (team0Buried) {
-                for (int i = 0; i < roster.PerTeam(); ++i) roster.At(i).health = 0.0f;
+                for (int i = 0; i < roster.PerTeamA(); ++i) roster.At(i).health = 0.0f;
             }
             if (team1Buried) {
-                for (int i = 0; i < roster.PerTeam(); ++i) {
-                    roster.At(roster.PerTeam() + i).health = 0.0f;
+                for (int i = 0; i < roster.PerTeamB(); ++i) {
+                    roster.At(roster.PerTeamA() + i).health = 0.0f;
                 }
             }
             roundOutcome = (team0Buried && team1Buried) ? RoundOutcome::DrawBuried
@@ -415,31 +433,39 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         float nextWind = matchOver ? windForce : SeededWind(nextTurnIndex);
         const int nextTurnPlayer = matchOver
             ? netMatch.SyncedCurrentTurnPlayer()
-            : (roster.NextSlotInterleaved(ActiveSlot()) + 1);
+            : roster.NextLivingPlayerNum(currentPlayer);
+
+        float healthAfter[MatchRoster::kMaxCannons] = {};
+        const int cannonCount = roster.CannonCount();
+        for (int i = 0; i < cannonCount && i < MatchRoster::kMaxCannons; ++i) {
+            healthAfter[i] = roster.At(i).health;
+        }
 
         netMatch.PublishShotEnded(impactPos.x, impactPos.y);
         netMatch.SubmitMyTurn(shooter.angleDeg, shooter.power01, windAtShot,
                                impactPos.x, impactPos.y, craterRadius,
-                               dmgAppliedP1, dmgAppliedP2, dmgAppliedP3, dmgAppliedP4,
-                               nextWind, nextTurnPlayer, matchOver, winnerPlayer,
+                               dmgApplied, healthAfter, nextWind, nextTurnPlayer, matchOver, winnerPlayer,
                                powerups.ShotPickedType(), powerups.ShotPickedX());
         powerups.ShotPickedType() = -1;
         powerups.ShotPickedX() = 0.0f;
-        currentPlayer = ClampPlayerNum(nextTurnPlayer);
+        currentPlayer = ResolveOnlineTurnPlayer(nextTurnPlayer);
 
         if (matchOver) {
             if (winnerPlayer != 0) {
                 onlineLobby.ReportMatchResult(
-                    OnlineDidIWin(winnerPlayer, netMatch.MyPlayerNumber(), matchFormat));
+                    OnlineDidIWin(winnerPlayer, netMatch.MyPlayerNumber(), matchComposition));
             }
         } else {
             windForce = nextWind;
+            OnOnlineTurnCompleted(currentPlayer);
+            state = GameState::TurnTransition;
+            stateTimer = 0.35f;
         }
     }
 }
 
 void Game::CheckRoundEnd() {
-    if (IsTeamMode(matchFormat)) {
+    if (IsTeamGame()) {
         const bool team0Dead = roster.IsTeamEliminated(0);
         const bool team1Dead = roster.IsTeamEliminated(1);
         if (team0Dead || team1Dead) {
@@ -449,12 +475,27 @@ void Game::CheckRoundEnd() {
             stateTimer = 1.0f;
             return;
         }
-    } else if (!GetCannon(1).IsAlive() || !GetCannon(2).IsAlive()) {
-        roundOutcome = (!GetCannon(1).IsAlive() && !GetCannon(2).IsAlive()) ? RoundOutcome::Draw
-                       : (!GetCannon(1).IsAlive() ? RoundOutcome::P2Wins : RoundOutcome::P1Wins);
-        state = GameState::RoundOver;
-        stateTimer = 1.0f;
-        return;
+    } else {
+        int aliveCount = 0;
+        int soleAlivePlayer = 0;
+        for (int i = 0; i < roster.CannonCount(); ++i) {
+            if (roster.At(i).IsAlive()) {
+                aliveCount++;
+                soleAlivePlayer = i + 1;
+            }
+        }
+        if (aliveCount < roster.CannonCount()) {
+            if (aliveCount == 0) {
+                roundOutcome = RoundOutcome::Draw;
+            } else if (soleAlivePlayer == 1) {
+                roundOutcome = RoundOutcome::P1Wins;
+            } else {
+                roundOutcome = RoundOutcome::P2Wins;
+            }
+            state = GameState::RoundOver;
+            stateTimer = 1.0f;
+            return;
+        }
     }
     EndTurn();
 }
@@ -462,7 +503,7 @@ void Game::CheckRoundEnd() {
 void Game::EndTurn() {
     if (state == GameState::RoundOver) return;
     if (mode != GameMode::Online) {
-        currentPlayer = roster.NextSlotInterleaved(ActiveSlot()) + 1;
+        currentPlayer = roster.NextLivingPlayerNum(currentPlayer);
     }
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
@@ -479,7 +520,9 @@ void Game::EndTurn() {
                     std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
 
         if (version == GameVersion::Plus) {
-            GetCannon(currentPlayer).OnTurnStarted();
+            if (roster.IsPlayerAlive(currentPlayer)) {
+                GetCannon(currentPlayer).OnTurnStarted();
+            }
             powerups.TickSpawnCounter();
             powerups.MaybeSpawnRandom();
         }

@@ -15,6 +15,8 @@ void PowerupSystem::Reset() {
     remoteEffectApplied_ = false;
     messageTimer_ = 0.0f;
     messageText_ = nullptr;
+    pinnedTooltipIndex_ = -1;
+    pinnedTooltipTimer_ = 0.0f;
 }
 
 void PowerupSystem::TickSpawnCounter() {
@@ -102,33 +104,76 @@ void PowerupSystem::Draw(const Terrain& terrain) const {
     }
 }
 
-void PowerupSystem::DrawTooltip(const Terrain& terrain, Vector2 mouse, Lang lang) const {
-    for (const auto& pu : active_) {
+void PowerupSystem::DrawTooltipForPowerup(const Powerup& pu, Vector2 anchor, Lang lang) const {
+    const char* desc = PowerupDescription(pu.type, lang);
+    int fs = 15;
+    int tw = MeasureText(desc, fs);
+    float boxW = tw + 16.0f, boxH = fs + 12.0f;
+
+    float bx = anchor.x + 16.0f;
+    float by = anchor.y - boxH - 10.0f;
+    bx = std::clamp(bx, 4.0f, static_cast<float>(cfg::SCREEN_WIDTH) - boxW - 4.0f);
+    by = std::clamp(by, 4.0f, static_cast<float>(cfg::SCREEN_HEIGHT) - boxH - 4.0f);
+
+    DrawRectangle(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
+                  Fade(Color{20, 20, 20, 255}, 0.9f));
+    DrawRectangleLines(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
+                       PowerupColor(pu.type));
+    DrawText(desc, static_cast<int>(bx + 8), static_cast<int>(by + 6), fs, WHITE);
+}
+
+bool PowerupSystem::PointerOverPowerup(const Terrain& terrain, Vector2 point, int* outIndex) const {
+    for (size_t i = 0; i < active_.size(); ++i) {
+        const Powerup& pu = active_[i];
         if (!pu.active) continue;
 
         float y = terrain.HeightAt(pu.x);
         float bob = std::sin(static_cast<float>(GetTime()) * 3.0f + pu.x) * 4.0f;
         Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f + bob };
 
-        float dist = std::sqrt(std::pow(mouse.x - center.x, 2) + std::pow(mouse.y - center.y, 2));
+        float dist = std::sqrt(std::pow(point.x - center.x, 2) + std::pow(point.y - center.y, 2));
         if (dist > cfg::POWERUP_RADIUS_PX + 10.0f) continue;
 
-        const char* desc = PowerupDescription(pu.type, lang);
-        int fs = 15;
-        int tw = MeasureText(desc, fs);
-        float boxW = tw + 16.0f, boxH = fs + 12.0f;
+        if (outIndex) *outIndex = static_cast<int>(i);
+        return true;
+    }
+    return false;
+}
 
-        float bx = mouse.x + 16.0f;
-        float by = mouse.y - boxH - 10.0f;
-        bx = std::clamp(bx, 4.0f, static_cast<float>(cfg::SCREEN_WIDTH) - boxW - 4.0f);
-        by = std::clamp(by, 4.0f, static_cast<float>(cfg::SCREEN_HEIGHT) - boxH - 4.0f);
+void PowerupSystem::DrawTooltip(const Terrain& terrain, Vector2 mouse, Lang lang) const {
+    int hoverIndex = -1;
+    if (PointerOverPowerup(terrain, mouse, &hoverIndex)) {
+        DrawTooltipForPowerup(active_[static_cast<size_t>(hoverIndex)], mouse, lang);
+        return;
+    }
 
-        DrawRectangle(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
-                      Fade(Color{20, 20, 20, 255}, 0.9f));
-        DrawRectangleLines(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
-                           PowerupColor(pu.type));
-        DrawText(desc, static_cast<int>(bx + 8), static_cast<int>(by + 6), fs, WHITE);
-        break;
+    if (pinnedTooltipIndex_ >= 0 &&
+        pinnedTooltipIndex_ < static_cast<int>(active_.size()) &&
+        active_[static_cast<size_t>(pinnedTooltipIndex_)].active) {
+        const Powerup& pu = active_[static_cast<size_t>(pinnedTooltipIndex_)];
+        float y = terrain.HeightAt(pu.x);
+        float bob = std::sin(static_cast<float>(GetTime()) * 3.0f + pu.x) * 4.0f;
+        Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f + bob };
+        DrawTooltipForPowerup(pu, center, lang);
+    }
+}
+
+bool PowerupSystem::ConsumesPointerPress(const Terrain& terrain, Vector2 point, Lang lang) {
+    int hitIndex = -1;
+    if (!PointerOverPowerup(terrain, point, &hitIndex)) return false;
+
+    pinnedTooltipIndex_ = hitIndex;
+    pinnedTooltipTimer_ = 2.5f;
+    (void)lang;
+    return true;
+}
+
+void PowerupSystem::UpdatePinnedTooltip(float dt) {
+    if (pinnedTooltipTimer_ > 0.0f) {
+        pinnedTooltipTimer_ = std::max(0.0f, pinnedTooltipTimer_ - dt);
+        if (pinnedTooltipTimer_ <= 0.0f) {
+            pinnedTooltipIndex_ = -1;
+        }
     }
 }
 
@@ -204,6 +249,8 @@ bool PowerupSystem::CheckProjectileCollision(Vector2 projFrom, Vector2 projTo, i
     Vector2 seg = { projTo.x - projFrom.x, projTo.y - projFrom.y };
     float segLenSq = seg.x * seg.x + seg.y * seg.y;
     float hitRadius = cfg::POWERUP_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + cfg::POWERUP_HIT_TOLERANCE_PX;
+    const float segLen = std::sqrt(segLenSq);
+    if (segLen < cfg::POWERUP_MIN_PICKUP_TRAVEL_PX) return false;
 
     bool picked = false;
     for (auto& pu : active_) {
@@ -250,6 +297,8 @@ bool PowerupSystem::CheckProjectileCollisionRoster(Vector2 projFrom, Vector2 pro
     Vector2 seg = { projTo.x - projFrom.x, projTo.y - projFrom.y };
     float segLenSq = seg.x * seg.x + seg.y * seg.y;
     float hitRadius = cfg::POWERUP_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + cfg::POWERUP_HIT_TOLERANCE_PX;
+    const float segLen = std::sqrt(segLenSq);
+    if (segLen < cfg::POWERUP_MIN_PICKUP_TRAVEL_PX) return false;
 
     bool picked = false;
     for (auto& pu : active_) {

@@ -17,14 +17,20 @@
 #include <cstdlib>
 #include <ctime>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
-void Game::ApplyRemoteTurnDamage(const RemoteTurnResult& turn) {
-    GetCannon(1).TakeDamage(turn.damageP1);
-    GetCannon(2).TakeDamage(turn.damageP2);
-    if (IsTeamMode(matchFormat)) {
-        GetCannon(3).TakeDamage(turn.damageP3);
-        GetCannon(4).TakeDamage(turn.damageP4);
+void Game::SyncCannonHealthFromTurn(const RemoteTurnResult& turn) {
+    const int count = std::min(roster.CannonCount(), MatchRoster::kMaxCannons);
+    if (turn.hasHealthAfter && turn.healthAfterCount > 0) {
+        const int hpCount = std::min(turn.healthAfterCount, count);
+        for (int i = 0; i < hpCount; ++i) {
+            GetCannon(i + 1).health = std::max(0.0f, turn.healthAfter[i]);
+        }
+    } else {
+        for (int i = 0; i < count; ++i) {
+            GetCannon(i + 1).TakeDamage(turn.damages[i]);
+        }
     }
     for (int i = 0; i < roster.CannonCount(); ++i) {
         Cannon& c = GetCannon(i + 1);
@@ -32,44 +38,72 @@ void Game::ApplyRemoteTurnDamage(const RemoteTurnResult& turn) {
     }
 }
 
+void Game::ApplyRemoteTurnDamage(const RemoteTurnResult& turn) {
+    SyncCannonHealthFromTurn(turn);
+}
+
+int Game::ResolveOnlineTurnPlayer(int proposedPlayer) const {
+    const int player = ClampPlayerNum(proposedPlayer);
+    if (roster.IsPlayerAlive(player)) return player;
+    return roster.NextLivingPlayerNum(player);
+}
+
+void Game::MaybeAdvancePastDeadOnlineTurn(float dt) {
+    if (onlineDeadTurnSkipCooldown_ > 0.0f) {
+        onlineDeadTurnSkipCooldown_ = std::max(0.0f, onlineDeadTurnSkipCooldown_ - dt);
+    }
+
+    if (mode != GameMode::Online || !netMatch.InMatch() || isSpectating) return;
+    if (state == GameState::RoundOver || state == GameState::RemoteShotReplay ||
+        state == GameState::RemoteProjectileLive || state == GameState::ProjectileFlying) {
+        return;
+    }
+
+    const int turnPlayer = netMatch.SyncedCurrentTurnPlayer();
+    if (!roster.IsPlayerAlive(turnPlayer)) {
+        const int nextLiving = roster.NextLivingPlayerNum(turnPlayer);
+        if (!roster.IsPlayerAlive(nextLiving) || nextLiving == turnPlayer) return;
+        if (onlineDeadTurnSkipCooldown_ > 0.0f) return;
+
+        onlineDeadTurnSkipCooldown_ = 1.0f;
+        DebugLogf(LOG_INFO, "GAME: turno P%d morto — avancando para P%d", turnPlayer, nextLiving);
+        netMatch.SyncTurnTo(nextLiving);
+    }
+}
+
 void Game::ApplyOnlineNamesFromMatchStart(const MatchStart& ms) {
-    if (IsTeamMode(ms.format)) {
-        onlineP1Name = ms.playerNames[0];
-        onlineP2Name = ms.playerNames[1];
-        onlineP3Name = ms.playerNames[2];
-        onlineP4Name = ms.playerNames[3];
-    } else if (ms.myPlayerNumber == 1) {
-        onlineP1Name = playerIdentity.DisplayName();
-        onlineP2Name = ms.opponentName;
-        onlineP3Name.clear();
-        onlineP4Name.clear();
-    } else {
-        onlineP1Name = ms.opponentName;
-        onlineP2Name = playerIdentity.DisplayName();
-        onlineP3Name.clear();
-        onlineP4Name.clear();
+    onlinePlayerNames.fill("");
+    const int count = ms.composition.TotalPlayers();
+    for (int i = 0; i < count && i < MatchRoster::kMaxCannons; ++i) {
+        onlinePlayerNames[static_cast<size_t>(i)] = ms.playerNames[i];
     }
 }
 
 void Game::StartOnlineMatch(const MatchStart& ms) {
-    if (IsTeamMode(ms.format) && (ms.myPlayerNumber < 1 || ms.myPlayerNumber > 4)) {
-        DebugLogf(LOG_ERROR, "GAME: StartOnlineMatch abortado — P%d invalido em 2x2", ms.myPlayerNumber);
+    const int maxPlayer = ms.composition.TotalPlayers();
+    if (ms.myPlayerNumber < 1 || ms.myPlayerNumber > maxPlayer) {
+        DebugLogf(LOG_ERROR, "GAME: StartOnlineMatch abortado — P%d invalido (max=%d)",
+                  ms.myPlayerNumber, maxPlayer);
         return;
     }
 
     mode = GameMode::Online;
     isSpectating = false;
-    matchFormat = ms.format;
+    matchComposition = ms.composition;
+    matchFormat = (ms.composition.teamA == 1 && ms.composition.teamB == 1)
+        ? MatchFormat::Duel1v1
+        : MatchFormat::Team2v2;
     version = ms.isPlus ? GameVersion::Plus : GameVersion::Classic;
     onlineWinByDisconnect = false;
+    onlineDeadTurnSkipCooldown_ = 0.0f;
     onlineLobby.MarkInMatch(ms.matchId);
     onlineLobby.PauseRealtime();
 
     ApplyOnlineNamesFromMatchStart(ms);
 
-    netMatch.Begin(ms.matchId, ms.myPlayerNumber, ms.opponentId, ms.opponentName, ms.format);
+    netMatch.Begin(ms.matchId, ms.myPlayerNumber, ms.opponentId, ms.opponentName, ms.composition);
     ResetRound(ms.terrainSeed);
-    currentPlayer = netMatch.SyncedCurrentTurnPlayer();
+    currentPlayer = ResolveOnlineTurnPlayer(netMatch.SyncedCurrentTurnPlayer());
     opponentAimForTurn = netMatch.TurnsCompleted() + 1;
     if (!netMatch.IsMyTurn()) {
         ResetOpponentAimSim(currentPlayer);
@@ -99,10 +133,10 @@ void Game::EndOnlineMatchOpponentLeft() {
     onlineWinByDisconnect = true;
     int winner = netMatch.TakeAbandonWinner();
     if (winner == 0) {
-        winner = (netMatch.MyPlayerNumber() <= 2) ? 2 : 1;
+        winner = WinnerWhenPlayerLeaves(netMatch.MyPlayerNumber(), matchComposition);
     }
-    roundOutcome = RoundOutcomeFromOnlineWinner(winner, matchFormat, false);
-    onlineLobby.ReportMatchResult(OnlineDidIWin(winner, netMatch.MyPlayerNumber(), matchFormat));
+    roundOutcome = RoundOutcomeFromOnlineWinner(winner, matchComposition, false);
+    onlineLobby.ReportMatchResult(OnlineDidIWin(winner, netMatch.MyPlayerNumber(), matchComposition));
     onlineLobby.MarkIdle();
     netMatch.LeaveMatch();
     state = GameState::RoundOver;
@@ -387,7 +421,7 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     }
 
     windForce = remote.nextWind;
-    currentPlayer = ClampPlayerNum(remote.nextTurnPlayer);
+    currentPlayer = ResolveOnlineTurnPlayer(remote.nextTurnPlayer);
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
     prevProjectilePos = {0, 0};
@@ -398,7 +432,7 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
 
     if (remote.matchOver) {
         if (isSpectating) {
-            roundOutcome = RoundOutcomeFromOnlineWinner(remote.winnerPlayer, matchFormat, false);
+            roundOutcome = RoundOutcomeFromOnlineWinner(remote.winnerPlayer, matchComposition, false);
             state = GameState::RoundOver;
             stateTimer = 1.0f;
         } else {
@@ -406,11 +440,11 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
             if (draw) {
                 roundOutcome = RoundOutcome::Draw;
             } else {
-                roundOutcome = RoundOutcomeFromOnlineWinner(remote.winnerPlayer, matchFormat, false);
+                roundOutcome = RoundOutcomeFromOnlineWinner(remote.winnerPlayer, matchComposition, false);
             }
             if (!draw) {
                 onlineLobby.ReportMatchResult(
-                    OnlineDidIWin(remote.winnerPlayer, netMatch.MyPlayerNumber(), matchFormat));
+                    OnlineDidIWin(remote.winnerPlayer, netMatch.MyPlayerNumber(), matchComposition));
             }
             onlineLobby.MarkIdle();
             state = GameState::RoundOver;
@@ -425,7 +459,7 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
 
 void Game::OnOnlineTurnCompleted(int startingTurnPlayer) {
     onlineCompletedTurns++;
-    if (version == GameVersion::Plus) {
+    if (version == GameVersion::Plus && roster.IsPlayerAlive(startingTurnPlayer)) {
         Cannon& startingCannon = GetCannon(startingTurnPlayer);
         startingCannon.OnTurnStarted();
         if (onlineCompletedTurns % cfg::POWERUP_SPAWN_EVERY_TURNS == 0) {
@@ -460,7 +494,7 @@ void Game::ApplyTurnSilently(const RemoteTurnResult& turn) {
     ApplyRemoteTurnDamage(turn);
 
     windForce = turn.nextWind;
-    currentPlayer = ClampPlayerNum(turn.nextTurnPlayer);
+    currentPlayer = ResolveOnlineTurnPlayer(turn.nextTurnPlayer);
     OnOnlineTurnCompleted(currentPlayer);
 }
 
@@ -469,7 +503,9 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
     SupabaseClient client;
     json matchRows = client.Select("matches",
         "select=terrain_seed,version,wind,current_turn_player,status,winner_player,match_format,"
-        "player1_id,player2_id,player3_id,player4_id&id=eq." + match.matchId);
+        "team_a_count,team_b_count,"
+        "player1_id,player2_id,player3_id,player4_id,player5_id,player6_id,player7_id,player8_id,player9_id,player10_id"
+        "&id=eq." + match.matchId);
     if (!matchRows.is_array() || matchRows.empty()) {
         DebugLogf(LOG_WARNING, "GAME: espectador — partida %s não encontrada", match.matchId.c_str());
         return;
@@ -482,37 +518,51 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
     const int currentTurn = json_helpers::Int(mrow, "current_turn_player", 1);
     const int winner = json_helpers::Int(mrow, "winner_player", 0);
     const float matchWind = json_helpers::Float(mrow, "wind", 0.0f);
-    const bool isTeam2v2 = (json_helpers::Str(mrow, "match_format", "duel_1v1") == "team_2v2");
-
-    auto lookupName = [&](const std::string& pid, const std::string& fallback) -> std::string {
-        if (pid.empty()) return fallback;
-        json prows = client.Select("players", "select=display_name&id=eq." + pid + "&limit=1");
-        if (prows.is_array() && !prows.empty()) {
-            return json_helpers::Str(prows[0], "display_name", fallback);
-        }
-        return fallback;
-    };
+    const MatchComposition comp = ParseMatchComposition(
+        json_helpers::Str(mrow, "match_format", "duel_1v1"),
+        json_helpers::Int(mrow, "team_a_count", 0),
+        json_helpers::Int(mrow, "team_b_count", 0));
 
     json turnRows = client.Select("match_turns",
         "select=*&match_id=eq." + match.matchId + "&order=turn_number.asc&limit=200");
 
     isSpectating = true;
     mode = GameMode::Online;
-    matchFormat = isTeam2v2 ? MatchFormat::Team2v2 : MatchFormat::Duel1v1;
+    matchComposition = comp;
+    matchFormat = comp.IsTeamGame() ? MatchFormat::Team2v2 : MatchFormat::Duel1v1;
     version = isPlus ? GameVersion::Plus : GameVersion::Classic;
     onlineWinByDisconnect = false;
     onlineLobby.PauseRealtime();
 
-    if (isTeam2v2) {
-        onlineP1Name = lookupName(json_helpers::Str(mrow, "player1_id"), match.player1Name);
-        onlineP2Name = lookupName(json_helpers::Str(mrow, "player2_id"), "???");
-        onlineP3Name = lookupName(json_helpers::Str(mrow, "player3_id"), match.player2Name);
-        onlineP4Name = lookupName(json_helpers::Str(mrow, "player4_id"), "???");
-    } else {
-        onlineP1Name = match.player1Name;
-        onlineP2Name = match.player2Name;
-        onlineP3Name.clear();
-        onlineP4Name.clear();
+    onlinePlayerNames.fill("");
+    std::string pidList;
+    for (int i = 0; i < comp.TotalPlayers() && i < MatchRoster::kMaxCannons; ++i) {
+        const std::string key = "player" + std::to_string(i + 1) + "_id";
+        const std::string pid = json_helpers::Str(mrow, key.c_str());
+        if (pid.empty()) continue;
+        if (!pidList.empty()) pidList += ",";
+        pidList += pid;
+    }
+    std::unordered_map<std::string, std::string> namesById;
+    if (!pidList.empty()) {
+        json prows = client.Select("players", "select=id,display_name&id=in.(" + pidList + ")");
+        if (prows.is_array()) {
+            for (const auto& p : prows) {
+                namesById[json_helpers::Str(p, "id")] = json_helpers::Str(p, "display_name", "???");
+            }
+        }
+    }
+    for (int i = 0; i < comp.TotalPlayers() && i < MatchRoster::kMaxCannons; ++i) {
+        const std::string key = "player" + std::to_string(i + 1) + "_id";
+        const std::string pid = json_helpers::Str(mrow, key.c_str());
+        if (!pid.empty()) {
+            auto it = namesById.find(pid);
+            onlinePlayerNames[static_cast<size_t>(i)] =
+                (it != namesById.end()) ? it->second : "???";
+        } else {
+            onlinePlayerNames[static_cast<size_t>(i)] =
+                (i == 0) ? match.player1Name : (i == comp.teamA) ? match.player2Name : "???";
+        }
     }
 
     ResetRound(seed);
@@ -534,9 +584,9 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
     }
 
     windForce = (lastTurnNumber > 0) ? windForce : matchWind;
-    currentPlayer = (lastTurnNumber > 0) ? currentPlayer : currentTurn;
+    currentPlayer = ResolveOnlineTurnPlayer((lastTurnNumber > 0) ? currentPlayer : currentTurn);
 
-    netMatch.BeginSpectating(match.matchId, currentPlayer, lastTurnNumber);
+    netMatch.BeginSpectating(match.matchId, currentPlayer, lastTurnNumber, comp);
 
     if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
         PlayMusicStream(musicTracks[currentMusicIndex]);
@@ -557,7 +607,7 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
 
 void Game::EndSpectatorMatch(int winnerPlayer) {
     roundOutcome = (winnerPlayer == 0) ? RoundOutcome::Draw
-                   : RoundOutcomeFromOnlineWinner(winnerPlayer, matchFormat, false);
+                   : RoundOutcomeFromOnlineWinner(winnerPlayer, matchComposition, false);
     state = GameState::RoundOver;
     stateTimer = 1.0f;
 }
@@ -571,15 +621,24 @@ void Game::ExitSpectatorToLobby() {
 }
 
 void Game::DrawSpectatorBanner() const {
-    char buf[192];
-    if (IsTeamMode(matchFormat)) {
-        snprintf(buf, sizeof(buf), T(TK::OnlineSpectatingTeamFmt, language),
-                 onlineP1Name.c_str(), onlineP2Name.c_str(),
-                 onlineP3Name.c_str(), onlineP4Name.c_str());
-    } else {
-        snprintf(buf, sizeof(buf), T(TK::OnlineSpectatingFmt, language),
-                 onlineP1Name.c_str(), onlineP2Name.c_str());
-    }
+    auto joinTeamNames = [this](int start, int count) -> std::string {
+        std::string joined;
+        for (int i = 0; i < count; ++i) {
+            const size_t idx = static_cast<size_t>(start + i);
+            if (idx >= onlinePlayerNames.size()) break;
+            const std::string& name = onlinePlayerNames[idx];
+            if (!joined.empty()) joined += " & ";
+            joined += name.empty() ? "???" : name;
+        }
+        return joined;
+    };
+
+    const std::string sideA = joinTeamNames(0, matchComposition.teamA);
+    const std::string sideB = joinTeamNames(matchComposition.teamA, matchComposition.teamB);
+
+    char buf[256];
+    snprintf(buf, sizeof(buf), T(TK::OnlineSpectatingFmt, language),
+             sideA.c_str(), sideB.c_str());
     int tw = MeasureText(buf, 16);
     DrawRectangle(cfg::SCREEN_WIDTH / 2 - tw / 2 - 12, 4, tw + 24, 26, Fade(BLACK, 0.55f));
     DrawText(buf, cfg::SCREEN_WIDTH / 2 - tw / 2, 10, 16, Color{235, 220, 180, 255});

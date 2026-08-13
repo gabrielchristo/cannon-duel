@@ -19,6 +19,9 @@ set -euo pipefail
 BUILD_TYPE="${1:-release}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$PROJECT_ROOT/web/build"
+if [ "$BUILD_TYPE" = "release" ]; then
+    BUILD_DIR="$PROJECT_ROOT/web/build_release"
+fi
 DIST_DIR="$PROJECT_ROOT/web/dist"
 
 if ! command -v emcmake >/dev/null 2>&1; then

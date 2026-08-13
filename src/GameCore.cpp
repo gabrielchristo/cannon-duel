@@ -53,8 +53,13 @@ Game::Game() {
     texCannon2      = LoadTexture(AssetPath("sprites/cannon_2.png").c_str());
     texCannon3      = LoadTexture(AssetPath("sprites/cannon_3.png").c_str());
     texCannon4      = LoadTexture(AssetPath("sprites/cannon_4.png").c_str());
-    texBackground   = LoadTexture(AssetPath("sprites/background.png").c_str());
-    texBackgroundNight = LoadTexture(AssetPath("sprites/background_night.png").c_str());
+#if CANNON_DUEL_DEBUG_MODE
+    texBackground       = LoadTexture(AssetPath("sprites/background.png").c_str());
+    texBackgroundNight  = LoadTexture(AssetPath("sprites/background_night.png").c_str());
+#else
+    texBackground       = LoadTexture(AssetPath("sprites/background_fhd.png").c_str());
+    texBackgroundNight  = LoadTexture(AssetPath("sprites/background_night_fhd.png").c_str());
+#endif
     texProjectile   = LoadTexture(AssetPath("sprites/projectile.png").c_str());
 
     spritesReady = (texCannonLeft.id != 0 && texCannonRight.id != 0);

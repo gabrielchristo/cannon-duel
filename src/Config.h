@@ -3,8 +3,14 @@
 namespace cfg {
 
 // ---- Janela ----
+// HD em builds de debug (iteração mais rápida), Full HD em builds de release.
+#if CANNON_DUEL_DEBUG_MODE
 constexpr int   SCREEN_WIDTH   = 1280;
 constexpr int   SCREEN_HEIGHT  = 720;
+#else
+constexpr int   SCREEN_WIDTH   = 1920;
+constexpr int   SCREEN_HEIGHT  = 1080;
+#endif
 constexpr int   TARGET_FPS     = 60;
 
 // ---- Escala física (pixels por metro) ----

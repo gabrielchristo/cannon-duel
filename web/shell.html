@@ -80,6 +80,10 @@
     var progressFill = document.getElementById('progress-fill');
     var loadingBox = document.getElementById('loading');
 
+    document.getElementById('canvas').addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+    });
+
     var Module = {
       canvas: document.getElementById('canvas'),
       setStatus: function (text) {

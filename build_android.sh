@@ -28,6 +28,9 @@ BUILD_TYPE="${1:-debug}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ANDROID_DIR="$PROJECT_ROOT/android"
 BUILD_DIR="$ANDROID_DIR/build"
+if [ "$BUILD_TYPE" = "release" ]; then
+    BUILD_DIR="$ANDROID_DIR/build_release"
+fi
 
 ABI="arm64-v8a"                 # cobre praticamente todo celular de 2018+
 RAYLIB_ARCH="arm64"             # nome que o Makefile do raylib usa pra essa ABI

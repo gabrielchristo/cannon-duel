@@ -2,10 +2,13 @@
 # Build (desktop e Android)
 # ---------------------------------------------------------------------------
 build/
+build_release/
 build-*/
 cmake-build-*/
 android/build/
+android/build_release/
 web/build/
+web/build_release/
 web/dist/
 
 # ---------------------------------------------------------------------------

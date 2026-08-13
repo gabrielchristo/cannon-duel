@@ -41,6 +41,7 @@ bool JsonBool(const json& j, const char* key, bool fallback) {
 } // namespace
 
 bool NetMatch::IsMyTurn() const {
+    if (myPlayerNumber == 0) return false;
     if (awaitingOpponentTurn_.load()) return false;
     std::lock_guard lock(mu_);
     if (hasPendingTurn_) return false;
@@ -52,7 +53,7 @@ float NetMatch::PollIntervalSec() const {
     return POLL_INTERVAL_FALLBACK_SEC;
 }
 
-RemoteTurnResult NetMatch::TurnFromJson(const json& row) {
+RemoteTurnResult NetMatch::ParseTurnJson(const json& row) {
     RemoteTurnResult turn;
     turn.turnNumber = JsonInt(row, "turn_number", 0);
     turn.shooterPlayer = JsonInt(row, "shooter_player", 1);
@@ -78,13 +79,13 @@ void NetMatch::ApplyTurnRecord(const json& row) {
     const int turnNumber = JsonInt(row, "turn_number", 0);
     if (turnNumber <= 0) return;
 
-    if (shooterPlayer == myPlayerNumber) {
+    if (myPlayerNumber != 0 && shooterPlayer == myPlayerNumber) {
         std::lock_guard lock(mu_);
         if (turnNumber > lastSeenTurnNumber) lastSeenTurnNumber = turnNumber;
         return;
     }
 
-    RemoteTurnResult turn = TurnFromJson(row);
+    RemoteTurnResult turn = ParseTurnJson(row);
     std::lock_guard lock(mu_);
     if (turnNumber <= lastSeenTurnNumber) return;
     if (turnNumber != lastSeenTurnNumber + 1) {
@@ -117,6 +118,18 @@ void NetMatch::ApplyLiveAimFromRecord(const json& row) {
 void NetMatch::ApplyMatchRecord(const json& row) {
     const int currentTurnPlayer = JsonInt(row, "current_turn_player", 1);
     const std::string status = row.value("status", "active");
+    if (myPlayerNumber == 0) {
+        if (status == "finished" || status == "abandoned") {
+            std::lock_guard lock(mu_);
+            if (!spectatorMatchEnded_) {
+                spectatorMatchEnded_ = true;
+                spectatorWinner_ = JsonInt(row, "winner_player", 0);
+            }
+        }
+        syncedCurrentTurnPlayer = currentTurnPlayer;
+        ApplyLiveAimFromRecord(row);
+        return;
+    }
     {
         std::lock_guard lock(mu_);
         cachedCurrentTurnPlayer_ = currentTurnPlayer;
@@ -365,6 +378,9 @@ void NetMatch::Begin(const std::string& id, int myPlayerNum,
         liveShotId_ = 0;
         hasPendingPowerupPickup_ = false;
         pendingPowerupPickup_ = {};
+        spectatorMatchEnded_ = false;
+        spectatorEndReported_ = false;
+        spectatorWinner_ = 0;
     }
 
     DebugLogf(LOG_INFO, "NET: Begin match=%s eu=P%d adversario=%s",
@@ -389,6 +405,21 @@ void NetMatch::Begin(const std::string& id, int myPlayerNum,
     realtime_.Start("match:" + matchId, subs);
 
     SchedulePoll();
+}
+
+void NetMatch::BeginSpectating(const std::string& id, int currentTurnPlayer, int lastTurnNumber) {
+    Begin(id, 0, "", "");
+    syncedCurrentTurnPlayer = currentTurnPlayer;
+    cachedCurrentTurnPlayer_ = currentTurnPlayer;
+    lastSeenTurnNumber = lastTurnNumber;
+    {
+        std::lock_guard lock(mu_);
+        spectatorMatchEnded_ = false;
+        spectatorEndReported_ = false;
+        spectatorWinner_ = 0;
+    }
+    DebugLogf(LOG_INFO, "NET: espectador match=%s turnos=%d vez=P%d",
+              id.c_str(), lastTurnNumber, currentTurnPlayer);
 }
 
 void NetMatch::Pump(float dt) {
@@ -627,6 +658,15 @@ bool NetMatch::PollOpponentTurn(RemoteTurnResult& out) {
     return true;
 }
 
+bool NetMatch::PollSpectatorMatchEnded(int& winnerOut) {
+    if (myPlayerNumber != 0) return false;
+    std::lock_guard lock(mu_);
+    if (!spectatorMatchEnded_ || spectatorEndReported_) return false;
+    spectatorEndReported_ = true;
+    winnerOut = spectatorWinner_;
+    return true;
+}
+
 DisconnectResult NetMatch::PollDisconnect() {
     std::lock_guard lock(mu_);
     if (disconnectReported_ || pendingDisconnect_ == DisconnectResult::None) {
@@ -682,4 +722,7 @@ void NetMatch::LeaveMatch() {
     liveShotId_ = 0;
     hasPendingPowerupPickup_ = false;
     pendingPowerupPickup_ = {};
+    spectatorMatchEnded_ = false;
+    spectatorEndReported_ = false;
+    spectatorWinner_ = 0;
 }

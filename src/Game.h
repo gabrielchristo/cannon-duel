@@ -48,6 +48,10 @@ private:
     OnlineLobby onlineLobby;
     NetMatch netMatch;
     void StartOnlineMatch(const MatchStart& ms);
+    void StartSpectating(const ActiveMatchCard& match);
+    void ApplyTurnSilently(const RemoteTurnResult& turn);
+    void EndSpectatorMatch(int winnerPlayer);
+    void ExitSpectatorToLobby();
     void EndOnlineMatchOpponentLeft();
     void BeginRemoteShotReplay(const RemoteTurnResult& remote);
     void UpdateRemoteShotReplay(float dt);
@@ -91,6 +95,7 @@ private:
     void DrawResetAngleButton() const;
     bool HandleResetAngleButtonClick();
     void DrawOnlineCannonLabels() const;
+    void DrawSpectatorBanner() const;
     void DrawVersionSwitch(Vector2 mouse);
     void UpdateVersionSwitch(Vector2 mouse);
     void DrawLanguageFlags(Vector2 mouse);
@@ -213,6 +218,7 @@ private:
     bool opponentAimSimActive = false;
     int opponentAimForTurn = 0;
     bool onlineWinByDisconnect = false;
+    bool isSpectating = false;
     std::string onlineP1Name;
     std::string onlineP2Name;
 };

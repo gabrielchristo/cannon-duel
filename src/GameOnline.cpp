@@ -7,6 +7,9 @@
 #include "VirtualScreen.h"
 #include "net/NetWorker.h"
 #include "net/SupabaseClient.h"
+#include "net/JsonHelpers.h"
+
+#include <nlohmann/json.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -18,9 +21,11 @@
 
 void Game::StartOnlineMatch(const MatchStart& ms) {
     mode = GameMode::Online;
+    isSpectating = false;
     matchFormat = MatchFormat::Duel1v1;
     version = ms.isPlus ? GameVersion::Plus : GameVersion::Classic;
     onlineWinByDisconnect = false;
+    onlineLobby.MarkInMatch(ms.matchId);
     onlineLobby.PauseRealtime();
 
     if (ms.myPlayerNumber == 1) {
@@ -44,6 +49,7 @@ void Game::EndOnlineMatchOpponentLeft() {
     roundOutcome = (netMatch.MyPlayerNumber() == 1)
         ? RoundOutcome::P1Wins : RoundOutcome::P2Wins;
     onlineLobby.ReportMatchResult(true);
+    onlineLobby.MarkIdle();
     netMatch.LeaveMatch();
     state = GameState::RoundOver;
     stateTimer = 1.0f;
@@ -340,18 +346,26 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     opponentAimHasLiveTarget = false;
 
     if (remote.matchOver) {
-        bool iWon = (remote.winnerPlayer == netMatch.MyPlayerNumber());
-        bool draw = (remote.winnerPlayer == 0);
-        if (draw) {
-            roundOutcome = RoundOutcome::Draw;
+        if (isSpectating) {
+            roundOutcome = (remote.winnerPlayer == 0) ? RoundOutcome::Draw
+                           : (remote.winnerPlayer == 1 ? RoundOutcome::P1Wins : RoundOutcome::P2Wins);
+            state = GameState::RoundOver;
+            stateTimer = 1.0f;
         } else {
-            roundOutcome = iWon
-                ? (netMatch.MyPlayerNumber() == 1 ? RoundOutcome::P1Wins : RoundOutcome::P2Wins)
-                : (netMatch.MyPlayerNumber() == 1 ? RoundOutcome::P2Wins : RoundOutcome::P1Wins);
+            bool iWon = (remote.winnerPlayer == netMatch.MyPlayerNumber());
+            bool draw = (remote.winnerPlayer == 0);
+            if (draw) {
+                roundOutcome = RoundOutcome::Draw;
+            } else {
+                roundOutcome = iWon
+                    ? (netMatch.MyPlayerNumber() == 1 ? RoundOutcome::P1Wins : RoundOutcome::P2Wins)
+                    : (netMatch.MyPlayerNumber() == 1 ? RoundOutcome::P2Wins : RoundOutcome::P1Wins);
+            }
+            if (!draw) onlineLobby.ReportMatchResult(iWon);
+            onlineLobby.MarkIdle();
+            state = GameState::RoundOver;
+            stateTimer = 1.0f;
         }
-        if (!draw) onlineLobby.ReportMatchResult(iWon);
-        state = GameState::RoundOver;
-        stateTimer = 1.0f;
     } else {
         OnOnlineTurnCompleted(currentPlayer);
         state = GameState::TurnTransition;
@@ -377,4 +391,123 @@ void Game::ConsumeRemotePowerupPickups() {
         powerups.ApplyRemotePickup(pu.type, pu.x, shooter, GetCannon(1), GetCannon(2),
                                    language, false, powerups.RemoteEffectApplied());
     }
+}
+
+void Game::ApplyTurnSilently(const RemoteTurnResult& turn) {
+    if (version == GameVersion::Plus && turn.pickedPowerupType >= 0) {
+        powerups.ApplyRemotePickup(turn.pickedPowerupType, turn.pickedPowerupX,
+                                   turn.shooterPlayer, GetCannon(1), GetCannon(2),
+                                   language, true, powerups.RemoteEffectApplied());
+        powerups.RemoteEffectApplied() = false;
+    }
+
+    Cannon& shooter = GetCannon(turn.shooterPlayer);
+    if (version == GameVersion::Plus) {
+        shooter.OnShotResolved();
+    }
+
+    terrain.Explode(turn.impactX, turn.impactY, turn.craterRadius);
+    GetCannon(1).TakeDamage(turn.damageP1);
+    GetCannon(2).TakeDamage(turn.damageP2);
+    GetCannon(1).groundY = terrain.HeightAt(GetCannon(1).x);
+    GetCannon(2).groundY = terrain.HeightAt(GetCannon(2).x);
+
+    windForce = turn.nextWind;
+    currentPlayer = turn.nextTurnPlayer;
+    OnOnlineTurnCompleted(turn.nextTurnPlayer);
+}
+
+void Game::StartSpectating(const ActiveMatchCard& match) {
+    using json = nlohmann::json;
+    SupabaseClient client;
+    json matchRows = client.Select("matches",
+        "select=terrain_seed,version,wind,current_turn_player,status,winner_player&id=eq." + match.matchId);
+    if (!matchRows.is_array() || matchRows.empty()) {
+        DebugLogf(LOG_WARNING, "GAME: espectador — partida %s não encontrada", match.matchId.c_str());
+        return;
+    }
+
+    const json& mrow = matchRows[0];
+    const unsigned int seed = static_cast<unsigned int>(json_helpers::Int64(mrow, "terrain_seed", 0));
+    const bool isPlus = (json_helpers::Str(mrow, "version", "classic") == "plus");
+    const std::string status = json_helpers::Str(mrow, "status", "active");
+    const int currentTurn = json_helpers::Int(mrow, "current_turn_player", 1);
+    const int winner = json_helpers::Int(mrow, "winner_player", 0);
+    const float matchWind = json_helpers::Float(mrow, "wind", 0.0f);
+
+    json turnRows = client.Select("match_turns",
+        "select=*&match_id=eq." + match.matchId + "&order=turn_number.asc&limit=200");
+
+    isSpectating = true;
+    mode = GameMode::Online;
+    matchFormat = MatchFormat::Duel1v1;
+    version = isPlus ? GameVersion::Plus : GameVersion::Classic;
+    onlineWinByDisconnect = false;
+    onlineLobby.PauseRealtime();
+
+    onlineP1Name = match.player1Name;
+    onlineP2Name = match.player2Name;
+
+    ResetRound(seed);
+    onlineSeed = seed;
+    onlineCompletedTurns = 0;
+    powerups.Reset();
+    if (version == GameVersion::Plus) {
+        powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS);
+    }
+
+    int lastTurnNumber = 0;
+    if (turnRows.is_array()) {
+        for (const auto& row : turnRows) {
+            RemoteTurnResult turn = NetMatch::ParseTurnJson(row);
+            if (turn.turnNumber <= 0) continue;
+            ApplyTurnSilently(turn);
+            lastTurnNumber = turn.turnNumber;
+        }
+    }
+
+    windForce = (lastTurnNumber > 0) ? windForce : matchWind;
+    currentPlayer = (lastTurnNumber > 0) ? currentPlayer : currentTurn;
+
+    netMatch.BeginSpectating(match.matchId, currentPlayer, lastTurnNumber);
+
+    if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
+        PlayMusicStream(musicTracks[currentMusicIndex]);
+    }
+
+    if (status == "finished" || status == "abandoned") {
+        EndSpectatorMatch(winner);
+        return;
+    }
+
+    state = GameState::Aiming;
+    aimPhase = AimPhase::Angle;
+    aimOscTimer = 0.0f;
+    opponentAimForTurn = netMatch.TurnsCompleted() + 1;
+    ResetOpponentAimSim(currentPlayer);
+    DebugLogf(LOG_INFO, "GAME: espectador entrou match=%s turnos=%d", match.matchId.c_str(), lastTurnNumber);
+}
+
+void Game::EndSpectatorMatch(int winnerPlayer) {
+    roundOutcome = (winnerPlayer == 0) ? RoundOutcome::Draw
+                   : (winnerPlayer == 1 ? RoundOutcome::P1Wins : RoundOutcome::P2Wins);
+    state = GameState::RoundOver;
+    stateTimer = 1.0f;
+}
+
+void Game::ExitSpectatorToLobby() {
+    if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+    netMatch.LeaveMatch();
+    isSpectating = false;
+    onlineLobby.EnterLobby();
+    state = GameState::OnlineLobby;
+}
+
+void Game::DrawSpectatorBanner() const {
+    char buf[128];
+    snprintf(buf, sizeof(buf), T(TK::OnlineSpectatingFmt, language),
+             onlineP1Name.c_str(), onlineP2Name.c_str());
+    int tw = MeasureText(buf, 16);
+    DrawRectangle(cfg::SCREEN_WIDTH / 2 - tw / 2 - 12, 4, tw + 24, 26, Fade(BLACK, 0.55f));
+    DrawText(buf, cfg::SCREEN_WIDTH / 2 - tw / 2, 10, 16, Color{235, 220, 180, 255});
 }

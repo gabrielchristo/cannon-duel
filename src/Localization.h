@@ -52,7 +52,19 @@ enum class TK {
     InstructionsBody,
     InstructionsBack,
 
+    RoundOverSpectatorHint,
+
+    OnlineWatchButton,
+    OnlinePlayingLabel,
+    OnlineSpectatingFmt,
+    RoundSpectatorMatchOver,
+
     OnlineButton,
+    OnlineTabLobby,
+    OnlineTabMatches,
+    OnlineNoActiveMatches,
+    OnlineMatchTurnFmt,
+
     OnlineTitle,
     OnlineYourName,
     OnlineNoPlayers,
@@ -99,6 +111,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::ConfirmNo: return pt ? "CONTINUAR" : "CONTINUE";
 
         case TK::RoundOverHint: return pt ? "clique para voltar ao menu" : "click to return to the menu";
+        case TK::RoundOverSpectatorHint: return pt ? "clique para voltar ao lobby" : "click to return to the lobby";
         case TK::RoundDraw: return pt ? "EMPATE!" : "DRAW!";
         case TK::RoundDrawBuried: return pt ? "EMPATE! (ambos soterrados)" : "DRAW! (both buried)";
         case TK::RoundP1Wins: return pt ? "JOGADOR 1 VENCEU!" : "PLAYER 1 WINS!";
@@ -185,6 +198,16 @@ inline const char* T(TK key, Lang lang) {
         case TK::InstructionsBack: return pt ? "VOLTAR" : "BACK";
 
         case TK::OnlineButton: return pt ? "MULTIPLAYER ONLINE" : "ONLINE MULTIPLAYER";
+        case TK::OnlineWatchButton: return pt ? "ASSISTIR" : "WATCH";
+        case TK::OnlinePlayingLabel: return pt ? "JOGANDO" : "PLAYING";
+        case TK::OnlineSpectatingFmt: return pt ? "Assistindo: %s vs %s" : "Spectating: %s vs %s";
+        case TK::RoundSpectatorMatchOver: return pt ? "PARTIDA ENCERRADA" : "MATCH OVER";
+        case TK::OnlineTabLobby: return pt ? "LOBBY" : "LOBBY";
+        case TK::OnlineTabMatches: return pt ? "PARTIDAS" : "MATCHES";
+        case TK::OnlineNoActiveMatches: return pt
+            ? "Nenhuma partida ao vivo no momento."
+            : "No live matches right now.";
+        case TK::OnlineMatchTurnFmt: return pt ? "Vez do jogador %d" : "Player %d's turn";
         case TK::OnlineTitle: return pt ? "LOBBY ONLINE" : "ONLINE LOBBY";
         case TK::OnlineYourName: return pt ? "Voce:" : "You:";
         case TK::OnlineNoPlayers: return pt

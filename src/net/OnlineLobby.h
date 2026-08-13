@@ -15,6 +15,21 @@ struct LobbyPlayerCard {
     std::string displayName;
     int wins = 0;
     int losses = 0;
+    bool inLiveMatch = false;
+    std::string liveMatchId;
+    std::string liveMatchP1Name;
+    std::string liveMatchP2Name;
+    bool liveMatchIsPlus = false;
+    int liveMatchCurrentTurn = 1;
+};
+
+// Partida ativa listada na aba "Partidas".
+struct ActiveMatchCard {
+    std::string matchId;
+    std::string player1Name;
+    std::string player2Name;
+    int currentTurnPlayer = 1;
+    bool isPlus = false;
 };
 
 // Um desafio de partida recebido de outro jogador, aguardando minha resposta.
@@ -55,6 +70,8 @@ public:
 
     // Heartbeat durante partida online — mantém last_seen e status in_match.
     void HeartbeatInMatch(float dt);
+    void MarkInMatch(const std::string& matchId);
+    void MarkIdle();
 
     const std::vector<LobbyPlayerCard>& Players() const { return players; }
     const std::vector<IncomingChallenge>& IncomingChallenges() const { return incoming; }
@@ -88,6 +105,8 @@ private:
     std::vector<LobbyPlayerCard> players;
     std::vector<IncomingChallenge> incoming;
 
+    std::string currentMatchId_;
+
     float pollTimer = 0.0f;
     float ghostCleanupTimer = 0.0f;
     static constexpr float POLL_INTERVAL_REALTIME_SEC = 3.0f;
@@ -110,12 +129,14 @@ private:
     std::atomic<bool> dirtyPresence_{false};
     std::atomic<bool> dirtyChallenges_{false};
 
+    static constexpr int LIVE_MATCH_MAX_AGE_SEC = 120;
+
     bool hasReadyMatch = false;
     MatchStart readyMatch;
 
     void EnsurePlayerRegistered();
     void EnsureRealtime();
-    void UpsertPresenceWithStatus(const char* status);
+    void UpsertPresenceWithStatus(const char* status, const std::string& matchId = "");
     void UpsertPresence();
     void RefreshPlayerList();
     void RefreshIncomingChallenges();

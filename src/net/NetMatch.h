@@ -78,9 +78,11 @@ class NetMatch {
 public:
     void Begin(const std::string& matchId, int myPlayerNumber,
                const std::string& opponentId, const std::string& opponentName);
+    void BeginSpectating(const std::string& matchId, int currentTurnPlayer, int lastTurnNumber);
     void Pump(float dt);
 
     int MyPlayerNumber() const { return myPlayerNumber; }
+    bool IsSpectator() const { return myPlayerNumber == 0; }
     int SyncedCurrentTurnPlayer() const { return syncedCurrentTurnPlayer; }
     const std::string& OpponentName() const { return opponentName; }
     bool IsMyTurn() const;
@@ -116,6 +118,7 @@ public:
     int TurnsCompleted() const { return lastSeenTurnNumber; }
 
     bool PollOpponentTurn(RemoteTurnResult& out);
+    bool PollSpectatorMatchEnded(int& winnerOut);
     DisconnectResult PollDisconnect();
 
     void AbandonMatch();
@@ -126,6 +129,8 @@ public:
     bool PollDevCommand(DevCommand& out);
     void DevSyncTurnTo(int nextPlayer);
 
+    static RemoteTurnResult ParseTurnJson(const nlohmann::json& row);
+
 private:
     void SchedulePoll();
     float PollIntervalSec() const;
@@ -133,7 +138,6 @@ private:
     void ApplyMatchRecord(const nlohmann::json& row);
     void ApplyBroadcast(const nlohmann::json& envelope);
     void ApplyLiveAimFromRecord(const nlohmann::json& row);
-    static RemoteTurnResult TurnFromJson(const nlohmann::json& row);
 
     std::string matchId;
     int myPlayerNumber = 1;
@@ -169,6 +173,10 @@ private:
     bool liveShotEnded_ = false;
     float liveShotEndX_ = 0.0f;
     float liveShotEndY_ = 0.0f;
+
+    bool spectatorMatchEnded_ = false;
+    bool spectatorEndReported_ = false;
+    int spectatorWinner_ = 0;
 
     std::atomic<bool> active_{false};
     std::atomic<bool> pollInFlight_{false};

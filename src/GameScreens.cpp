@@ -60,18 +60,33 @@ void Game::UpdateInstructions() {
 }
 
 namespace {
-// Layout compartilhado entre Update/Draw do lobby, pra garantir que a área
-// clicável e a área desenhada do botão "DESAFIAR" de cada card batem certinho.
+
+Rectangle OnlineEditNameBtnRect() {
+    return { 20.0f, 48.0f, 120.0f, 28.0f };
+}
+
 Rectangle OnlineCardRect(int index, float startY) {
     return { cfg::SCREEN_WIDTH / 2.0f - 350.0f, startY + index * 74.0f, 700.0f, 66.0f };
 }
+
 Rectangle OnlineChallengeBtnRect(int index, float startY) {
     Rectangle card = OnlineCardRect(index, startY);
     return { card.x + card.width - 150.0f, card.y + 10.0f, 130.0f, 46.0f };
 }
 
-Rectangle OnlineEditNameBtnRect() {
-    return { cfg::SCREEN_WIDTH / 2.0f + 210.0f, 76.0f, 130.0f, 30.0f };
+Rectangle OnlineWatchBtnRect(int index, float startY) {
+    Rectangle card = OnlineCardRect(index, startY);
+    return { card.x + card.width - 290.0f, card.y + 10.0f, 130.0f, 46.0f };
+}
+
+ActiveMatchCard ToActiveMatchCard(const LobbyPlayerCard& p) {
+    ActiveMatchCard m;
+    m.matchId = p.liveMatchId;
+    m.player1Name = p.liveMatchP1Name;
+    m.player2Name = p.liveMatchP2Name;
+    m.currentTurnPlayer = p.liveMatchCurrentTurn;
+    m.isPlus = p.liveMatchIsPlus;
+    return m;
 }
 
 Rectangle OnlineNameEditPanelRect() {
@@ -91,6 +106,12 @@ Rectangle OnlineNameSaveBtnRect() {
 Rectangle OnlineNameCancelBtnRect() {
     Rectangle panel = OnlineNameEditPanelRect();
     return { panel.x + panel.width - 222.0f, panel.y + 86.0f, 150.0f, 36.0f };
+}
+
+float OnlineListStartY(bool hasIncoming, bool hasWaiting) {
+    if (hasIncoming) return 176.0f;
+    if (hasWaiting) return 120.0f;
+    return 96.0f;
 }
 
 } // namespace
@@ -167,11 +188,10 @@ void Game::UpdateOnlineLobby() {
     }
 
     const auto& incoming = onlineLobby.IncomingChallenges();
-    float listStartY = 150.0f;
+    float listStartY = OnlineListStartY(!incoming.empty(), onlineLobby.HasPendingOutgoingChallenge());
     if (!incoming.empty()) {
-        listStartY = 226.0f;
-        Rectangle acceptBtn = { cfg::SCREEN_WIDTH / 2.0f - 160, 160, 150, 46 };
-        Rectangle declineBtn = { cfg::SCREEN_WIDTH / 2.0f + 10, 160, 150, 46 };
+        Rectangle acceptBtn = { cfg::SCREEN_WIDTH / 2.0f - 160, 130, 150, 46 };
+        Rectangle declineBtn = { cfg::SCREEN_WIDTH / 2.0f + 10, 130, 150, 46 };
         if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
             if (CheckCollisionPointRec(m, acceptBtn)) onlineLobby.AcceptChallenge(incoming[0], version == GameVersion::Plus);
             else if (CheckCollisionPointRec(m, declineBtn)) onlineLobby.DeclineChallenge(incoming[0]);
@@ -180,12 +200,22 @@ void Game::UpdateOnlineLobby() {
 
     const auto& players = onlineLobby.Players();
     int maxCards = 6;
-    if (!onlineLobby.HasPendingOutgoingChallenge() && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         for (int i = 0; i < static_cast<int>(players.size()) && i < maxCards; ++i) {
-            Rectangle btn = OnlineChallengeBtnRect(i, listStartY);
-            if (CheckCollisionPointRec(m, btn)) {
-                onlineLobby.SendChallenge(players[i]);
-                break;
+            const LobbyPlayerCard& p = players[i];
+            if (p.inLiveMatch) {
+                Rectangle watchBtn = OnlineWatchBtnRect(i, listStartY);
+                if (CheckCollisionPointRec(m, watchBtn)) {
+                    StartSpectating(ToActiveMatchCard(p));
+                    return;
+                }
+            }
+            if (!p.inLiveMatch && !onlineLobby.HasPendingOutgoingChallenge()) {
+                Rectangle btn = OnlineChallengeBtnRect(i, listStartY);
+                if (CheckCollisionPointRec(m, btn)) {
+                    onlineLobby.SendChallenge(p);
+                    break;
+                }
             }
         }
     }
@@ -195,15 +225,9 @@ void Game::DrawOnlineLobby() {
     ClearBackground(Color{ 235, 214, 190, 255 });
     Vector2 m = ::GetVirtualMouse();
 
-    const char* title = T(TK::OnlineTitle, language);
-    int fs = 40;
-    int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 30, fs, Color{40, 30, 20, 255});
-
-    std::string myLine = std::string(T(TK::OnlineYourName, language)) + " " + playerIdentity.DisplayName()
-        + "  [" + (version == GameVersion::Plus ? T(TK::PlusLabel, language) : T(TK::ClassicLabel, language)) + "]";
-    int myTw = MeasureText(myLine.c_str(), 18);
-    DrawText(myLine.c_str(), cfg::SCREEN_WIDTH / 2 - myTw / 2, 84, 18, Color{80, 65, 45, 255});
+    // Canto superior esquerdo: nome + editar
+    std::string nameLine = std::string(T(TK::OnlineYourName, language)) + " " + playerIdentity.DisplayName();
+    DrawText(nameLine.c_str(), 20, 20, 18, Color{40, 30, 20, 255});
 
     if (!onlineNameEditing) {
         Rectangle editBtn = OnlineEditNameBtnRect();
@@ -213,27 +237,32 @@ void Game::DrawOnlineLobby() {
         const char* editLbl = T(TK::OnlineEditNameButton, language);
         int elw = MeasureText(editLbl, 14);
         DrawText(editLbl, static_cast<int>(editBtn.x + editBtn.width / 2 - elw / 2),
-                 static_cast<int>(editBtn.y + 8), 14, Color{40, 25, 10, 255});
+                 static_cast<int>(editBtn.y + 7), 14, Color{40, 25, 10, 255});
     }
 
-    if (onlineLobby.HasPendingOutgoingChallenge()) {
-        const char* waiting = T(TK::OnlineChallengeSent, language);
-        int ww = MeasureText(waiting, 18);
-        DrawText(waiting, cfg::SCREEN_WIDTH / 2 - ww / 2, 108, 18, Color{200, 120, 30, 255});
-    }
+    const char* title = T(TK::OnlineTitle, language);
+    int titleW = MeasureText(title, 28);
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - titleW / 2, 28, 28, Color{40, 30, 20, 255});
 
     const auto& incoming = onlineLobby.IncomingChallenges();
-    float listStartY = 150.0f;
+    const bool hasIncoming = !incoming.empty();
+    const bool hasWaiting = onlineLobby.HasPendingOutgoingChallenge();
+    float listStartY = OnlineListStartY(hasIncoming, hasWaiting);
 
-    if (!incoming.empty()) {
-        listStartY = 226.0f;
+    if (hasWaiting) {
+        const char* waiting = T(TK::OnlineChallengeSent, language);
+        int ww = MeasureText(waiting, 18);
+        DrawText(waiting, cfg::SCREEN_WIDTH / 2 - ww / 2, 88, 18, Color{200, 120, 30, 255});
+    }
+
+    if (hasIncoming) {
         const IncomingChallenge& c = incoming[0];
         std::string msg = c.fromDisplayName + " " + T(TK::OnlineIncomingChallenge, language);
         int mw = MeasureText(msg.c_str(), 20);
-        DrawText(msg.c_str(), cfg::SCREEN_WIDTH / 2 - mw / 2, 130, 20, Color{40, 30, 20, 255});
+        DrawText(msg.c_str(), cfg::SCREEN_WIDTH / 2 - mw / 2, 100, 20, Color{40, 30, 20, 255});
 
-        Rectangle acceptBtn = { cfg::SCREEN_WIDTH / 2.0f - 160, 160, 150, 46 };
-        Rectangle declineBtn = { cfg::SCREEN_WIDTH / 2.0f + 10, 160, 150, 46 };
+        Rectangle acceptBtn = { cfg::SCREEN_WIDTH / 2.0f - 160, 130, 150, 46 };
+        Rectangle declineBtn = { cfg::SCREEN_WIDTH / 2.0f + 10, 130, 150, 46 };
 
         bool hoverA = CheckCollisionPointRec(m, acceptBtn);
         DrawRectangleRec(acceptBtn, hoverA ? Color{100, 190, 110, 255} : Color{70, 160, 85, 255});
@@ -256,7 +285,8 @@ void Game::DrawOnlineLobby() {
     if (players.empty()) {
         const char* none = T(TK::OnlineNoPlayers, language);
         int nw = MeasureText(none, 18);
-        DrawText(none, cfg::SCREEN_WIDTH / 2 - nw / 2, static_cast<int>(listStartY) + 20, 18, Color{100, 85, 65, 255});
+        DrawText(none, cfg::SCREEN_WIDTH / 2 - nw / 2, static_cast<int>(listStartY) + 20, 18,
+                 Color{100, 85, 65, 255});
     } else {
         int maxCards = 6;
         for (int i = 0; i < static_cast<int>(players.size()) && i < maxCards; ++i) {
@@ -273,10 +303,27 @@ void Game::DrawOnlineLobby() {
             DrawText(recordBuf, static_cast<int>(card.x + 16), static_cast<int>(card.y + 36), 15,
                      Color{100, 85, 65, 255});
 
+            if (p.inLiveMatch) {
+                const char* playingLbl = T(TK::OnlinePlayingLabel, language);
+                int plw = MeasureText(playingLbl, 14);
+                DrawText(playingLbl,
+                         static_cast<int>(card.x + card.width - 320.0f - plw),
+                         static_cast<int>(card.y + 14), 14, Color{180, 90, 40, 255});
+
+                Rectangle watchBtn = OnlineWatchBtnRect(i, listStartY);
+                bool watchHover = CheckCollisionPointRec(m, watchBtn);
+                DrawRectangleRec(watchBtn, watchHover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
+                DrawRectangleLinesEx(watchBtn, 2, Color{60, 40, 20, 255});
+                const char* watchLbl = T(TK::OnlineWatchButton, language);
+                int wlw = MeasureText(watchLbl, 16);
+                DrawText(watchLbl, static_cast<int>(watchBtn.x + watchBtn.width / 2 - wlw / 2),
+                         static_cast<int>(watchBtn.y + 14), 16, Color{40, 25, 10, 255});
+            }
+
             Rectangle btn = OnlineChallengeBtnRect(i, listStartY);
-            bool disabled = onlineLobby.HasPendingOutgoingChallenge();
-            bool hover = !disabled && CheckCollisionPointRec(m, btn);
-            Color btnColor = disabled ? Color{160, 150, 135, 255}
+            bool challengeDisabled = p.inLiveMatch || onlineLobby.HasPendingOutgoingChallenge();
+            bool hover = !challengeDisabled && CheckCollisionPointRec(m, btn);
+            Color btnColor = challengeDisabled ? Color{160, 150, 135, 255}
                             : hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255};
             DrawRectangleRec(btn, btnColor);
             DrawRectangleLinesEx(btn, 2, Color{60, 40, 20, 255});

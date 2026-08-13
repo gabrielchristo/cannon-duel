@@ -1,9 +1,12 @@
 #include "OnlineLobby.h"
 #include "../DebugLog.h"
+#include "JsonHelpers.h"
 #include "NetValidation.h"
 #include <raylib.h>
 #include <algorithm>
 #include <ctime>
+#include <unordered_map>
+#include <unordered_set>
 #include <cstdio>
 #include <iomanip>
 #include <sstream>
@@ -80,14 +83,14 @@ void OnlineLobby::EnsurePlayerRegistered() {
     }
 }
 
-void OnlineLobby::UpsertPresenceWithStatus(const char* status) {
+void OnlineLobby::UpsertPresenceWithStatus(const char* status, const std::string& matchId) {
     if (!identity) return;
 
     json me = client.Select("players", "select=wins,losses&id=eq." + identity->Id());
     int myWins = 0, myLosses = 0;
     if (me.is_array() && !me.empty()) {
-        myWins = me[0].value("wins", 0);
-        myLosses = me[0].value("losses", 0);
+        myWins = json_helpers::Int(me[0], "wins", 0);
+        myLosses = json_helpers::Int(me[0], "losses", 0);
     }
 
     json body = {
@@ -96,7 +99,8 @@ void OnlineLobby::UpsertPresenceWithStatus(const char* status) {
         { "wins", myWins },
         { "losses", myLosses },
         { "status", status },
-        { "last_seen", UtcNowIso8601() }
+        { "last_seen", UtcNowIso8601() },
+        { "match_id", matchId.empty() ? json(nullptr) : json(matchId) }
     };
     client.Upsert("lobby_presence", body, "player_id");
     DebugLogf(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
@@ -112,7 +116,18 @@ void OnlineLobby::HeartbeatInMatch(float dt) {
     matchHeartbeatTimer += dt;
     if (matchHeartbeatTimer < MATCH_HEARTBEAT_SEC) return;
     matchHeartbeatTimer = 0.0f;
-    UpsertPresenceWithStatus("in_match");
+    UpsertPresenceWithStatus("in_match", currentMatchId_);
+}
+
+void OnlineLobby::MarkInMatch(const std::string& matchId) {
+    matchHeartbeatTimer = 0.0f;
+    currentMatchId_ = matchId;
+    if (registeredPlayer) UpsertPresenceWithStatus("in_match", currentMatchId_);
+}
+
+void OnlineLobby::MarkIdle() {
+    currentMatchId_.clear();
+    if (registeredPlayer && lobbyActive_) UpsertPresenceWithStatus("idle", "");
 }
 
 void OnlineLobby::LeaveLobby() {
@@ -128,6 +143,7 @@ void OnlineLobby::LeaveLobby() {
     matchHeartbeatTimer = 0.0f;
     players.clear();
     incoming.clear();
+    currentMatchId_.clear();
 }
 
 void OnlineLobby::PauseRealtime() {
@@ -225,19 +241,8 @@ void OnlineLobby::SyncLobbyData(bool upsertPresence) {
 void OnlineLobby::RefreshPlayerList() {
     if (!identity) return;
 
-    const std::time_t cutoff = std::time(nullptr) - 25; // 25s
-    std::tm t {};
-#if defined(_WIN32)
-    gmtime_s(&t, &cutoff);
-#else
-    gmtime_r(&cutoff, &t);
-#endif
-    std::ostringstream cutoffOss;
-    cutoffOss << std::put_time(&t, "%Y-%m-%dT%H:%M:%SZ");
-    const std::string cutoffIso = cutoffOss.str();
-
     json rows = client.Select("lobby_presence",
-        "select=player_id,display_name,wins,losses,last_seen&order=player_id.asc&limit=30");
+        "select=player_id,display_name,wins,losses,last_seen,status,match_id&order=player_id.asc&limit=30");
 
     players.clear();
     if (!rows.is_array()) {
@@ -245,19 +250,120 @@ void OnlineLobby::RefreshPlayerList() {
         return;
     }
 
+    const std::time_t presenceCutoff = std::time(nullptr) - 25;
+    const std::time_t matchCutoff = std::time(nullptr) - LIVE_MATCH_MAX_AGE_SEC;
+    std::tm pt {}, mt {};
+#if defined(_WIN32)
+    gmtime_s(&pt, &presenceCutoff);
+    gmtime_s(&mt, &matchCutoff);
+#else
+    gmtime_r(&presenceCutoff, &pt);
+    gmtime_r(&matchCutoff, &mt);
+#endif
+    std::ostringstream presenceCutoffOss, matchCutoffOss;
+    presenceCutoffOss << std::put_time(&pt, "%Y-%m-%dT%H:%M:%SZ");
+    matchCutoffOss << std::put_time(&mt, "%Y-%m-%dT%H:%M:%SZ");
+    const std::string presenceCutoffIso = presenceCutoffOss.str();
+    const std::string matchCutoffIso = matchCutoffOss.str();
+
+    std::vector<std::string> candidateMatchIds;
+    for (const auto& row : rows) {
+        if (json_helpers::Str(row, "status") != "in_match") continue;
+        const std::string mid = json_helpers::Str(row, "match_id");
+        if (mid.empty()) continue;
+        candidateMatchIds.push_back(mid);
+    }
+    std::sort(candidateMatchIds.begin(), candidateMatchIds.end());
+    candidateMatchIds.erase(std::unique(candidateMatchIds.begin(), candidateMatchIds.end()),
+                            candidateMatchIds.end());
+
+    struct VerifiedMatch {
+        std::string id;
+        std::string p1id, p2id;
+        std::string p1name, p2name;
+        int currentTurn = 1;
+        bool isPlus = false;
+    };
+    std::unordered_map<std::string, VerifiedMatch> verifiedMatches;
+
+    if (!candidateMatchIds.empty()) {
+        std::string inList;
+        for (size_t i = 0; i < candidateMatchIds.size(); ++i) {
+            if (i > 0) inList += ",";
+            inList += candidateMatchIds[i];
+        }
+        json matchRows = client.Select("matches",
+            "select=id,player1_id,player2_id,version,current_turn_player,status,updated_at"
+            "&id=in.(" + inList + ")&status=eq.active&updated_at=gte." + matchCutoffIso);
+
+        std::vector<std::string> playerIds;
+        if (matchRows.is_array()) {
+            for (const auto& mrow : matchRows) {
+                VerifiedMatch vm;
+                vm.id = json_helpers::Str(mrow, "id");
+                vm.p1id = json_helpers::Str(mrow, "player1_id");
+                vm.p2id = json_helpers::Str(mrow, "player2_id");
+                vm.currentTurn = json_helpers::Int(mrow, "current_turn_player", 1);
+                vm.isPlus = (json_helpers::Str(mrow, "version", "classic") == "plus");
+                if (!vm.p1id.empty()) playerIds.push_back(vm.p1id);
+                if (!vm.p2id.empty()) playerIds.push_back(vm.p2id);
+                verifiedMatches[vm.id] = vm;
+            }
+        }
+
+        std::sort(playerIds.begin(), playerIds.end());
+        playerIds.erase(std::unique(playerIds.begin(), playerIds.end()), playerIds.end());
+        std::unordered_map<std::string, std::string> names;
+        if (!playerIds.empty()) {
+            std::string pidList;
+            for (size_t i = 0; i < playerIds.size(); ++i) {
+                if (i > 0) pidList += ",";
+                pidList += playerIds[i];
+            }
+            json prows = client.Select("players", "select=id,display_name&id=in.(" + pidList + ")");
+            if (prows.is_array()) {
+                for (const auto& p : prows) {
+                    names[json_helpers::Str(p, "id")] = json_helpers::Str(p, "display_name", "???");
+                }
+            }
+        }
+        for (auto& [id, vm] : verifiedMatches) {
+            auto lookup = [&](const std::string& pid) -> std::string {
+                auto it = names.find(pid);
+                return (it != names.end()) ? it->second : "???";
+            };
+            vm.p1name = lookup(vm.p1id);
+            vm.p2name = lookup(vm.p2id);
+        }
+    }
+
     for (auto& row : rows) {
-        std::string pid = row.value("player_id", "");
+        std::string pid = json_helpers::Str(row, "player_id");
         if (pid.empty() || pid == identity->Id()) continue;
 
-        // ISO-8601 UTC ordena lexicograficamente — só mostra heartbeat recente.
-        std::string seen = row.value("last_seen", "");
-        if (!seen.empty() && seen < cutoffIso) continue;
+        std::string seen = json_helpers::Str(row, "last_seen");
+        if (!seen.empty() && seen < presenceCutoffIso) continue;
 
         LobbyPlayerCard card;
         card.playerId = pid;
-        card.displayName = row.value("display_name", "???");
-        card.wins = row.value("wins", 0);
-        card.losses = row.value("losses", 0);
+        card.displayName = json_helpers::Str(row, "display_name", "???");
+        card.wins = json_helpers::Int(row, "wins", 0);
+        card.losses = json_helpers::Int(row, "losses", 0);
+
+        const std::string status = json_helpers::Str(row, "status");
+        const std::string matchId = json_helpers::Str(row, "match_id");
+        if (status == "in_match" && !matchId.empty()) {
+            auto it = verifiedMatches.find(matchId);
+            if (it != verifiedMatches.end()) {
+                card.inLiveMatch = true;
+                card.liveMatchId = it->second.id;
+                card.liveMatchP1Name = it->second.p1name;
+                card.liveMatchP2Name = it->second.p2name;
+                card.liveMatchIsPlus = it->second.isPlus;
+                card.liveMatchCurrentTurn = it->second.currentTurn;
+            }
+        }
+
         players.push_back(card);
     }
 

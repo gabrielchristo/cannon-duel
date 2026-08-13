@@ -244,7 +244,7 @@ void Game::Draw() {
              state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
         DrawOpponentAim(opponentAimPlayer, opponentAimAngle, opponentAimPower);
     }
-    else if (mode == GameMode::Online && !netMatch.IsMyTurn() && state == GameState::Aiming) {
+    else if (mode == GameMode::Online && !isSpectating && !netMatch.IsMyTurn() && state == GameState::Aiming) {
         std::string waitMsg = std::string(netMatch.OpponentName()) + T(TK::OnlineWaitingSuffix, language);
         int ww = MeasureText(waitMsg.c_str(), 20);
         DrawText(waitMsg.c_str(), cfg::SCREEN_WIDTH / 2 - ww / 2, 90, 20, HudTextColor());
@@ -258,13 +258,19 @@ void Game::Draw() {
 
     DrawHUD();
 
+    if (isSpectating && state != GameState::RoundOver) {
+        DrawSpectatorBanner();
+    }
+
     if (state == GameState::RoundOver) {
         DrawRectangle(0, 0, cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, Fade(BLACK, 0.55f));
         const char* msg = ResolveRoundMessage();
         int fs = 48;
         int tw = MeasureText(msg, fs);
         DrawText(msg, cfg::SCREEN_WIDTH / 2 - tw / 2, cfg::SCREEN_HEIGHT / 2 - 60, fs, WHITE);
-        const char* hint = T(TK::RoundOverHint, language);
+        const char* hint = isSpectating
+            ? T(TK::RoundOverSpectatorHint, language)
+            : T(TK::RoundOverHint, language);
         int hw = MeasureText(hint, 20);
         DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 10, 20, LIGHTGRAY);
     }

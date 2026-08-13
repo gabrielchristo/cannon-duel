@@ -211,13 +211,24 @@ void Game::Update(float dt) {
 
     // Multiplayer online: rede assíncrona (sem bloquear o frame).
     if (mode == GameMode::Online && netMatch.InMatch() && state != GameState::RoundOver) {
+        if (!isSpectating) {
+            onlineLobby.HeartbeatInMatch(dt);
+        }
         netMatch.Pump(dt);
         currentPlayer = netMatch.SyncedCurrentTurnPlayer();
 
         DisconnectResult disc = netMatch.PollDisconnect();
-        if (disc == DisconnectResult::OpponentLeft) {
+        if (!isSpectating && disc == DisconnectResult::OpponentLeft) {
             EndOnlineMatchOpponentLeft();
             return;
+        }
+
+        if (isSpectating) {
+            int winner = 0;
+            if (netMatch.PollSpectatorMatchEnded(winner)) {
+                EndSpectatorMatch(winner);
+                return;
+            }
         }
 
 #if CANNON_DUEL_DEBUG_MODE
@@ -386,12 +397,16 @@ void Game::Update(float dt) {
         case GameState::RoundOver:
             stateTimer -= dt;
             if (stateTimer <= 0.0f && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
-                if (mode == GameMode::Online) {
-                    netMatch.LeaveMatch();
-                    onlineLobby.LeaveLobby();
+                if (isSpectating) {
+                    ExitSpectatorToLobby();
+                } else {
+                    if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+                    if (mode == GameMode::Online) {
+                        netMatch.LeaveMatch();
+                        onlineLobby.LeaveLobby();
+                    }
+                    state = GameState::MainMenu;
                 }
-                state = GameState::MainMenu;
             }
             break;
     }

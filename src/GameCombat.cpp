@@ -457,6 +457,11 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
                                powerups.ShotPickedType(), powerups.ShotPickedX());
         powerups.ShotPickedType() = -1;
         powerups.ShotPickedX() = 0.0f;
+
+        if (version == GameVersion::Plus && roster.IsPlayerAlive(currentPlayer)) {
+            GetCannon(currentPlayer).OnTurnEnded();
+        }
+
         currentPlayer = ResolveOnlineTurnPlayer(nextTurnPlayer);
 
         if (matchOver) {
@@ -511,6 +516,11 @@ void Game::CheckRoundEnd() {
 
 void Game::EndTurn() {
     if (state == GameState::RoundOver) return;
+
+    if (version == GameVersion::Plus && roster.IsPlayerAlive(currentPlayer)) {
+        GetCannon(currentPlayer).OnTurnEnded();
+    }
+
     if (mode != GameMode::Online) {
         currentPlayer = roster.NextLivingPlayerNum(currentPlayer);
     }
@@ -529,9 +539,6 @@ void Game::EndTurn() {
                     std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
 
         if (version == GameVersion::Plus) {
-            if (roster.IsPlayerAlive(currentPlayer)) {
-                GetCannon(currentPlayer).OnTurnStarted();
-            }
             powerups.TickSpawnCounter();
             powerups.MaybeSpawnRandom(roster);
         }

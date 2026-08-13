@@ -409,6 +409,9 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     Cannon& shooter = GetCannon(remote.shooterPlayer);
     if (version == GameVersion::Plus) {
         shooter.OnShotResolved();
+        if (roster.IsPlayerAlive(remote.shooterPlayer)) {
+            shooter.OnTurnEnded();
+        }
     }
 
     if (audioReady) PlaySound(sndExplosion);
@@ -458,12 +461,9 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     }
 }
 
-void Game::OnOnlineTurnCompleted(int startingTurnPlayer) {
+void Game::OnOnlineTurnCompleted(int /*startingTurnPlayer*/) {
     onlineCompletedTurns++;
     if (version == GameVersion::Plus) {
-        if (roster.IsPlayerAlive(startingTurnPlayer)) {
-            GetCannon(startingTurnPlayer).OnTurnStarted();
-        }
         if (onlineCompletedTurns % cfg::POWERUP_SPAWN_EVERY_TURNS == 0) {
             powerups.MaybeSpawnSeeded(onlineSeed, onlineCompletedTurns, roster);
         }
@@ -490,6 +490,9 @@ void Game::ApplyTurnSilently(const RemoteTurnResult& turn) {
     Cannon& shooter = GetCannon(turn.shooterPlayer);
     if (version == GameVersion::Plus) {
         shooter.OnShotResolved();
+        if (roster.IsPlayerAlive(turn.shooterPlayer)) {
+            shooter.OnTurnEnded();
+        }
     }
 
     terrain.Explode(turn.impactX, turn.impactY, turn.craterRadius);

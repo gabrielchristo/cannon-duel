@@ -109,11 +109,11 @@ Pickup: projétil deve passar sobre o item (colisão no impacto ou durante voo).
 
 | Tipo | Sigla | Efeito |
 |------|-------|--------|
-| **DoubleDamage** | 2X | Próximo acerto ×2 dano |
+| **DoubleDamage** | 2X | Próximo **tiro** ×2 dano (consumido mesmo se errar) |
 | **TrajectoryPreview** | TR | Trajetória prevista por 1 turno; mira mais lenta |
-| **Guided** | GD | Próximo tiro teleguiado (sempre acerta, dano ×0.5) — mais raro |
+| **Guided** | GD | Próximo tiro teleguiado (sempre acerta, dano ×0.7) — mais raro |
 | **Heal** | + | Cura 25–50% da vida máxima |
-| **Shield** | SH | Imune a dano por 2 turnos |
+| **Shield** | SH | Imune a dano por 1 turno deste canhão (protege no próximo turno dele, inclusive enquanto atira) |
 
 Pesos de spawn: Guided = 0.4, demais = 1.0.
 

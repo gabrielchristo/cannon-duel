@@ -291,7 +291,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::PowerupTrajectory: return pt ? "Trajetoria revelada por 1 rodada!" : "Trajectory revealed for 1 round!";
         case TK::PowerupGuided: return pt ? "Proximo tiro TELEGUIADO (dano menor)!" : "Next shot is GUIDED (lower damage)!";
         case TK::PowerupHeal: return pt ? "Vida recuperada!" : "Health restored!";
-        case TK::PowerupShield: return pt ? "ESCUDO ativo por 2 rodadas!" : "SHIELD active for 2 rounds!";
+        case TK::PowerupShield: return pt ? "ESCUDO ativo por 1 turno!" : "SHIELD active for 1 turn!";
 
         default: return "";
     }

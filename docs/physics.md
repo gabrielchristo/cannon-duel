@@ -60,7 +60,7 @@ Online: vento determinístico via `SeededWind(turnIndex)` a partir de `terrain_s
 Power-up **Guided** desativa física Box2D durante o voo:
 
 - Arco cinemático (`SampleGuidedPath`) com subida + mergulho.
-- Dano × `POWERUP_GUIDED_DAMAGE_MULT` (0.5).
+- Dano × `POWERUP_GUIDED_DAMAGE_MULT` (0.7).
 - Sempre acerta o alvo escolhido (`LowestHpEnemySlot`).
 
 ## Terreno (`Terrain`)

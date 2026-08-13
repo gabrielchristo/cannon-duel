@@ -33,7 +33,7 @@ public:
     void DrawMessage() const;
 
     void ApplyEffect(Cannon& picker, PowerupType type, Lang lang);
-    void TickTurnEffects(Cannon& startingTurnCannon);
+    void TickTurnEffects(Cannon& finishingTurnCannon);
 
     // Retorna true se coletou um power-up neste segmento de trajetória.
     bool CheckProjectileCollision(Vector2 projFrom, Vector2 projTo, int currentPlayer,

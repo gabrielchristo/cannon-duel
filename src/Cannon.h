@@ -35,6 +35,7 @@ public:
     int  trajectoryPreviewTurnsLeft = 0;
     int  queuedTrajectoryPreviewTurns = 0; // acabou de pegar; só vira ativo após o tiro atual resolver
     int  shieldTurnsLeft            = 0;
+    bool shieldPickedThisTurn       = false; // não consome escudo no fim do turno em que foi coletado
 
     bool HasActiveEffectIndicator() const {
         return pendingDoubleDamage || queuedDoubleDamage || pendingGuided ||
@@ -45,6 +46,6 @@ public:
     void OnShotFired();
     // Consumido ao resolver impacto (local ou FinishRemoteTurn).
     void OnShotResolved();
-    // Decrementa escudo no início do turno do dono.
-    void OnTurnStarted();
+    // Decrementa escudo ao fim do turno deste canhão (1 turno = protege até terminar o próximo turno dele).
+    void OnTurnEnded();
 };

@@ -15,6 +15,7 @@ void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
     trajectoryPreviewTurnsLeft = 0;
     queuedTrajectoryPreviewTurns = 0;
     shieldTurnsLeft = 0;
+    shieldPickedThisTurn = false;
     tintColor = WHITE;
 }
 
@@ -159,6 +160,10 @@ void Cannon::OnShotResolved() {
     }
 }
 
-void Cannon::OnTurnStarted() {
+void Cannon::OnTurnEnded() {
+    if (shieldPickedThisTurn) {
+        shieldPickedThisTurn = false;
+        return;
+    }
     if (shieldTurnsLeft > 0) shieldTurnsLeft--;
 }

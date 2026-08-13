@@ -322,6 +322,7 @@ void PowerupSystem::ApplyEffect(Cannon& picker, PowerupType type, Lang lang) {
         }
         case PowerupType::Shield:
             picker.shieldTurnsLeft = cfg::POWERUP_SHIELD_TURNS;
+            picker.shieldPickedThisTurn = true;
             break;
         default: break;
     }
@@ -330,8 +331,8 @@ void PowerupSystem::ApplyEffect(Cannon& picker, PowerupType type, Lang lang) {
     ShowMessage(PowerupDescription(type, lang), base);
 }
 
-void PowerupSystem::TickTurnEffects(Cannon& startingTurnCannon) {
-    startingTurnCannon.OnTurnStarted();
+void PowerupSystem::TickTurnEffects(Cannon& finishingTurnCannon) {
+    finishingTurnCannon.OnTurnEnded();
 }
 
 bool PowerupSystem::CheckProjectileCollision(Vector2 projFrom, Vector2 projTo, int currentPlayer,

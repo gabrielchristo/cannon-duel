@@ -56,7 +56,9 @@ enum class TK {
 
     OnlineWatchButton,
     OnlinePlayingLabel,
+    OnlineTeamPrepLabel,
     OnlineSpectatingFmt,
+    OnlineSpectatingTeamFmt,
     RoundSpectatorMatchOver,
 
     OnlineButton,
@@ -80,6 +82,22 @@ enum class TK {
     OnlineNameSave,
     OnlineNameCancel,
     OnlineNameHint,
+
+    OnlineFormat1v1,
+    OnlineFormat2v2,
+    OnlineChallengeSentFmt,
+    OnlineIncomingChallengeFmt,
+    OnlineTeamRoomTitle,
+    OnlineTeamInviteButton,
+    OnlineTeamInviteIncoming,
+    OnlineTeamCancel,
+    OnlineTeamStart,
+    OnlineTeamSlotEmpty,
+    OnlineTeamLabelA,
+    OnlineTeamLabelB,
+    OnlineTeamWaitingPartners,
+    OnlineTeamLeave,
+    OnlineTeamLobbyInviteTitle,
 
     PowerupDoubleDamage,
     PowerupTrajectory,
@@ -200,7 +218,10 @@ inline const char* T(TK key, Lang lang) {
         case TK::OnlineButton: return pt ? "MULTIPLAYER ONLINE" : "ONLINE MULTIPLAYER";
         case TK::OnlineWatchButton: return pt ? "ASSISTIR" : "WATCH";
         case TK::OnlinePlayingLabel: return pt ? "JOGANDO" : "PLAYING";
+        case TK::OnlineTeamPrepLabel: return pt ? "PREPARANDO 2x2" : "TEAM PREP";
         case TK::OnlineSpectatingFmt: return pt ? "Assistindo: %s vs %s" : "Spectating: %s vs %s";
+        case TK::OnlineSpectatingTeamFmt:
+            return pt ? "Assistindo: %s & %s vs %s & %s" : "Spectating: %s & %s vs %s & %s";
         case TK::RoundSpectatorMatchOver: return pt ? "PARTIDA ENCERRADA" : "MATCH OVER";
         case TK::OnlineTabLobby: return pt ? "LOBBY" : "LOBBY";
         case TK::OnlineTabMatches: return pt ? "PARTIDAS" : "MATCHES";
@@ -225,6 +246,24 @@ inline const char* T(TK key, Lang lang) {
         case TK::OnlineNameSave: return pt ? "SALVAR" : "SAVE";
         case TK::OnlineNameCancel: return pt ? "CANCELAR" : "CANCEL";
         case TK::OnlineNameHint: return pt ? "Max. 24 caracteres" : "Max. 24 characters";
+
+        case TK::OnlineFormat1v1: return pt ? "1 x 1" : "1 x 1";
+        case TK::OnlineFormat2v2: return pt ? "2 x 2" : "2 x 2";
+        case TK::OnlineChallengeSentFmt: return pt ? "Desafio enviado (%s · %s) — aguardando..."
+            : "Challenge sent (%s · %s) — waiting...";
+        case TK::OnlineIncomingChallengeFmt: return pt ? "te desafiou · %s · %s"
+            : "challenged you · %s · %s";
+        case TK::OnlineTeamRoomTitle: return pt ? "PREPARACAO — EQUIPE 2 x 2" : "SETUP — TEAM 2 x 2";
+        case TK::OnlineTeamInviteButton: return pt ? "CONVIDAR" : "INVITE";
+        case TK::OnlineTeamInviteIncoming: return pt ? "convida voce para a equipe" : "invites you to the team";
+        case TK::OnlineTeamCancel: return pt ? "CANCELAR" : "CANCEL";
+        case TK::OnlineTeamStart: return pt ? "INICIAR PARTIDA" : "START MATCH";
+        case TK::OnlineTeamSlotEmpty: return pt ? "vaga aberta" : "open slot";
+        case TK::OnlineTeamLabelA: return pt ? "EQUIPE A" : "TEAM A";
+        case TK::OnlineTeamLabelB: return pt ? "EQUIPE B" : "TEAM B";
+        case TK::OnlineTeamWaitingPartners: return pt ? "Aguardando parceiros..." : "Waiting for partners...";
+        case TK::OnlineTeamLeave: return pt ? "SAIR DA EQUIPE" : "LEAVE TEAM";
+        case TK::OnlineTeamLobbyInviteTitle: return pt ? "Convidar do lobby:" : "Invite from lobby:";
 
         case TK::PowerupDoubleDamage: return pt ? "DANO EM DOBRO no proximo tiro!" : "DOUBLE DAMAGE on the next shot!";
         case TK::PowerupTrajectory: return pt ? "Trajetoria revelada por 2 rodadas!" : "Trajectory revealed for 2 rounds!";

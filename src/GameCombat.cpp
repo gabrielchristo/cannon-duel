@@ -28,8 +28,11 @@ bool FriendlyFireEnabled(MatchFormat format, GameVersion ver) {
 bool Game::IsLocalHumanTurn() const {
     if (state != GameState::Aiming) return false;
     if (mode == GameMode::Online) {
+        if (isSpectating) return false;
         if (!netMatch.IsMyTurn()) return false;
         if (currentPlayer != netMatch.MyPlayerNumber()) return false;
+        const int mySlot = netMatch.MyPlayerNumber() - 1;
+        return mySlot >= 0 && mySlot < roster.CannonCount();
     }
     return roster.IsHumanSlot(ActiveSlot(), mode);
 }
@@ -324,7 +327,7 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
 
     const int shooterSlot = ActiveSlot();
     const bool friendlyFire = FriendlyFireEnabled(matchFormat, version);
-    float dmgAppliedP1 = 0.0f, dmgAppliedP2 = 0.0f;
+    float dmgAppliedP1 = 0.0f, dmgAppliedP2 = 0.0f, dmgAppliedP3 = 0.0f, dmgAppliedP4 = 0.0f;
 
     for (int i = 0; i < roster.CannonCount(); ++i) {
         if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
@@ -344,6 +347,8 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         c.TakeDamage(dmg);
         if (i == 0) dmgAppliedP1 = dmg;
         else if (i == 1) dmgAppliedP2 = dmg;
+        else if (i == 2) dmgAppliedP3 = dmg;
+        else if (i == 3) dmgAppliedP4 = dmg;
     }
 
     for (int i = 0; i < roster.CannonCount(); ++i) {
@@ -408,19 +413,24 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
 
         int nextTurnIndex = netMatch.TurnsCompleted() + 1;
         float nextWind = matchOver ? windForce : SeededWind(nextTurnIndex);
+        const int nextTurnPlayer = matchOver
+            ? netMatch.SyncedCurrentTurnPlayer()
+            : (roster.NextSlotInterleaved(ActiveSlot()) + 1);
 
         netMatch.PublishShotEnded(impactPos.x, impactPos.y);
         netMatch.SubmitMyTurn(shooter.angleDeg, shooter.power01, windAtShot,
                                impactPos.x, impactPos.y, craterRadius,
-                               dmgAppliedP1, dmgAppliedP2, nextWind, matchOver, winnerPlayer,
+                               dmgAppliedP1, dmgAppliedP2, dmgAppliedP3, dmgAppliedP4,
+                               nextWind, nextTurnPlayer, matchOver, winnerPlayer,
                                powerups.ShotPickedType(), powerups.ShotPickedX());
         powerups.ShotPickedType() = -1;
         powerups.ShotPickedX() = 0.0f;
-        currentPlayer = netMatch.SyncedCurrentTurnPlayer();
+        currentPlayer = ClampPlayerNum(nextTurnPlayer);
 
         if (matchOver) {
             if (winnerPlayer != 0) {
-                onlineLobby.ReportMatchResult(winnerPlayer == netMatch.MyPlayerNumber());
+                onlineLobby.ReportMatchResult(
+                    OnlineDidIWin(winnerPlayer, netMatch.MyPlayerNumber(), matchFormat));
             }
         } else {
             windForce = nextWind;

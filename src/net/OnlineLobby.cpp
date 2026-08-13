@@ -2,10 +2,12 @@
 #include "../DebugLog.h"
 #include "JsonHelpers.h"
 #include "NetValidation.h"
+#include <nlohmann/json.hpp>
 #include <raylib.h>
 #include <algorithm>
 #include <ctime>
 #include <unordered_map>
+#include <unordered_set>
 #include <unordered_set>
 #include <cstdio>
 #include <iomanip>
@@ -40,6 +42,7 @@ void OnlineLobby::Init(PlayerIdentity* id) {
     pendingChallengeId.clear();
     pendingChallengeOpponentId.clear();
     pendingChallengeOpponentName.clear();
+    pendingChallengeTimer_ = 0.0f;
     DebugLogf(LOG_INFO, "LOBBY: inicializado com player_id=%s nome=%s",
              id ? id->Id().c_str() : "(nulo)", id ? id->DisplayName().c_str() : "(nulo)");
 }
@@ -52,6 +55,10 @@ void OnlineLobby::EnterLobby() {
     wasRealtimeConnected_ = false;
     players.clear();
     incoming.clear();
+    incomingTeamInvites.clear();
+    activeTeamRoomId_.clear();
+    inTeamRoom_ = false;
+    teamRoomActive_ = false;
     DebugLogf(LOG_INFO, "LOBBY: EnterLobby — bootstrap imediato");
 }
 
@@ -131,18 +138,17 @@ void OnlineLobby::MarkIdle() {
     if (registeredPlayer) UpsertPresenceWithStatus("idle", "");
 }
 
-void OnlineLobby::AbandonActiveMatch(const std::string& matchId, int myPlayerNumber) {
-    if (matchId.empty() || myPlayerNumber == 0) return;
+void OnlineLobby::AbandonActiveMatch(const std::string& matchId, int winnerPlayer) {
+    if (matchId.empty() || winnerPlayer == 0) return;
 
     json rows = client.Select("matches", "select=status&id=eq." + matchId);
     if (!rows.is_array() || rows.empty()) return;
 
     if (json_helpers::Str(rows[0], "status") != "active") return;
 
-    const int winner = (myPlayerNumber == 1) ? 2 : 1;
     client.Update("matches", "id=eq." + matchId, {
         { "status", "abandoned" },
-        { "winner_player", winner }
+        { "winner_player", winnerPlayer }
     });
     DebugLogf(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
               "LOBBY: abandonou partida %s (sync)", matchId.c_str());
@@ -161,7 +167,15 @@ void OnlineLobby::LeaveLobby() {
     matchHeartbeatTimer = 0.0f;
     players.clear();
     incoming.clear();
+    incomingTeamInvites.clear();
     currentMatchId_.clear();
+    activeTeamRoomId_.clear();
+    inTeamRoom_ = false;
+    teamRoomActive_ = false;
+    teamRealtime_.Stop();
+    teamRealtimeStarted_ = false;
+    client.Close();
+    matchHeartbeatTimer = 0.0f;
 }
 
 void OnlineLobby::PauseRealtime() {
@@ -202,6 +216,18 @@ void OnlineLobby::TryResolveAcceptedChallenge() {
 
     std::string status = mine[0].value("status", "pending");
     if (status == "accepted") {
+        if (pendingChallengeFormat_ == OnlineChallengeFormat::Team2v2) {
+            json rooms = client.Select("team_rooms",
+                "select=id&challenge_id=eq." + pendingChallengeId + "&limit=1");
+            if (rooms.is_array() && !rooms.empty()) {
+                enterTeamRoomId_ = json_helpers::Str(rooms[0], "id");
+                hasEnterTeamRoom_ = true;
+                DebugLogf(LOG_INFO, "LOBBY: desafio 2x2 aceito — sala %s", enterTeamRoomId_.c_str());
+            }
+            pendingChallengeId.clear();
+            return;
+        }
+
         std::string matchId = mine[0].value("match_id", "");
         if (!matchId.empty()) {
             json matchRows = client.Select("matches",
@@ -224,6 +250,9 @@ void OnlineLobby::TryResolveAcceptedChallenge() {
                 long long seed = matchRows[0].value("terrain_seed", 0LL);
                 readyMatch.terrainSeed = static_cast<unsigned int>(seed);
                 readyMatch.isPlus = (matchRows[0].value("version", "classic") == "plus");
+                readyMatch.format = MatchFormat::Duel1v1;
+                readyMatch.playerNames[0] = identity->DisplayName();
+                readyMatch.playerNames[1] = pendingChallengeOpponentName;
                 hasReadyMatch = true;
                 DebugLogf(LOG_INFO, "LOBBY: partida aceita match=%s eu=P%d",
                           matchId.c_str(), readyMatch.myPlayerNumber);
@@ -342,10 +371,11 @@ void OnlineLobby::RefreshPlayerList() {
 
     struct VerifiedMatch {
         std::string id;
-        std::string p1id, p2id;
+        std::string p1id, p2id, p3id, p4id;
         std::string p1name, p2name;
         int currentTurn = 1;
         bool isPlus = false;
+        bool isTeam2v2 = false;
     };
     std::unordered_map<std::string, VerifiedMatch> verifiedMatches;
 
@@ -356,7 +386,7 @@ void OnlineLobby::RefreshPlayerList() {
             inList += candidateMatchIds[i];
         }
         json matchRows = client.Select("matches",
-            "select=id,player1_id,player2_id,version,current_turn_player,status,updated_at"
+            "select=id,player1_id,player2_id,player3_id,player4_id,match_format,version,current_turn_player,status,updated_at"
             "&id=in.(" + inList + ")&status=eq.active&updated_at=gte." + matchCutoffIso);
 
         std::vector<std::string> playerIds;
@@ -366,10 +396,15 @@ void OnlineLobby::RefreshPlayerList() {
                 vm.id = json_helpers::Str(mrow, "id");
                 vm.p1id = json_helpers::Str(mrow, "player1_id");
                 vm.p2id = json_helpers::Str(mrow, "player2_id");
+                vm.p3id = json_helpers::Str(mrow, "player3_id");
+                vm.p4id = json_helpers::Str(mrow, "player4_id");
+                vm.isTeam2v2 = (json_helpers::Str(mrow, "match_format", "duel_1v1") == "team_2v2");
                 vm.currentTurn = json_helpers::Int(mrow, "current_turn_player", 1);
                 vm.isPlus = (json_helpers::Str(mrow, "version", "classic") == "plus");
                 if (!vm.p1id.empty()) playerIds.push_back(vm.p1id);
                 if (!vm.p2id.empty()) playerIds.push_back(vm.p2id);
+                if (!vm.p3id.empty()) playerIds.push_back(vm.p3id);
+                if (!vm.p4id.empty()) playerIds.push_back(vm.p4id);
                 verifiedMatches[vm.id] = vm;
             }
         }
@@ -396,7 +431,7 @@ void OnlineLobby::RefreshPlayerList() {
                 return (it != names.end()) ? it->second : "???";
             };
             vm.p1name = lookup(vm.p1id);
-            vm.p2name = lookup(vm.p2id);
+            vm.p2name = vm.isTeam2v2 ? lookup(vm.p3id) : lookup(vm.p2id);
         }
 
         for (auto it = verifiedMatches.begin(); it != verifiedMatches.end(); ) {
@@ -407,11 +442,17 @@ void OnlineLobby::RefreshPlayerList() {
                 const PresenceRow& pr = pit->second;
                 return pr.inMatchLive && pr.matchId == vm.id;
             };
-            if (!playerLive(vm.p1id) || !playerLive(vm.p2id)) {
+            if (vm.isTeam2v2) {
+                if (!playerLive(vm.p1id) || !playerLive(vm.p2id)
+                    || !playerLive(vm.p3id) || !playerLive(vm.p4id)) {
+                    it = verifiedMatches.erase(it);
+                    continue;
+                }
+            } else if (!playerLive(vm.p1id) || !playerLive(vm.p2id)) {
                 it = verifiedMatches.erase(it);
-            } else {
-                ++it;
+                continue;
             }
+            ++it;
         }
     }
 
@@ -433,10 +474,15 @@ void OnlineLobby::RefreshPlayerList() {
                 card.liveMatchIsPlus = it->second.isPlus;
                 card.liveMatchCurrentTurn = it->second.currentTurn;
             }
+        } else if (pr.status == "team_room" && !pr.matchId.empty()) {
+            card.inTeamRoom = true;
+            card.teamRoomId = pr.matchId;
         }
 
         players.push_back(card);
     }
+
+    EnrichPlayersFromTeamRooms();
 
     std::sort(players.begin(), players.end(),
               [](const LobbyPlayerCard& a, const LobbyPlayerCard& b) {
@@ -447,11 +493,75 @@ void OnlineLobby::RefreshPlayerList() {
               identity->Id().c_str(), static_cast<int>(players.size()));
 }
 
+void OnlineLobby::EnrichPlayersFromTeamRooms() {
+    if (!identity) return;
+
+    json rooms = client.Select("team_rooms",
+        "select=id,captain_a_id,captain_b_id,partner_a_id,partner_b_id,status"
+        "&status=eq.recruiting&limit=30");
+    if (!rooms.is_array() || rooms.empty()) return;
+
+    std::unordered_set<std::string> known;
+    for (const auto& p : players) known.insert(p.playerId);
+
+    std::vector<std::string> missingIds;
+    struct PendingCard {
+        std::string playerId;
+        std::string roomId;
+    };
+    std::vector<PendingCard> pending;
+
+    for (const auto& row : rooms) {
+        const std::string roomId = json_helpers::Str(row, "id");
+        const char* keys[] = { "captain_a_id", "captain_b_id", "partner_a_id", "partner_b_id" };
+        for (const char* key : keys) {
+            const std::string pid = json_helpers::Str(row, key);
+            if (pid.empty() || pid == identity->Id() || known.count(pid)) continue;
+            known.insert(pid);
+            missingIds.push_back(pid);
+            pending.push_back({ pid, roomId });
+        }
+    }
+    if (pending.empty()) return;
+
+    std::sort(missingIds.begin(), missingIds.end());
+    missingIds.erase(std::unique(missingIds.begin(), missingIds.end()), missingIds.end());
+
+    std::unordered_map<std::string, std::string> names;
+    std::string inList;
+    for (size_t i = 0; i < missingIds.size(); ++i) {
+        if (i > 0) inList += ",";
+        inList += missingIds[i];
+    }
+    json prows = client.Select("players", "select=id,display_name,wins,losses&id=in.(" + inList + ")");
+    std::unordered_map<std::string, std::pair<int, int>> records;
+    if (prows.is_array()) {
+        for (const auto& p : prows) {
+            const std::string id = json_helpers::Str(p, "id");
+            names[id] = json_helpers::Str(p, "display_name", "???");
+            records[id] = { json_helpers::Int(p, "wins", 0), json_helpers::Int(p, "losses", 0) };
+        }
+    }
+
+    for (const PendingCard& pc : pending) {
+        LobbyPlayerCard card;
+        card.playerId = pc.playerId;
+        card.displayName = names.count(pc.playerId) ? names[pc.playerId] : "???";
+        if (records.count(pc.playerId)) {
+            card.wins = records[pc.playerId].first;
+            card.losses = records[pc.playerId].second;
+        }
+        card.inTeamRoom = true;
+        card.teamRoomId = pc.roomId;
+        players.push_back(card);
+    }
+}
+
 void OnlineLobby::RefreshIncomingChallenges() {
     if (!identity) return;
 
     json rows = client.Select("challenges",
-        "select=id,from_player_id,from_display_name,status"
+        "select=id,from_player_id,from_display_name,format,version,status"
         "&to_player_id=eq." + identity->Id() +
         "&status=eq.pending&order=created_at.desc&limit=5");
 
@@ -463,10 +573,33 @@ void OnlineLobby::RefreshIncomingChallenges() {
         c.challengeId = row.value("id", "");
         c.fromPlayerId = row.value("from_player_id", "");
         c.fromDisplayName = row.value("from_display_name", "???");
+        c.format = ParseOnlineChallengeFormat(json_helpers::Str(row, "format", "duel_1v1"));
+        c.challengeVersion = (json_helpers::Str(row, "version", "classic") == "plus")
+            ? GameVersion::Plus : GameVersion::Classic;
         incoming.push_back(c);
     }
 
     TryResolveAcceptedChallenge();
+}
+
+void OnlineLobby::TickPendingChallenge(float dt) {
+    if (pendingChallengeId.empty()) return;
+    pendingChallengeTimer_ += dt;
+    if (pendingChallengeTimer_ >= CHALLENGE_TIMEOUT_SEC) {
+        ExpirePendingChallenge();
+    }
+}
+
+void OnlineLobby::ExpirePendingChallenge() {
+    if (pendingChallengeId.empty()) return;
+    const std::string id = pendingChallengeId;
+    DebugLogf(LOG_INFO, "LOBBY: desafio %s expirou (timeout)", id.c_str());
+    pendingChallengeId.clear();
+    pendingChallengeOpponentId.clear();
+    pendingChallengeOpponentName.clear();
+    pendingChallengeTimer_ = 0.0f;
+    pendingChallengeTimer_ = 0.0f;
+    client.Update("challenges", "id=eq." + id, json{ { "status", "expired" } });
 }
 
 void OnlineLobby::Update(float dt) {
@@ -478,6 +611,8 @@ void OnlineLobby::Update(float dt) {
     }
 
     if (!identity || !lobbyActive_) return;
+
+    TickPendingChallenge(dt);
 
     EnsurePlayerRegistered();
     EnsureRealtime();
@@ -513,41 +648,59 @@ void OnlineLobby::Update(float dt) {
     if (duePoll) pollTimer = 0.0f;
 
     SyncLobbyData(duePoll);
+    RefreshIncomingTeamInvites();
 }
 
-void OnlineLobby::SendChallenge(const LobbyPlayerCard& target) {
+void OnlineLobby::SendChallenge(const LobbyPlayerCard& target, OnlineChallengeFormat format,
+                              GameVersion ver) {
     if (!identity) return;
 
     json body = {
         { "from_player_id", identity->Id() },
         { "from_display_name", identity->DisplayName() },
         { "to_player_id", target.playerId },
-        { "status", "pending" }
+        { "status", "pending" },
+        { "format", OnlineChallengeFormatDb(format) },
+        { "version", ver == GameVersion::Plus ? "plus" : "classic" }
     };
     json created = client.Insert("challenges", body);
     if (created.is_array() && !created.empty()) {
         pendingChallengeId = created[0].value("id", "");
         pendingChallengeOpponentId = target.playerId;
         pendingChallengeOpponentName = target.displayName;
+        pendingChallengeFormat_ = format;
+        pendingChallengeVersion_ = ver;
+        pendingChallengeTimer_ = 0.0f;
     }
 }
 
-void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge, bool isPlusVersion) {
+void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge) {
     if (!identity) return;
 
-    // Quem ACEITA cria a linha da partida (evita corrida entre os dois
-    // clientes tentando criar a mesma partida ao mesmo tempo) e decide a
-    // versão (Classic/Plus) — o desafiante recebe essa escolha de volta ao
-    // ler a linha da partida (ver RefreshIncomingChallenges). O desafiante
-    // (from_player_id) sempre joga como "player1" (current_turn_player==1
-    // começa a rodada), e quem aceitou joga como "player2".
-    //
-    // NOTA: na versão Plus, o spawn de power-ups usa RNG local de cada
-    // cliente (não é sincronizado por rede ainda) — os dois lados podem ver
-    // um power-up aparecer no mesmo turno, mas em posições/tipos diferentes.
-    // O RESULTADO de cada tiro (dano, cratera) continua correto e
-    // sincronizado; só a exibição do ícone do power-up no mapa pode
-    // divergir visualmente entre os dois clientes por enquanto.
+    if (challenge.format == OnlineChallengeFormat::Team2v2) {
+        json roomBody = {
+            { "challenge_id", challenge.challengeId },
+            { "captain_a_id", challenge.fromPlayerId },
+            { "captain_b_id", identity->Id() },
+            { "version", challenge.challengeVersion == GameVersion::Plus ? "plus" : "classic" },
+            { "status", "recruiting" }
+        };
+        json created = client.Insert("team_rooms", roomBody);
+        if (!created.is_array() || created.empty()) return;
+
+        const std::string roomId = json_helpers::Str(created[0], "id");
+        if (roomId.empty()) return;
+
+        client.Update("challenges", "id=eq." + challenge.challengeId,
+                      json{ { "status", "accepted" } });
+
+        enterTeamRoomId_ = roomId;
+        hasEnterTeamRoom_ = true;
+        DebugLogf(LOG_INFO, "LOBBY: aceitei desafio 2x2 — sala %s", roomId.c_str());
+        return;
+    }
+
+    const bool isPlusVersion = (challenge.challengeVersion == GameVersion::Plus);
     unsigned int seed = static_cast<unsigned int>(rand()) ^ static_cast<unsigned int>(time(nullptr));
     float wind = 0.0f;
 
@@ -556,6 +709,7 @@ void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge, bool isPlu
         { "player2_id", identity->Id() },
         { "terrain_seed", static_cast<long long>(seed) },
         { "version", isPlusVersion ? "plus" : "classic" },
+        { "match_format", "duel_1v1" },
         { "current_turn_player", 1 },
         { "wind", wind },
         { "status", "active" }
@@ -575,6 +729,9 @@ void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge, bool isPlu
     readyMatch.opponentName = challenge.fromDisplayName;
     readyMatch.terrainSeed = seed;
     readyMatch.isPlus = isPlusVersion;
+    readyMatch.format = MatchFormat::Duel1v1;
+    readyMatch.playerNames[0] = challenge.fromDisplayName;
+    readyMatch.playerNames[1] = identity->DisplayName();
     hasReadyMatch = true;
     DebugLogf(LOG_INFO, "LOBBY: aceitei desafio match=%s eu=P2", matchId.c_str());
 }

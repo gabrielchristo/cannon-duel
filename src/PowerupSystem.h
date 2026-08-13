@@ -43,8 +43,7 @@ public:
                                         MatchRoster& roster, const Terrain& terrain, Lang lang,
                                         const std::function<void(int type, float x)>& onOnlinePickup);
 
-    bool ApplyRemotePickup(int type, float x, int shooterPlayer,
-                           Cannon& player1, Cannon& player2,
+    bool ApplyRemotePickup(int type, float x, Cannon& shooter,
                            Lang lang, bool applyEffect, bool& remoteEffectApplied);
 
     const std::vector<Powerup>& Active() const { return active_; }

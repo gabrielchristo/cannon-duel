@@ -42,6 +42,8 @@ private:
     void DrawInstructions();
     void UpdateOnlineLobby();
     void DrawOnlineLobby();
+    void UpdateOnlineTeamRoom();
+    void DrawOnlineTeamRoom();
 
     // --- multiplayer online ---
     PlayerIdentity playerIdentity;
@@ -65,6 +67,8 @@ private:
     void UpdateOpponentAimSim(float dt);
     float SeededWind(int turnIndex) const;
     void ConsumeRemotePowerupPickups();
+    void ApplyRemoteTurnDamage(const RemoteTurnResult& turn);
+    void ApplyOnlineNamesFromMatchStart(const MatchStart& ms);
 
     // --- gameplay local ---
     void UpdateFormatSelect();
@@ -136,9 +140,10 @@ private:
                              float x = 0.0f, float value = 0.0f);
 #endif
 
-    Cannon& GetCannon(int playerNum) { return roster.AtPlayerNum(playerNum); }
-    const Cannon& GetCannon(int playerNum) const { return roster.AtPlayerNum(playerNum); }
+    Cannon& GetCannon(int playerNum) { return roster.AtPlayerNum(ClampPlayerNum(playerNum)); }
+    const Cannon& GetCannon(int playerNum) const { return roster.AtPlayerNum(ClampPlayerNum(playerNum)); }
     int ActiveSlot() const { return currentPlayer - 1; }
+    int ClampPlayerNum(int playerNum) const;
 
     // --- estado geral ---
     GameState state = GameState::MainMenu;
@@ -168,6 +173,10 @@ private:
 
     Texture2D texCannonLeft{};
     Texture2D texCannonRight{};
+    Texture2D texCannon1{};
+    Texture2D texCannon2{};
+    Texture2D texCannon3{};
+    Texture2D texCannon4{};
     Texture2D texBackground{};
     Texture2D texBackgroundNight{};
     Texture2D texProjectile{};
@@ -220,6 +229,10 @@ private:
     int opponentAimForTurn = 0;
     bool onlineWinByDisconnect = false;
     bool isSpectating = false;
+
+    OnlineChallengeFormat onlineChallengeFormat = OnlineChallengeFormat::Duel1v1;
     std::string onlineP1Name;
     std::string onlineP2Name;
+    std::string onlineP3Name;
+    std::string onlineP4Name;
 };

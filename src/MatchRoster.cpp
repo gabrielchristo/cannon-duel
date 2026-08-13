@@ -1,6 +1,7 @@
 #include "MatchRoster.h"
 
 #include "Config.h"
+#include "DebugLog.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,11 +21,20 @@ const Cannon& MatchRoster::At(int slot) const {
 }
 
 Cannon& MatchRoster::AtPlayerNum(int playerNum) {
-    return At(playerNum - 1);
+    const int slot = playerNum - 1;
+    if (slot < 0 || slot >= CannonCount()) {
+        DebugLogf(LOG_ERROR, "ROSTER: playerNum %d invalido (count=%d)", playerNum, CannonCount());
+        return At(std::clamp(slot, 0, std::max(0, CannonCount() - 1)));
+    }
+    return At(slot);
 }
 
 const Cannon& MatchRoster::AtPlayerNum(int playerNum) const {
-    return At(playerNum - 1);
+    const int slot = playerNum - 1;
+    if (slot < 0 || slot >= CannonCount()) {
+        return At(std::clamp(slot, 0, std::max(0, CannonCount() - 1)));
+    }
+    return At(slot);
 }
 
 int MatchRoster::TeamOfSlot(int slot) const {
@@ -158,6 +168,20 @@ Texture2D* MatchRoster::SpriteForSlot(int slot, Texture2D* leftTex, Texture2D* r
     return (TeamOfSlot(slot) == 0) ? leftTex : rightTex;
 }
 
+Texture2D* MatchRoster::SpriteForTeamSlot(int slot, Texture2D* cannon1Tex, Texture2D* cannon2Tex,
+                                          Texture2D* cannon3Tex, Texture2D* cannon4Tex) const {
+    auto pick = [](Texture2D* preferred, Texture2D* fallback) -> Texture2D* {
+        return (preferred && preferred->id != 0) ? preferred : fallback;
+    };
+    switch (slot) {
+        case 0: return pick(cannon1Tex, cannon1Tex);
+        case 1: return pick(cannon2Tex, cannon1Tex);
+        case 2: return pick(cannon3Tex, cannon1Tex);
+        case 3: return pick(cannon4Tex, cannon1Tex);
+        default: return cannon1Tex;
+    }
+}
+
 void MatchRoster::PlaceCannons(Terrain& terrain) {
     const float spacing = cfg::TEAM_CANNON_PAIR_SPACING_PX;
     const float outer = cfg::CANNON_MARGIN_PX;
@@ -179,7 +203,7 @@ void MatchRoster::PlaceCannons(Terrain& terrain) {
             const float groundY = terrain.HeightAt(x);
             Cannon& c = cannons_[static_cast<size_t>(slot)];
             c.Init(x, groundY, side);
-            c.tintColor = IsTeamMode(format_) ? ColorForSlot(slot) : WHITE;
+            c.tintColor = WHITE;
         }
     }
 }

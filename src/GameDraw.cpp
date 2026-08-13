@@ -85,6 +85,16 @@ void Game::Draw() {
         return;
     }
 
+    if (state == GameState::OnlineTeamRoom) {
+        DrawOnlineTeamRoom();
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
+        if (devMode) DrawDevPanel();
+#endif
+        PresentScreenWithDebug();
+        return;
+    }
+
     // ---- background (sprite gerado: dia com sol/nuvens, ou noite com estrelas/lua) ----
     Texture2D& bgTex = nightMode ? texBackgroundNight : texBackground;
     if (spritesReady && bgTex.id != 0) {
@@ -115,8 +125,12 @@ void Game::Draw() {
         const int playerNum = i + 1;
         const bool isActive = (currentPlayer == playerNum && state != GameState::RoundOver);
         Texture2D* tex = nullptr;
-        if (!IsTeamMode(matchFormat) && spritesReady) {
-            tex = roster.SpriteForSlot(i, &texCannonLeft, &texCannonRight);
+        if (spritesReady) {
+            if (IsTeamMode(matchFormat)) {
+                tex = roster.SpriteForTeamSlot(i, &texCannon1, &texCannon2, &texCannon3, &texCannon4);
+            } else {
+                tex = roster.SpriteForSlot(i, &texCannonLeft, &texCannonRight);
+            }
         }
         roster.At(i).Draw(isActive, tex);
     }

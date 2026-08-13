@@ -321,7 +321,7 @@ void Game::UpdateMenuConfirmDialog() {
                     if (netMatch.InMatch()) {
                         if (netMatch.MyPlayerNumber() != 0) {
                             onlineLobby.MarkIdle();
-                            onlineLobby.AbandonActiveMatch(netMatch.MatchId(), netMatch.MyPlayerNumber());
+                            onlineLobby.AbandonActiveMatch(netMatch.MatchId(), netMatch.AbandonWinnerPlayer());
                         }
                         netMatch.LeaveMatch();
                     } else {
@@ -507,10 +507,14 @@ void Game::DrawHUD() {
     }
     DrawText(turnLabel, 20, 20, 22, HudTextColor());
 
-    Cannon& active = GetCannon(currentPlayer);
-    const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
-    std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
-    DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
+    const int hudPlayer = (mode == GameMode::Online && !isSpectating && netMatch.IsMyTurn())
+        ? netMatch.MyPlayerNumber() : currentPlayer;
+    if (hudPlayer >= 1 && hudPlayer <= roster.CannonCount()) {
+        Cannon& active = GetCannon(hudPlayer);
+        const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
+        std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
+        DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
+    }
 }
 
 void Game::DrawOnlineCannonLabels() const {
@@ -526,4 +530,8 @@ void Game::DrawOnlineCannonLabels() const {
 
     drawLabel(GetCannon(1), onlineP1Name);
     drawLabel(GetCannon(2), onlineP2Name);
+    if (IsTeamMode(matchFormat)) {
+        drawLabel(GetCannon(3), onlineP3Name);
+        drawLabel(GetCannon(4), onlineP4Name);
+    }
 }

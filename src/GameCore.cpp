@@ -45,6 +45,10 @@ Game::Game() {
 
     texCannonLeft   = LoadTexture(AssetPath("sprites/cannon_left.png").c_str());
     texCannonRight  = LoadTexture(AssetPath("sprites/cannon_right.png").c_str());
+    texCannon1      = LoadTexture(AssetPath("sprites/cannon_1.png").c_str());
+    texCannon2      = LoadTexture(AssetPath("sprites/cannon_2.png").c_str());
+    texCannon3      = LoadTexture(AssetPath("sprites/cannon_3.png").c_str());
+    texCannon4      = LoadTexture(AssetPath("sprites/cannon_4.png").c_str());
     texBackground   = LoadTexture(AssetPath("sprites/background.png").c_str());
     texBackgroundNight = LoadTexture(AssetPath("sprites/background_night.png").c_str());
     texProjectile   = LoadTexture(AssetPath("sprites/projectile.png").c_str());
@@ -76,6 +80,10 @@ Game::~Game() {
     }
     UnloadTexture(texCannonLeft);
     UnloadTexture(texCannonRight);
+    UnloadTexture(texCannon1);
+    UnloadTexture(texCannon2);
+    UnloadTexture(texCannon3);
+    UnloadTexture(texCannon4);
     UnloadTexture(texBackground);
     UnloadTexture(texBackgroundNight);
     UnloadTexture(texProjectile);
@@ -92,7 +100,6 @@ void Game::Run() {
 }
 // ---------------------------------------------------------------------------
 // Setup de partida
-// ---------------------------------------------------------------------------
 float Game::ComputeSafeMaxWindAccel() const {
     // Alcance máximo (sem vento) na potência máxima, ângulo ótimo de 45°:
     //   R = v² / g
@@ -122,6 +129,15 @@ float Game::ComputeSafeMaxWindAccel() const {
 
     float a = g - requiredRange * (g * g) / (v * v);
     return std::max(0.0f, a);
+}
+
+int Game::ClampPlayerNum(int playerNum) const {
+    const int maxPlayer = std::max(1, roster.CannonCount());
+    if (playerNum < 1 || playerNum > maxPlayer) {
+        DebugLogf(LOG_WARNING, "GAME: playerNum %d fora do intervalo 1..%d", playerNum, maxPlayer);
+        return std::clamp(playerNum, 1, maxPlayer);
+    }
+    return playerNum;
 }
 
 void Game::ResetRound(unsigned int seed) {
@@ -215,7 +231,7 @@ void Game::Update(float dt) {
         currentPlayer = netMatch.SyncedCurrentTurnPlayer();
 
         DisconnectResult disc = netMatch.PollDisconnect();
-        if (!isSpectating && disc == DisconnectResult::OpponentLeft) {
+        if (!isSpectating && disc != DisconnectResult::None) {
             EndOnlineMatchOpponentLeft();
             return;
         }
@@ -374,6 +390,9 @@ void Game::Update(float dt) {
             break;
         case GameState::OnlineLobby:
             UpdateOnlineLobby();
+            break;
+        case GameState::OnlineTeamRoom:
+            UpdateOnlineTeamRoom();
             break;
         case GameState::Aiming:
             UpdateAiming();

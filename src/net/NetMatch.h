@@ -1,5 +1,6 @@
 #pragma once
 #include "../Platform.h"
+#include "../GameTypes.h"
 
 #include <atomic>
 #include <deque>
@@ -18,6 +19,7 @@ struct RemoteTurnResult {
     float impactX = 0, impactY = 0;
     float craterRadius = 0;
     float damageP1 = 0, damageP2 = 0;
+    float damageP3 = 0, damageP4 = 0;
     float nextWind = 0;
     int nextTurnPlayer = 1;
     bool matchOver = false;
@@ -77,11 +79,14 @@ enum class DisconnectResult {
 class NetMatch {
 public:
     void Begin(const std::string& matchId, int myPlayerNumber,
-               const std::string& opponentId, const std::string& opponentName);
+               const std::string& opponentId, const std::string& opponentName,
+               MatchFormat format = MatchFormat::Duel1v1);
     void BeginSpectating(const std::string& matchId, int currentTurnPlayer, int lastTurnNumber);
     void Pump(float dt);
 
     int MyPlayerNumber() const { return myPlayerNumber; }
+    MatchFormat GetMatchFormat() const { return matchFormat_; }
+    int AbandonWinnerPlayer() const;
     bool IsSpectator() const { return myPlayerNumber == 0; }
     int SyncedCurrentTurnPlayer() const { return syncedCurrentTurnPlayer; }
     const std::string& OpponentName() const { return opponentName; }
@@ -93,7 +98,8 @@ public:
 
     void SubmitMyTurn(float shootAngle, float shootPower, float windAtShot,
                        float impactX, float impactY, float craterRadius,
-                       float damageP1, float damageP2, float nextWind,
+                       float damageP1, float damageP2, float damageP3, float damageP4,
+                       float nextWind, int nextTurnPlayer,
                        bool matchOver, int winnerPlayer,
                        int pickedPowerupType = -1, float pickedPowerupX = 0.0f);
 
@@ -121,6 +127,7 @@ public:
     bool PollOpponentTurn(RemoteTurnResult& out);
     bool PollSpectatorMatchEnded(int& winnerOut);
     DisconnectResult PollDisconnect();
+    int TakeAbandonWinner();
 
     void AbandonMatch();
     void LeaveMatch();
@@ -139,9 +146,12 @@ private:
     void ApplyMatchRecord(const nlohmann::json& row);
     void ApplyBroadcast(const nlohmann::json& envelope);
     void ApplyLiveAimFromRecord(const nlohmann::json& row);
+    void CheckParticipantsPresence(SupabaseClient& client, const nlohmann::json& matchRow);
+    void SignalParticipantLeft(int leavingPlayerNum);
 
     std::string matchId;
     int myPlayerNumber = 1;
+    MatchFormat matchFormat_ = MatchFormat::Duel1v1;
     std::string opponentId;
     std::string opponentName;
     int syncedCurrentTurnPlayer = 1;
@@ -159,6 +169,7 @@ private:
     RemoteTurnResult pendingTurn_{};
     int cachedCurrentTurnPlayer_ = 1;
     DisconnectResult pendingDisconnect_ = DisconnectResult::None;
+    int pendingAbandonWinner_ = 0;
     bool disconnectReported_ = false;
     LiveAimState opponentAim_{};
     bool hasPendingPowerupPickup_ = false;
@@ -190,5 +201,6 @@ private:
     static constexpr float LIVE_AIM_PUBLISH_INTERVAL_SEC = 0.05f;
     static constexpr float LIVE_AIM_HTTP_INTERVAL_SEC = 0.35f;
     static constexpr float PROJ_PUBLISH_INTERVAL_SEC = 0.04f; // ~25 Hz
+    static constexpr int PARTICIPANT_STALE_SEC = 8;
     static constexpr size_t MAX_LIVE_SAMPLES = 256;
 };

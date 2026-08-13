@@ -290,8 +290,7 @@ bool PowerupSystem::CheckProjectileCollisionRoster(Vector2 projFrom, Vector2 pro
     return picked;
 }
 
-bool PowerupSystem::ApplyRemotePickup(int type, float x, int shooterPlayer,
-                                      Cannon& player1, Cannon& player2,
+bool PowerupSystem::ApplyRemotePickup(int type, float x, Cannon& shooter,
                                       Lang lang, bool applyEffect, bool& remoteEffectApplied) {
     if (type < 0 || type >= static_cast<int>(PowerupType::COUNT)) return false;
 
@@ -325,7 +324,6 @@ bool PowerupSystem::ApplyRemotePickup(int type, float x, int shooterPlayer,
                   active_.end());
 
     if (applyEffect && !remoteEffectApplied) {
-        Cannon& shooter = (shooterPlayer == 1) ? player1 : player2;
         ApplyEffect(shooter, puType, lang);
         remoteEffectApplied = true;
     }

@@ -20,8 +20,8 @@ public:
     void ResetSpawnCounter();
     void SetSpawnEveryTurns(int turns);
 
-    void MaybeSpawnRandom();
-    void MaybeSpawnSeeded(unsigned seed, int completedTurns);
+    void MaybeSpawnRandom(const MatchRoster& roster);
+    void MaybeSpawnSeeded(unsigned seed, int completedTurns, const MatchRoster& roster);
 
     void Draw(const Terrain& terrain) const;
     void DrawTooltip(const Terrain& terrain, Vector2 mouse, Lang lang) const;
@@ -45,6 +45,10 @@ public:
                                         MatchRoster& roster, const Terrain& terrain, Lang lang,
                                         const std::function<void(int type, float x)>& onOnlinePickup);
 
+    // Coleta por impacto no solo (último frame da trajetória costuma ser curto demais).
+    bool TryPickupAtImpact(Vector2 impactPos, Cannon& shooter, const Terrain& terrain, Lang lang,
+                            const std::function<void(int type, float x)>& onOnlinePickup);
+
     bool ApplyRemotePickup(int type, float x, Cannon& shooter,
                            Lang lang, bool applyEffect, bool& remoteEffectApplied);
 
@@ -56,7 +60,7 @@ public:
 
     int TurnsSinceSpawnCheck() const { return turnsSinceSpawnCheck_; }
     void ForceSpawnReady() { turnsSinceSpawnCheck_ = spawnEveryTurns_; }
-    void SpawnAt(float x, PowerupType type);
+    void SpawnAt(float x, PowerupType type, const MatchRoster& roster);
 
 private:
     std::vector<Powerup> active_;
@@ -74,7 +78,13 @@ private:
     float pinnedTooltipTimer_ = 0.0f;
 
     PowerupType RollWeightedType(float roll01) const;
+    float MinClearanceFromCannons() const;
+    bool IsClearOfCannons(float x, const MatchRoster& roster) const;
+    float ResolveSpawnX(float preferredX, const MatchRoster& roster,
+                        const std::function<float(int attempt)>& candidateFn) const;
     void PushSpawn(float x, PowerupType type);
+    bool CollectPowerupAt(Powerup& pu, Cannon& shooter, Lang lang,
+                            const std::function<void(int type, float x)>& onOnlinePickup);
     bool PointerOverPowerup(const Terrain& terrain, Vector2 point, int* outIndex) const;
     void DrawTooltipForPowerup(const Powerup& pu, Vector2 anchor, Lang lang) const;
 };

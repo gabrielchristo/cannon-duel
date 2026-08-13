@@ -283,11 +283,15 @@ void Game::Draw() {
         int fs = 48;
         int tw = MeasureText(msg, fs);
         DrawText(msg, cfg::SCREEN_WIDTH / 2 - tw / 2, cfg::SCREEN_HEIGHT / 2 - 60, fs, WHITE);
-        const char* hint = isSpectating
-            ? T(TK::RoundOverSpectatorHint, language)
-            : T(TK::RoundOverHint, language);
-        int hw = MeasureText(hint, 20);
-        DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 10, 20, LIGHTGRAY);
+        if (mode == GameMode::Online && !isSpectating) {
+            DrawOnlineRoundOverOptions();
+        } else {
+            const char* hint = isSpectating
+                ? T(TK::RoundOverSpectatorHint, language)
+                : T(TK::RoundOverHint, language);
+            int hw = MeasureText(hint, 20);
+            DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 10, 20, LIGHTGRAY);
+        }
     }
 
     DrawMenuButton();

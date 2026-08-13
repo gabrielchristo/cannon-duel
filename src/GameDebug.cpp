@@ -241,7 +241,7 @@ void Game::ApplyDevCommand(const DevCommand& cmd) {
     } else if (cmd.action == "spawn_powerup") {
         if (version != GameVersion::Plus) version = GameVersion::Plus;
         if (cmd.type >= 0 && cmd.type < static_cast<int>(PowerupType::COUNT)) {
-            powerups.SpawnAt(cmd.x, static_cast<PowerupType>(cmd.type));
+            powerups.SpawnAt(cmd.x, static_cast<PowerupType>(cmd.type), roster);
         }
     } else if (cmd.action == "grant_powerup") {
         if (version != GameVersion::Plus) version = GameVersion::Plus;
@@ -296,7 +296,7 @@ void Game::DevForceSpawnPowerup() {
         if (roll < e.w) { type = e.t; break; }
         roll -= e.w;
     }
-    powerups.SpawnAt(x, type);
+    powerups.SpawnAt(x, type, roster);
     DevBroadcastCommand("spawn_powerup", 0, static_cast<int>(type), x);
 }
 

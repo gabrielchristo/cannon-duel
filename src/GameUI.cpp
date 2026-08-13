@@ -311,26 +311,17 @@ void Game::UpdateMenuConfirmDialog() {
             showMenuConfirm = false;
             projectile.Destroy();
             if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
-            const bool leavingSpectator = isSpectating;
+            const bool leavingOnline = (mode == GameMode::Online);
             if (mode == GameMode::Online) {
-                if (isSpectating) {
-                    netMatch.LeaveMatch();
-                    isSpectating = false;
-                    onlineLobby.EnterLobby();
-                } else {
-                    if (netMatch.InMatch()) {
-                        if (netMatch.MyPlayerNumber() != 0) {
-                            onlineLobby.MarkIdle();
-                            onlineLobby.AbandonActiveMatch(netMatch.MatchId(), netMatch.AbandonWinnerPlayer());
-                        }
-                        netMatch.LeaveMatch();
-                    } else {
-                        netMatch.LeaveMatch();
-                    }
-                    onlineLobby.LeaveLobby();
+                if (netMatch.InMatch() && !isSpectating && netMatch.MyPlayerNumber() != 0) {
+                    onlineLobby.MarkIdle();
+                    onlineLobby.AbandonActiveMatch(netMatch.MatchId(), netMatch.AbandonWinnerPlayer());
                 }
+                netMatch.LeaveMatch();
+                isSpectating = false;
+                onlineLobby.ReturnToLobbyAfterMatch();
             }
-            state = leavingSpectator ? GameState::OnlineLobby : GameState::MainMenu;
+            state = leavingOnline ? GameState::OnlineLobby : GameState::MainMenu;
         } else if (CheckCollisionPointRec(m, noBtn)) {
             showMenuConfirm = false;
         }

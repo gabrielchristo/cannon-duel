@@ -138,6 +138,52 @@ void OnlineLobby::MarkIdle() {
     if (registeredPlayer) UpsertPresenceWithStatus("idle", "");
 }
 
+void OnlineLobby::SnapshotRematchRoom() {
+    if (!activeTeamRoomId_.empty()) {
+        lastTeamRoomId_ = activeTeamRoomId_;
+    }
+}
+
+bool OnlineLobby::HasRematchTeamRoom() const {
+    return !lastTeamRoomId_.empty();
+}
+
+void OnlineLobby::ReturnToLobbyAfterMatch() {
+    MarkIdle();
+    teamRealtime_.Stop();
+    teamRealtimeStarted_ = false;
+    inTeamRoom_ = false;
+    teamRoomActive_ = false;
+    activeTeamRoomId_.clear();
+    lobbyActive_ = true;
+    needsBootstrap_ = true;
+    pollTimer = 0.0f;
+    wasRealtimeConnected_ = false;
+    players.clear();
+    incoming.clear();
+    incomingTeamInvites.clear();
+    DebugLogf(LOG_INFO, "LOBBY: retorno ao lobby apos partida");
+}
+
+void OnlineLobby::EnterTeamRoomForRematch() {
+    if (lastTeamRoomId_.empty()) return;
+
+    json rows = client.Select("team_rooms", "select=status,match_id&id=eq." + lastTeamRoomId_);
+    if (rows.is_array() && !rows.empty()) {
+        const std::string status = json_helpers::Str(rows[0], "status");
+        if (status == "started" || status == "cancelled") {
+            client.Update("team_rooms", "id=eq." + lastTeamRoomId_, json{
+                { "status", "recruiting" },
+                { "match_id", nullptr }
+            });
+        }
+    }
+
+    MarkIdle();
+    EnterTeamRoom(lastTeamRoomId_);
+    DebugLogf(LOG_INFO, "LOBBY: rematch — reentrando sala %s", lastTeamRoomId_.c_str());
+}
+
 void OnlineLobby::AbandonActiveMatch(const std::string& matchId, int winnerPlayer) {
     if (matchId.empty() || winnerPlayer == 0) return;
 
@@ -686,6 +732,11 @@ void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge) {
     client.Update("challenges", "id=eq." + challenge.challengeId,
                   json{ { "status", "accepted" } });
 
+    incoming.erase(
+        std::remove_if(incoming.begin(), incoming.end(),
+                       [&](const IncomingChallenge& c) { return c.challengeId == challenge.challengeId; }),
+        incoming.end());
+
     enterTeamRoomId_ = roomId;
     hasEnterTeamRoom_ = true;
     DebugLogf(LOG_INFO, "LOBBY: aceitei desafio — sala %s", roomId.c_str());
@@ -694,6 +745,10 @@ void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge) {
 void OnlineLobby::DeclineChallenge(const IncomingChallenge& challenge) {
     json body = { { "status", "declined" } };
     client.Update("challenges", "id=eq." + challenge.challengeId, body);
+    incoming.erase(
+        std::remove_if(incoming.begin(), incoming.end(),
+                       [&](const IncomingChallenge& c) { return c.challengeId == challenge.challengeId; }),
+        incoming.end());
 }
 
 bool OnlineLobby::PollMatchStart(MatchStart& out) {

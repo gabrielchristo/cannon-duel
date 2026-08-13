@@ -152,7 +152,18 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
     incomingTeamInvites.clear();
     if (!rows.is_array()) return;
 
+    std::unordered_set<std::string> myRoomIds;
+    json memberRows = client.Select("team_room_members",
+        "select=room_id&player_id=eq." + identity->Id());
+    if (memberRows.is_array()) {
+        for (const auto& mrow : memberRows) {
+            const std::string rid = json_helpers::Str(mrow, "room_id");
+            if (!rid.empty()) myRoomIds.insert(rid);
+        }
+    }
+
     std::unordered_map<std::string, std::string> roomVersions;
+    std::unordered_map<std::string, std::string> roomStatuses;
     std::unordered_set<std::string> roomIds;
     for (const auto& row : rows) {
         const std::string rid = json_helpers::Str(row, "room_id");
@@ -165,11 +176,12 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
             if (ridx++ > 0) roomInList += ",";
             roomInList += rid;
         }
-        json roomRows = client.Select("team_rooms", "select=id,version&id=in.(" + roomInList + ")");
+        json roomRows = client.Select("team_rooms", "select=id,version,status&id=in.(" + roomInList + ")");
         if (roomRows.is_array()) {
             for (const auto& rr : roomRows) {
-                roomVersions[json_helpers::Str(rr, "id")] =
-                    json_helpers::Str(rr, "version", "classic");
+                const std::string rid = json_helpers::Str(rr, "id");
+                roomVersions[rid] = json_helpers::Str(rr, "version", "classic");
+                roomStatuses[rid] = json_helpers::Str(rr, "status", "recruiting");
             }
         }
     }
@@ -196,6 +208,20 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
     }
 
     for (const auto& row : rows) {
+        const std::string roomId = json_helpers::Str(row, "room_id");
+        if (myRoomIds.count(roomId) > 0) {
+            const std::string inviteId = json_helpers::Str(row, "id");
+            if (!inviteId.empty()) {
+                client.Update("team_invites", "id=eq." + inviteId, json{ { "status", "accepted" } });
+            }
+            continue;
+        }
+        const auto statusIt = roomStatuses.find(roomId);
+        if (statusIt != roomStatuses.end() &&
+            (statusIt->second == "started" || statusIt->second == "cancelled")) {
+            continue;
+        }
+
         IncomingTeamInvite inv;
         inv.inviteId = json_helpers::Str(row, "id");
         inv.roomId = json_helpers::Str(row, "room_id");
@@ -444,6 +470,11 @@ void OnlineLobby::AcceptTeamInvite(const IncomingTeamInvite& invite) {
     });
     client.Update("team_invites", "id=eq." + invite.inviteId, json{ { "status", "accepted" } });
 
+    incomingTeamInvites.erase(
+        std::remove_if(incomingTeamInvites.begin(), incomingTeamInvites.end(),
+                       [&](const IncomingTeamInvite& i) { return i.inviteId == invite.inviteId; }),
+        incomingTeamInvites.end());
+
     enterTeamRoomId_ = invite.roomId;
     hasEnterTeamRoom_ = true;
     DebugLogf(LOG_INFO, "LOBBY: aceitei convite sala=%s slot=%d", invite.roomId.c_str(), nextSlot);
@@ -451,6 +482,10 @@ void OnlineLobby::AcceptTeamInvite(const IncomingTeamInvite& invite) {
 
 void OnlineLobby::DeclineTeamInvite(const IncomingTeamInvite& invite) {
     client.Update("team_invites", "id=eq." + invite.inviteId, json{ { "status", "declined" } });
+    incomingTeamInvites.erase(
+        std::remove_if(incomingTeamInvites.begin(), incomingTeamInvites.end(),
+                       [&](const IncomingTeamInvite& i) { return i.inviteId == invite.inviteId; }),
+        incomingTeamInvites.end());
 }
 
 void OnlineLobby::CancelTeamRoom() {

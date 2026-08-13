@@ -172,10 +172,7 @@ void Game::ResetRound(unsigned int seed) {
     aimOscTimer = 0.0f;
 
     powerups.Reset();
-    powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS * roster.PerTeam());
-    if (mode == GameMode::Online && matchComposition.IsTeamGame()) {
-        powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS * std::max(matchComposition.teamA, matchComposition.teamB));
-    }
+    powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS);
     remoteReplayT = 0.0f;
     remoteReplayAimTimer = 0.0f;
     opponentAimPlayer = 0;
@@ -432,17 +429,23 @@ void Game::Update(float dt) {
             if (stateTimer <= 0.0f) state = GameState::Aiming;
             break;
         case GameState::RoundOver:
-            stateTimer -= dt;
-            if (stateTimer <= 0.0f && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-                if (isSpectating) {
-                    ExitSpectatorToLobby();
-                } else {
-                    if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
-                    if (mode == GameMode::Online) {
-                        netMatch.LeaveMatch();
-                        onlineLobby.LeaveLobby();
+            if (mode == GameMode::Online && !isSpectating) {
+                UpdateOnlineRoundOver();
+            } else {
+                stateTimer -= dt;
+                if (stateTimer <= 0.0f && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+                    if (isSpectating) {
+                        ExitSpectatorToLobby();
+                    } else {
+                        if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+                        if (mode == GameMode::Online) {
+                            netMatch.LeaveMatch();
+                            onlineLobby.ReturnToLobbyAfterMatch();
+                            state = GameState::OnlineLobby;
+                        } else {
+                            state = GameState::MainMenu;
+                        }
                     }
-                    state = GameState::MainMenu;
                 }
             }
             break;

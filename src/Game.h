@@ -105,6 +105,10 @@ private:
     void DrawResetAngleButton() const;
     bool HandleResetAngleButtonClick();
     void DrawOnlineCannonLabels() const;
+    void ReturnToOnlineLobbyAfterMatch();
+    void ReturnToTeamRoomForRematch();
+    void UpdateOnlineRoundOver();
+    void DrawOnlineRoundOverOptions() const;
     void DrawSpectatorBanner() const;
     void DrawVersionSwitch(Vector2 mouse);
     void UpdateVersionSwitch(Vector2 mouse);

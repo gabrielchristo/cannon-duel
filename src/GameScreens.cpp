@@ -272,7 +272,7 @@ void DrawLobbyToggle(const Rectangle& full, const char* leftLbl, const char* rig
 }
 
 Rectangle OnlineVersionToggleRect() {
-    return { cfg::SCREEN_WIDTH - 156.0f, 36.0f, 136.0f, 44.0f };
+    return { cfg::SCREEN_WIDTH - 184.0f, 36.0f, 168.0f, 44.0f };
 }
 
 void DrawChallengeVersionBadge(const char* verLbl, GameVersion ver, int centerX, int y) {

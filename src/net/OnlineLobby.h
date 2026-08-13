@@ -105,6 +105,10 @@ public:
     void HeartbeatInMatch(float dt);
     void MarkInMatch(const std::string& matchId);
     void MarkIdle();
+    void SnapshotRematchRoom();
+    bool HasRematchTeamRoom() const;
+    void ReturnToLobbyAfterMatch();
+    void EnterTeamRoomForRematch();
     void AbandonActiveMatch(const std::string& matchId, int winnerPlayer);
 
     const std::vector<LobbyPlayerCard>& Players() const { return players; }
@@ -198,6 +202,8 @@ private:
     MatchStart readyMatch;
     bool hasEnterTeamRoom_ = false;
     std::string enterTeamRoomId_;
+
+    std::string lastTeamRoomId_;
 
     void EnsurePlayerRegistered();
     void EnsureRealtime();

@@ -320,6 +320,15 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
     if (audioReady) PlaySound(sndExplosion);
 
     Cannon& shooter = GetCannon(currentPlayer);
+    if (version == GameVersion::Plus) {
+        const auto onOnlinePickup = [this](int type, float x) {
+            if (mode == GameMode::Online && netMatch.InMatch()) {
+                netMatch.PublishPowerupPicked(type, x);
+            }
+        };
+        powerups.TryPickupAtImpact(impactPos, shooter, terrain, language, onOnlinePickup);
+    }
+
     float damageMult = 1.0f;
     float radiusMult = 1.0f;
 
@@ -524,7 +533,7 @@ void Game::EndTurn() {
                 GetCannon(currentPlayer).OnTurnStarted();
             }
             powerups.TickSpawnCounter();
-            powerups.MaybeSpawnRandom();
+            powerups.MaybeSpawnRandom(roster);
         }
     }
 

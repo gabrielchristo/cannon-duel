@@ -101,6 +101,7 @@ void Game::StartOnlineMatch(const MatchStart& ms) {
 
     ApplyOnlineNamesFromMatchStart(ms);
 
+    onlineLobby.SnapshotRematchRoom();
     netMatch.Begin(ms.matchId, ms.myPlayerNumber, ms.opponentId, ms.opponentName, ms.composition);
     ResetRound(ms.terrainSeed);
     currentPlayer = ResolveOnlineTurnPlayer(netMatch.SyncedCurrentTurnPlayer());
@@ -459,11 +460,12 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
 
 void Game::OnOnlineTurnCompleted(int startingTurnPlayer) {
     onlineCompletedTurns++;
-    if (version == GameVersion::Plus && roster.IsPlayerAlive(startingTurnPlayer)) {
-        Cannon& startingCannon = GetCannon(startingTurnPlayer);
-        startingCannon.OnTurnStarted();
+    if (version == GameVersion::Plus) {
+        if (roster.IsPlayerAlive(startingTurnPlayer)) {
+            GetCannon(startingTurnPlayer).OnTurnStarted();
+        }
         if (onlineCompletedTurns % cfg::POWERUP_SPAWN_EVERY_TURNS == 0) {
-            powerups.MaybeSpawnSeeded(onlineSeed, onlineCompletedTurns);
+            powerups.MaybeSpawnSeeded(onlineSeed, onlineCompletedTurns, roster);
         }
     }
 }
@@ -612,11 +614,89 @@ void Game::EndSpectatorMatch(int winnerPlayer) {
     stateTimer = 1.0f;
 }
 
+void Game::ReturnToOnlineLobbyAfterMatch() {
+    if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+    netMatch.LeaveMatch();
+    isSpectating = false;
+    onlineLobby.ReturnToLobbyAfterMatch();
+    state = GameState::OnlineLobby;
+    aimPhase = AimPhase::Angle;
+    aimOscTimer = 0.0f;
+}
+
+void Game::ReturnToTeamRoomForRematch() {
+    if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+    netMatch.LeaveMatch();
+    isSpectating = false;
+    if (onlineLobby.HasRematchTeamRoom()) {
+        onlineLobby.EnterTeamRoomForRematch();
+        state = GameState::OnlineTeamRoom;
+    } else {
+        onlineLobby.ReturnToLobbyAfterMatch();
+        state = GameState::OnlineLobby;
+    }
+    aimPhase = AimPhase::Angle;
+    aimOscTimer = 0.0f;
+}
+
+namespace {
+
+Rectangle OnlineRematchBtnRect() {
+    return { cfg::SCREEN_WIDTH / 2.0f - 210.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f };
+}
+
+Rectangle OnlineLobbyBtnRect() {
+    return { cfg::SCREEN_WIDTH / 2.0f + 10.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f };
+}
+
+} // namespace
+
+void Game::UpdateOnlineRoundOver() {
+    if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) return;
+
+    const Vector2 mouse = ::GetVirtualMouse();
+    if (onlineLobby.HasRematchTeamRoom() && CheckCollisionPointRec(mouse, OnlineRematchBtnRect())) {
+        ReturnToTeamRoomForRematch();
+    } else if (CheckCollisionPointRec(mouse, OnlineLobbyBtnRect())) {
+        ReturnToOnlineLobbyAfterMatch();
+    }
+}
+
+void Game::DrawOnlineRoundOverOptions() const {
+    const Vector2 mouse = ::GetVirtualMouse();
+
+    auto drawBtn = [&](Rectangle rect, const char* label, Color base, Color hover) {
+        const bool h = CheckCollisionPointRec(mouse, rect);
+        DrawRectangleRec(rect, h ? hover : base);
+        DrawRectangleLinesEx(rect, 2, Color{30, 22, 12, 255});
+        const int fs = 18;
+        const int tw = MeasureText(label, fs);
+        DrawText(label, static_cast<int>(rect.x + rect.width / 2 - tw / 2),
+                 static_cast<int>(rect.y + rect.height / 2 - fs / 2), fs, WHITE);
+    };
+
+    const char* rematchLbl = T(TK::RoundOverRematch, language);
+    if (onlineLobby.HasRematchTeamRoom()) {
+        drawBtn(OnlineRematchBtnRect(), rematchLbl,
+                Color{70, 140, 90, 255}, Color{95, 185, 110, 255});
+    } else {
+        Rectangle rect = OnlineRematchBtnRect();
+        DrawRectangleRec(rect, Color{55, 55, 55, 180});
+        DrawRectangleLinesEx(rect, 2, Color{80, 80, 80, 255});
+        const int fs = 18;
+        const int tw = MeasureText(rematchLbl, fs);
+        DrawText(rematchLbl, static_cast<int>(rect.x + rect.width / 2 - tw / 2),
+                 static_cast<int>(rect.y + rect.height / 2 - fs / 2), fs, Color{140, 140, 140, 255});
+    }
+    drawBtn(OnlineLobbyBtnRect(), T(TK::RoundOverBackToLobby, language),
+            Color{90, 75, 55, 255}, Color{120, 100, 75, 255});
+}
+
 void Game::ExitSpectatorToLobby() {
     if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
     netMatch.LeaveMatch();
     isSpectating = false;
-    onlineLobby.EnterLobby();
+    onlineLobby.ReturnToLobbyAfterMatch();
     state = GameState::OnlineLobby;
 }
 

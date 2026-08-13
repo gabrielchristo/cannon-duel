@@ -77,6 +77,9 @@ public:
     // jogador atual. Chame ao final de uma partida online.
     void ReportMatchResult(bool won);
 
+    // Sincroniza display_name sanitizado em players (+ presença se no lobby).
+    bool UpdateDisplayName(const std::string& rawName, std::string& outSanitized);
+
 private:
     PlayerIdentity* identity = nullptr;
     SupabaseClient client;

@@ -1,5 +1,6 @@
 #include "OnlineLobby.h"
 #include "../DebugLog.h"
+#include "NetValidation.h"
 #include <raylib.h>
 #include <ctime>
 #include <cstdio>
@@ -52,6 +53,10 @@ void OnlineLobby::EnterLobby() {
 
 void OnlineLobby::EnsurePlayerRegistered() {
     if (registeredPlayer || !identity) return;
+    if (!net_validation::IsValidPlayerUuid(identity->Id())) {
+        DebugLogf(LOG_WARNING, "LOBBY: player_id inválido — abortando registro");
+        return;
+    }
 
     // Upsert na tabela players — cria na primeira vez, ou só confirma que
     // já existe nas próximas (o id é sempre o mesmo, gerado localmente).
@@ -111,6 +116,7 @@ void OnlineLobby::HeartbeatInMatch(float dt) {
 
 void OnlineLobby::LeaveLobby() {
     if (!identity) return;
+    if (!net_validation::IsValidPlayerUuid(identity->Id())) return;
     lobbyActive_ = false;
     needsBootstrap_ = false;
     wasRealtimeConnected_ = false;
@@ -405,6 +411,7 @@ bool OnlineLobby::PollMatchStart(MatchStart& out) {
 
 void OnlineLobby::ReportMatchResult(bool won) {
     if (!identity) return;
+    if (!net_validation::IsValidPlayerUuid(identity->Id())) return;
 
     json me = client.Select("players", "select=wins,losses&id=eq." + identity->Id());
     int wins = 0, losses = 0;
@@ -416,5 +423,29 @@ void OnlineLobby::ReportMatchResult(bool won) {
 
     json body = { { "wins", wins }, { "losses", losses } };
     client.Update("players", "id=eq." + identity->Id(), body);
+}
+
+bool OnlineLobby::UpdateDisplayName(const std::string& rawName, std::string& outSanitized) {
+    if (!identity) return false;
+    if (!net_validation::IsValidPlayerUuid(identity->Id())) return false;
+
+    outSanitized = net_validation::SanitizeDisplayName(rawName);
+    if (outSanitized.empty()) return false;
+
+    identity->SetDisplayName(outSanitized);
+
+    json body = { { "display_name", outSanitized } };
+    client.Update("players", "id=eq." + identity->Id(), body);
+    if (!client.LastRequestOk()) {
+        DebugLogf(LOG_WARNING, "LOBBY: falha ao atualizar display_name em players");
+        return false;
+    }
+
+    if (lobbyActive_ && registeredPlayer) {
+        UpsertPresenceWithStatus("idle");
+    }
+
+    DebugLogf(LOG_INFO, "LOBBY: display_name atualizado para '%s'", outSanitized.c_str());
+    return true;
 }
 

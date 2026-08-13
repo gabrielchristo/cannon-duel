@@ -1,4 +1,5 @@
 #include "PlayerIdentity.h"
+#include "NetValidation.h"
 #include "../Platform.h"
 #include "../DebugLog.h"
 
@@ -72,8 +73,9 @@ void PlayerIdentity::LoadOrCreate() {
 }
 
 void PlayerIdentity::SetDisplayName(const std::string& name) {
-    if (name.empty()) return;
-    displayName = name;
+    std::string clean = net_validation::SanitizeDisplayName(name);
+    if (clean.empty()) return;
+    displayName = clean;
     Save();
 }
 

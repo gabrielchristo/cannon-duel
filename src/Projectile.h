@@ -19,7 +19,12 @@ public:
     void ApplyGuidance(Vector2 targetPx, float turnRateDegPerSec, float minSpeedPx, float dt);
     // Fase final do teleguiado: desce em linha reta sobre o alvo (ignora vento).
     void ApplyGuidedDive(Vector2 targetPx, float diveSpeedPxPerSec, float dt);
+    void SetKinematicPositionPx(Vector2 posPx);
 
     b2BodyId body{};
     bool active = false;
+
+private:
+    bool kinematicOverride = false;
+    Vector2 kinematicPosPx{};
 };

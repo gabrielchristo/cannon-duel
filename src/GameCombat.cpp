@@ -90,7 +90,10 @@ void Game::UpdateAiming() {
             : active.AimDirection();
         projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
         prevProjectilePos = muzzle;
-        guidedDiving = false;
+        if (version == GameVersion::Plus && active.pendingGuided) {
+            BeginGuidedFlight(muzzle, other);
+            projectile.SetKinematicPositionPx(muzzle);
+        }
         // Trajetória prevista é consumida no exato momento do disparo — é
         // aqui que o jogador de fato "usou" a rodada com o preview visível.
         if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
@@ -164,7 +167,10 @@ void Game::UpdateAiming() {
                 : active.AimDirection();
             projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
             prevProjectilePos = muzzle;
-            guidedDiving = false;
+            if (version == GameVersion::Plus && active.pendingGuided) {
+                BeginGuidedFlight(muzzle, other);
+                projectile.SetKinematicPositionPx(muzzle);
+            }
             if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
                 active.trajectoryPreviewTurnsLeft--;
             }
@@ -187,43 +193,79 @@ void Game::UpdateAiming() {
     }
 }
 
+void Game::BeginGuidedFlight(Vector2 muzzle, const Cannon& opponent) {
+    guidedPathT = 0.0f;
+    guidedPathStart = muzzle;
+    const float groundAtOpp = terrain.HeightAt(opponent.x);
+    float apexY = std::min(cfg::POWERUP_GUIDED_APEX_Y_PX,
+                             groundAtOpp - cfg::POWERUP_GUIDED_APEX_CLEARANCE_PX);
+    apexY = std::max(24.0f, apexY);
+    guidedPathApex = { opponent.x, apexY };
+    guidedPathTarget = { opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+}
+
+Vector2 Game::SampleGuidedPath(float t) const {
+    t = std::clamp(t, 0.0f, 1.0f);
+    const float split = cfg::POWERUP_GUIDED_ASCENT_FRAC;
+    if (t <= split) {
+        float u = (split > 0.0f) ? (t / split) : 1.0f;
+        u = u * u * (3.0f - 2.0f * u);
+        return {
+            guidedPathStart.x + (guidedPathApex.x - guidedPathStart.x) * u,
+            guidedPathStart.y + (guidedPathApex.y - guidedPathStart.y) * u
+        };
+    }
+    const float diveSpan = std::max(0.0001f, 1.0f - split);
+    float u = (t - split) / diveSpan;
+    return {
+        guidedPathApex.x + (guidedPathTarget.x - guidedPathApex.x) * u,
+        guidedPathApex.y + (guidedPathTarget.y - guidedPathApex.y) * u
+    };
+}
+
 void Game::UpdateProjectileFlight(float dt) {
     Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
     Cannon& opponent = (currentPlayer == 1) ? player2 : player1;
-
     const bool guidedActive = (version == GameVersion::Plus && shooter.pendingGuided);
-    if (!guidedActive) {
-        projectile.ApplyWind(windForce);
+
+    if (guidedActive) {
+        if (!projectile.IsActive()) return;
+
+        guidedPathT += dt / cfg::POWERUP_GUIDED_FLIGHT_SEC;
+        if (guidedPathT > 1.0f) guidedPathT = 1.0f;
+
+        Vector2 pos = SampleGuidedPath(guidedPathT);
+        Vector2 prev = projectile.PositionPx();
+        projectile.SetKinematicPositionPx(pos);
+
+        if (mode == GameMode::Online && netMatch.InMatch()) {
+            netMatch.PublishProjectileSample(dt, pos.x, pos.y);
+        }
+
+        Vector2 vel = { pos.x - prev.x, pos.y - prev.y };
+        particles.EmitTrail(pos, vel, Color{180, 120, 230, 255});
+
+        if (version == GameVersion::Plus) {
+            powerups.CheckProjectileCollision(prevProjectilePos, pos, currentPlayer,
+                                              player1, player2, terrain, language,
+                                              [this](int type, float x) {
+                                                  if (mode == GameMode::Online && netMatch.InMatch()) {
+                                                      netMatch.PublishPowerupPicked(type, x);
+                                                  }
+                                              });
+        }
+        prevProjectilePos = pos;
+
+        if (guidedPathT >= 1.0f) {
+            ResolveImpact(guidedPathTarget, true, &opponent);
+        }
+        return;
     }
 
+    projectile.ApplyWind(windForce);
     physics.Step(dt);
 
     if (!projectile.IsActive()) return;
-
-    // Teleguiado: corrige velocidade DEPOIS da física para anular queda lenta
-    // causada por força baixa + gravidade, garantindo subida até o ápice.
-    if (guidedActive) {
-        Vector2 targetBase = { opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
-        const float groundAtOpp = terrain.HeightAt(opponent.x);
-        float apexY = std::min(cfg::POWERUP_GUIDED_APEX_Y_PX,
-                               groundAtOpp - cfg::POWERUP_GUIDED_APEX_CLEARANCE_PX);
-        apexY = std::max(24.0f, apexY);
-        const Vector2 apex = { opponent.x, apexY };
-
-        Vector2 projPos = projectile.PositionPx();
-        if (!guidedDiving) {
-            const float horizDist = std::fabs(projPos.x - opponent.x);
-            const bool atApex = horizDist <= cfg::POWERUP_GUIDED_DIVE_ENTRY_HORIZ_PX &&
-                                projPos.y <= apexY + 18.0f;
-            if (atApex) guidedDiving = true;
-            else {
-                projectile.ApplyGuidance(apex, cfg::POWERUP_GUIDED_TURN_RATE_DEG,
-                                         cfg::POWERUP_GUIDED_MIN_SPEED_PX, dt);
-            }
-        } else {
-            projectile.ApplyGuidedDive(targetBase, cfg::POWERUP_GUIDED_DIVE_SPEED_PX, dt);
-        }
-    }
 
     Vector2 pos = projectile.PositionPx();
 
@@ -264,21 +306,6 @@ void Game::UpdateProjectileFlight(float dt) {
     Vector2 targetBase = { target.x, target.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
     float distToTarget = std::sqrt(std::pow(pos.x - targetBase.x, 2) + std::pow(pos.y - targetBase.y, 2));
 
-    bool guidedForcedHit = false;
-    if (guidedActive) {
-        float guidedHitRadius = cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + 24.0f;
-        guidedForcedHit = (distToTarget <= guidedHitRadius);
-        if (!guidedForcedHit) {
-            float horizDist = std::fabs(pos.x - opponent.x);
-            guidedForcedHit = (horizDist <= cfg::POWERUP_GUIDED_SNAP_HORIZ_PX &&
-                               pos.y >= targetBase.y - cfg::CANNON_BODY_RADIUS_PX * 2.0f);
-        }
-    }
-
-    if (guidedForcedHit) {
-        ResolveImpact(targetBase, true, &target);
-        return;
-    }
     if (distToTarget <= cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX) {
         ResolveImpact(pos, true, &target);
         return;
@@ -286,10 +313,6 @@ void Game::UpdateProjectileFlight(float dt) {
 
     // colisão com terreno (heightmap)
     if (terrain.IsPointInside(pos.x, pos.y)) {
-        if (guidedActive && std::fabs(pos.x - opponent.x) <= cfg::POWERUP_GUIDED_SNAP_HORIZ_PX) {
-            ResolveImpact(targetBase, true, &target);
-            return;
-        }
         ResolveImpact(pos, false, nullptr);
         return;
     }

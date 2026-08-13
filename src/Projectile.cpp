@@ -23,6 +23,7 @@ void Projectile::Spawn(b2WorldId world, Vector2 startPosPx, Vector2 dirUnit, flo
     b2Body_SetLinearVelocity(body, vel);
 
     active = true;
+    kinematicOverride = false;
 }
 
 void Projectile::ApplyWind(float windAccelMps2) {
@@ -35,6 +36,7 @@ void Projectile::ApplyWind(float windAccelMps2) {
 }
 
 Vector2 Projectile::PositionPx() const {
+    if (kinematicOverride) return kinematicPosPx;
     b2Vec2 p = b2Body_GetPosition(body);
     return { cfg::MToPx(p.x), cfg::MToPx(p.y) };
 }
@@ -90,9 +92,20 @@ void Projectile::ApplyGuidedDive(Vector2 targetPx, float diveSpeedPxPerSec, floa
     b2Body_SetLinearVelocity(body, velM);
 }
 
+void Projectile::SetKinematicPositionPx(Vector2 posPx) {
+    if (!active) return;
+    kinematicOverride = true;
+    kinematicPosPx = posPx;
+    b2Vec2 p = { cfg::PxToM(posPx.x), cfg::PxToM(posPx.y) };
+    b2Rot rot = b2Body_GetRotation(body);
+    b2Body_SetTransform(body, p, rot);
+    b2Body_SetLinearVelocity(body, { 0.0f, 0.0f });
+}
+
 void Projectile::Destroy() {
     if (active) {
         b2DestroyBody(body);
         active = false;
+        kinematicOverride = false;
     }
 }

@@ -119,7 +119,7 @@ void Game::BeginRemoteShotReplay(const RemoteTurnResult& remote) {
     remoteReplayT = 0.0f;
     remoteReplayAimTimer = 0.25f;
     prevProjectilePos = start;
-    guidedDiving = false;
+    guidedPathT = 0.0f;
 
     if (audioReady) PlaySound(sndFire);
     if (version == GameVersion::Plus) shooter.OnShotFired();

@@ -54,6 +54,10 @@ enum class TK {
     OnlineBack,
     OnlineRecordFmt,
     OnlineWaitingSuffix,
+    OnlineEditNameButton,
+    OnlineNameSave,
+    OnlineNameCancel,
+    OnlineNameHint,
 
     PowerupDoubleDamage,
     PowerupTrajectory,
@@ -175,6 +179,10 @@ inline const char* T(TK key, Lang lang) {
         case TK::OnlineBack: return pt ? "VOLTAR" : "BACK";
         case TK::OnlineRecordFmt: return pt ? "%d vitorias / %d derrotas" : "%d wins / %d losses";
         case TK::OnlineWaitingSuffix: return pt ? " esta jogando..." : " is playing...";
+        case TK::OnlineEditNameButton: return pt ? "EDITAR NOME" : "EDIT NAME";
+        case TK::OnlineNameSave: return pt ? "SALVAR" : "SAVE";
+        case TK::OnlineNameCancel: return pt ? "CANCELAR" : "CANCEL";
+        case TK::OnlineNameHint: return pt ? "Max. 24 caracteres" : "Max. 24 characters";
 
         case TK::PowerupDoubleDamage: return pt ? "DANO EM DOBRO no proximo tiro!" : "DOUBLE DAMAGE on the next shot!";
         case TK::PowerupTrajectory: return pt ? "Trajetoria revelada por 2 rodadas!" : "Trajectory revealed for 2 rounds!";

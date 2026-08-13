@@ -65,6 +65,8 @@ private:
     void ResetRound(unsigned int seed);
     void UpdateAiming();
     void UpdateProjectileFlight(float dt);
+    void BeginGuidedFlight(Vector2 muzzle, const Cannon& opponent);
+    Vector2 SampleGuidedPath(float t) const;
     void ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget);
     void EndTurn();
     void CheckRoundEnd();
@@ -165,7 +167,14 @@ private:
 
     RenderTexture2D virtualScreen{};
     Vector2 prevProjectilePos{};
-    bool guidedDiving = false;
+    float guidedPathT = 0.0f;
+    Vector2 guidedPathStart{};
+    Vector2 guidedPathApex{};
+    Vector2 guidedPathTarget{};
+
+    bool onlineNameEditing = false;
+    std::string onlineNameEditBuffer;
+    float onlineNameEditCursorBlink = 0.0f;
 
     unsigned int onlineSeed = 0;
     int onlineCompletedTurns = 0;

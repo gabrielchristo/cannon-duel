@@ -63,12 +63,14 @@ private:
     void BeginRemoteProjectileLive(const LiveShotStart& shot);
     void UpdateRemoteProjectileLive(float dt);
     void FinishRemoteTurn(const RemoteTurnResult& remote);
-    void OnOnlineTurnCompleted(int startingTurnPlayer);
+    void ApplyOnlinePowerupSpawn(int type, float x);
+    void TryOnlinePowerupSpawn(int completedTurn, int* outType = nullptr, float* outX = nullptr);
     void DrawOpponentAim(int shooterPlayer, float angleDeg, float power01) const;
     void ResetOpponentAimSim(int shooterPlayer);
     void UpdateOpponentAimSim(float dt);
     float SeededWind(int turnIndex) const;
     void ConsumeRemotePowerupPickups();
+    void ConsumeRemotePowerupSpawns();
     void ApplyRemoteTurnDamage(const RemoteTurnResult& turn);
     void SyncCannonHealthFromTurn(const RemoteTurnResult& turn);
     void ApplyOnlineNamesFromMatchStart(const MatchStart& ms);
@@ -212,7 +214,7 @@ private:
     float onlineNameEditCursorBlink = 0.0f;
 
     unsigned int onlineSeed = 0;
-    int onlineCompletedTurns = 0;
+    int lastOnlineSpawnTurn_ = 0;
     Vector2 remoteReplayPos{};
     float remoteReplayT = 0.0f;
     float remoteReplayAimTimer = 0.0f;

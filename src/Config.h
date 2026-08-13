@@ -54,7 +54,7 @@ constexpr float POWERUP_RADIUS_PX          = 16.0f;
 constexpr float POWERUP_HIT_TOLERANCE_PX   = 14.0f; // folga extra pra facilitar o acerto
 constexpr float POWERUP_MIN_PICKUP_TRAVEL_PX = 12.0f; // evita coleta fantasma no spawn do projetil
 constexpr int   POWERUP_MAX_ACTIVE         = 6;     // limite pra não acumular infinitamente
-constexpr int   POWERUP_SPAWN_EVERY_TURNS  = 2;    // a cada N turnos de jogador (tiros)
+constexpr int   POWERUP_SPAWN_EVERY_TURNS  = 3;    // a cada N turnos de jogador (tiros)
 constexpr float POWERUP_SPAWN_CANNON_CLEARANCE_PX = 40.0f; // folga extra além dos raios do canhão/power-up
 constexpr float POWERUP_HEAL_MIN_RATIO     = 0.25f;
 constexpr float POWERUP_HEAL_MAX_RATIO     = 0.5f;
@@ -74,7 +74,7 @@ constexpr float POWERUP_GUIDED_SNAP_HORIZ_PX     = 120.0f;
 constexpr float POWERUP_DOUBLE_DAMAGE_MULT = 2.0f;
 // pesos relativos de sorteio (Guiado é mais raro, conforme pedido)
 constexpr float POWERUP_WEIGHT_DOUBLE_DMG  = 1.0f;
-constexpr float POWERUP_WEIGHT_TRAJECTORY  = 1.0f;
+constexpr float POWERUP_WEIGHT_TRAJECTORY  = 0.55f;
 constexpr float POWERUP_WEIGHT_GUIDED      = 0.4f;
 constexpr float POWERUP_WEIGHT_HEAL        = 1.0f;
 constexpr float POWERUP_WEIGHT_SHIELD      = 1.0f;

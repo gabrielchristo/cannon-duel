@@ -148,6 +148,10 @@ bool OnlineLobby::HasRematchTeamRoom() const {
     return !lastTeamRoomId_.empty();
 }
 
+void OnlineLobby::ClearRematchRoom() {
+    lastTeamRoomId_.clear();
+}
+
 void OnlineLobby::ReturnToLobbyAfterMatch() {
     MarkIdle();
     teamRealtime_.Stop();

@@ -44,6 +44,21 @@ bool JsonBool(const json& j, const char* key, bool fallback) {
     }
     return fallback;
 }
+
+void AppendParsedPickups(RemoteTurnResult& turn, const json& source) {
+    turn.pickedPowerups.clear();
+    if (source.contains("picked_powerups") && source["picked_powerups"].is_array()) {
+        for (const auto& item : source["picked_powerups"]) {
+            RemoteTurnResult::PickedPowerupEntry entry;
+            entry.type = JsonInt(item, "type", -1);
+            entry.x = JsonFloat(item, "x", 0.0f);
+            if (entry.type >= 0) turn.pickedPowerups.push_back(entry);
+        }
+    }
+    if (turn.pickedPowerups.empty() && turn.pickedPowerupType >= 0) {
+        turn.pickedPowerups.push_back({ turn.pickedPowerupType, turn.pickedPowerupX });
+    }
+}
 } // namespace
 
 bool NetMatch::IsMyTurn() const {
@@ -85,6 +100,9 @@ RemoteTurnResult NetMatch::ParseTurnJson(const json& row) {
     turn.winnerPlayer = JsonInt(row, "winner_player", 0);
     turn.pickedPowerupType = JsonInt(row, "picked_powerup_type", -1);
     turn.pickedPowerupX = JsonFloat(row, "picked_powerup_x", 0.0f);
+    turn.spawnPowerupType = JsonInt(row, "spawn_powerup_type", -1);
+    turn.spawnPowerupX = JsonFloat(row, "spawn_powerup_x", 0.0f);
+    AppendParsedPickups(turn, row);
     return turn;
 }
 
@@ -104,6 +122,8 @@ RemoteTurnResult NetMatch::ParseTurnPayload(const json& payload) {
     turn.winnerPlayer = JsonInt(payload, "winner_player", 0);
     turn.pickedPowerupType = JsonInt(payload, "picked_powerup_type", -1);
     turn.pickedPowerupX = JsonFloat(payload, "picked_powerup_x", 0.0f);
+    turn.spawnPowerupType = JsonInt(payload, "spawn_powerup_type", -1);
+    turn.spawnPowerupX = JsonFloat(payload, "spawn_powerup_x", 0.0f);
 
     if (payload.contains("damages") && payload["damages"].is_array()) {
         const json& arr = payload["damages"];
@@ -119,6 +139,7 @@ RemoteTurnResult NetMatch::ParseTurnPayload(const json& payload) {
             turn.healthAfter[i] = arr[i].is_number() ? arr[i].get<float>() : cfg::CANNON_MAX_HEALTH;
         }
     }
+    AppendParsedPickups(turn, payload);
     return turn;
 }
 
@@ -133,6 +154,11 @@ bool NetMatch::TryEnqueueRemoteTurn(const RemoteTurnResult& turn) {
 
     std::lock_guard lock(mu_);
     if (turn.turnNumber <= lastSeenTurnNumber) {
+        if (turn.spawnPowerupType >= 0 && turn.turnNumber == lastSeenTurnNumber) {
+            pendingSpawnResync_ = turn;
+            hasPendingSpawnResync_ = true;
+            DebugLogf(LOG_INFO, "NET: turno #%d — re-sync de spawn power-up", turn.turnNumber);
+        }
         if (turn.hasHealthAfter && turn.turnNumber == lastSeenTurnNumber) {
             pendingHealthResync_ = turn;
             hasPendingHealthResync_ = true;
@@ -149,6 +175,10 @@ bool NetMatch::TryEnqueueRemoteTurn(const RemoteTurnResult& turn) {
         if (turn.hasHealthAfter && !pendingTurn_.hasHealthAfter) {
             pendingTurn_ = turn;
             DebugLogf(LOG_INFO, "NET: turno #%d atualizado com vida autoritativa", turn.turnNumber);
+        } else if (turn.spawnPowerupType >= 0 && pendingTurn_.spawnPowerupType < 0) {
+            pendingTurn_.spawnPowerupType = turn.spawnPowerupType;
+            pendingTurn_.spawnPowerupX = turn.spawnPowerupX;
+            DebugLogf(LOG_INFO, "NET: turno #%d atualizado com spawn power-up", turn.turnNumber);
         }
         return false;
     }
@@ -384,17 +414,31 @@ void NetMatch::ApplyBroadcast(const json& envelope) {
         return;
     }
 
+    if (event == "powerup_spawn") {
+        const int shooter = JsonInt(p, "shooter", 0);
+        if (shooter == 0 || shooter == myPlayerNumber) return;
+        LivePowerupSpawn sp;
+        sp.type = JsonInt(p, "type", -1);
+        sp.x = JsonFloat(p, "x", 0.0f);
+        sp.turnNumber = JsonInt(p, "turn", 0);
+        sp.valid = sp.type >= 0;
+        if (!sp.valid) return;
+        std::lock_guard lock(mu_);
+        pendingPowerupSpawns_.push_back(sp);
+        return;
+    }
+
     if (event == "powerup_picked") {
         const int player = JsonInt(p, "player", 0);
         if (player == 0 || player == myPlayerNumber) return;
         LivePowerupPickup pu;
+        pu.player = player;
         pu.type = JsonInt(p, "type", -1);
         pu.x = JsonFloat(p, "x", 0.0f);
         pu.valid = pu.type >= 0;
         if (!pu.valid) return;
         std::lock_guard lock(mu_);
-        pendingPowerupPickup_ = pu;
-        hasPendingPowerupPickup_ = true;
+        pendingPowerupPickups_.push_back(pu);
         return;
     }
 
@@ -543,8 +587,10 @@ void NetMatch::Begin(const std::string& id, int myPlayerNum,
         liveSamples_.clear();
         liveShotEnded_ = false;
         liveShotId_ = 0;
-        hasPendingPowerupPickup_ = false;
-        pendingPowerupPickup_ = {};
+        pendingPowerupPickups_.clear();
+        pendingPowerupSpawns_.clear();
+        hasPendingSpawnResync_ = false;
+        pendingSpawnResync_ = {};
         spectatorMatchEnded_ = false;
         spectatorEndReported_ = false;
         spectatorWinner_ = 0;
@@ -695,12 +741,30 @@ void NetMatch::PublishPowerupPicked(int type, float x) {
     });
 }
 
+bool NetMatch::PollRemotePowerupSpawn(LivePowerupSpawn& out) {
+    std::lock_guard lock(mu_);
+    if (pendingPowerupSpawns_.empty()) return false;
+    out = pendingPowerupSpawns_.front();
+    pendingPowerupSpawns_.pop_front();
+    return out.valid;
+}
+
+void NetMatch::PublishPowerupSpawn(int type, float x, int turnNumber) {
+    if (!active_.load() || !realtime_.IsConnected()) return;
+    if (type < 0) return;
+    realtime_.SendBroadcast("powerup_spawn", {
+        { "shooter", myPlayerNumber },
+        { "type", type },
+        { "x", x },
+        { "turn", turnNumber }
+    });
+}
+
 bool NetMatch::PollRemotePowerupPickup(LivePowerupPickup& out) {
     std::lock_guard lock(mu_);
-    if (!hasPendingPowerupPickup_) return false;
-    out = pendingPowerupPickup_;
-    hasPendingPowerupPickup_ = false;
-    pendingPowerupPickup_ = {};
+    if (pendingPowerupPickups_.empty()) return false;
+    out = pendingPowerupPickups_.front();
+    pendingPowerupPickups_.pop_front();
     return out.valid;
 }
 
@@ -757,7 +821,8 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
                              const float healthAfter[MatchRoster::kMaxCannons],
                              float nextWind, int nextTurnPlayer,
                              bool matchOver, int winnerPlayer,
-                             int pickedPowerupType, float pickedPowerupX) {
+                             const std::vector<ShotPowerupPickup>& pickups,
+                             int spawnPowerupType, float spawnPowerupX) {
     lastSeenTurnNumber++;
 
     syncedCurrentTurnPlayer = nextTurnPlayer;
@@ -773,12 +838,16 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
     const int turnNum = lastSeenTurnNumber;
     const int shooter = myPlayerNumber;
     const int playerCount = std::clamp(composition_.TotalPlayers(), 1, MatchRoster::kMaxCannons);
+    const int pickedPowerupType = pickups.empty() ? -1 : pickups.back().type;
+    const float pickedPowerupX = pickups.empty() ? 0.0f : pickups.back().x;
 
-    DebugLogf(LOG_INFO, "NET: SubmitMyTurn #%d atirador=P%d proximo=P%d pickup=%d hp=%.0f/%.0f/%.0f",
-              turnNum, shooter, nextTurnPlayer, pickedPowerupType,
-              playerCount >= 1 ? healthAfter[0] : 0.0f,
-              playerCount >= 2 ? healthAfter[1] : 0.0f,
-              playerCount >= 3 ? healthAfter[2] : 0.0f);
+    DebugLogf(LOG_INFO, "NET: SubmitMyTurn #%d atirador=P%d proximo=P%d pickups=%zu spawn=%d@%.0f",
+              turnNum, shooter, nextTurnPlayer, pickups.size(), spawnPowerupType, spawnPowerupX);
+
+    json pickupsArr = json::array();
+    for (const auto& pu : pickups) {
+        pickupsArr.push_back({ { "type", pu.type }, { "x", pu.x } });
+    }
 
     if (realtime_.IsConnected()) {
         json damagesArr = json::array();
@@ -804,7 +873,10 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
             { "match_over", matchOver },
             { "winner_player", winnerPlayer },
             { "picked_powerup_type", pickedPowerupType },
-            { "picked_powerup_x", pickedPowerupX }
+            { "picked_powerup_x", pickedPowerupX },
+            { "picked_powerups", pickupsArr },
+            { "spawn_powerup_type", spawnPowerupType },
+            { "spawn_powerup_x", spawnPowerupX }
         });
     }
 
@@ -824,7 +896,9 @@ void NetMatch::SubmitMyTurn(float shootAngle, float shootPower, float windAtShot
             { "match_over", matchOver },
             { "winner_player", winnerPlayer },
             { "picked_powerup_type", pickedPowerupType },
-            { "picked_powerup_x", pickedPowerupX }
+            { "picked_powerup_x", pickedPowerupX },
+            { "spawn_powerup_type", spawnPowerupType },
+            { "spawn_powerup_x", spawnPowerupX }
         };
         for (int i = 0; i < playerCount; ++i) {
             body["damage_p" + std::to_string(i + 1)] = damages[i];
@@ -865,6 +939,14 @@ bool NetMatch::PollOpponentTurn(RemoteTurnResult& out) {
     liveSamples_.clear();
     liveShotEnded_ = false;
     return true;
+}
+
+bool NetMatch::PollSpawnResync(RemoteTurnResult& out) {
+    std::lock_guard lock(mu_);
+    if (!hasPendingSpawnResync_) return false;
+    out = pendingSpawnResync_;
+    hasPendingSpawnResync_ = false;
+    return out.spawnPowerupType >= 0;
 }
 
 bool NetMatch::PollHealthResync(RemoteTurnResult& out) {
@@ -950,8 +1032,10 @@ void NetMatch::LeaveMatch() {
     liveSamples_.clear();
     liveShotEnded_ = false;
     liveShotId_ = 0;
-    hasPendingPowerupPickup_ = false;
-    pendingPowerupPickup_ = {};
+    pendingPowerupPickups_.clear();
+    pendingPowerupSpawns_.clear();
+    hasPendingSpawnResync_ = false;
+    pendingSpawnResync_ = {};
     spectatorMatchEnded_ = false;
     spectatorEndReported_ = false;
     spectatorWinner_ = 0;

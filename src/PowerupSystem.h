@@ -11,6 +11,11 @@
 #include <functional>
 #include <vector>
 
+struct ShotPowerupPickup {
+    int type = -1;
+    float x = 0.0f;
+};
+
 // Spawn, colisão, efeitos e UI de power-ups (versão Plus).
 class PowerupSystem {
 public:
@@ -21,7 +26,9 @@ public:
     void SetSpawnEveryTurns(int turns);
 
     void MaybeSpawnRandom(const MatchRoster& roster);
-    void MaybeSpawnSeeded(unsigned seed, int completedTurns, const MatchRoster& roster);
+    void MaybeSpawnSeeded(unsigned seed, int completedTurns, const MatchRoster& roster,
+                          int* outType = nullptr, float* outX = nullptr,
+                          bool forceOnlineSpawn = false);
 
     void Draw(const Terrain& terrain) const;
     void DrawTooltip(const Terrain& terrain, Vector2 mouse, Lang lang) const;
@@ -56,11 +63,16 @@ public:
 
     int& ShotPickedType() { return shotPickedType_; }
     float& ShotPickedX() { return shotPickedX_; }
+    const std::vector<ShotPowerupPickup>& ShotPickups() const { return shotPickups_; }
+    void ClearShotPickups();
+    void ResetRemotePickupShot() { remotePickupsAppliedThisShot_ = false; }
+    bool RemotePickupsAppliedThisShot() const { return remotePickupsAppliedThisShot_; }
     bool& RemoteEffectApplied() { return remoteEffectApplied_; }
 
     int TurnsSinceSpawnCheck() const { return turnsSinceSpawnCheck_; }
     void ForceSpawnReady() { turnsSinceSpawnCheck_ = spawnEveryTurns_; }
     void SpawnAt(float x, PowerupType type, const MatchRoster& roster);
+    void SpawnAtExact(float x, PowerupType type);
 
 private:
     std::vector<Powerup> active_;
@@ -68,6 +80,8 @@ private:
     int spawnEveryTurns_ = cfg::POWERUP_SPAWN_EVERY_TURNS;
     int shotPickedType_ = -1;
     float shotPickedX_ = 0.0f;
+    std::vector<ShotPowerupPickup> shotPickups_;
+    bool remotePickupsAppliedThisShot_ = false;
     bool remoteEffectApplied_ = false;
 
     const char* messageText_ = nullptr;
@@ -83,8 +97,11 @@ private:
     float ResolveSpawnX(float preferredX, const MatchRoster& roster,
                         const std::function<float(int attempt)>& candidateFn) const;
     void PushSpawn(float x, PowerupType type);
+    int CountActivePowerups() const;
+    void EvictLowestXActive();
     bool CollectPowerupAt(Powerup& pu, Cannon& shooter, Lang lang,
                             const std::function<void(int type, float x)>& onOnlinePickup);
+    void CompactInactive();
     bool PointerOverPowerup(const Terrain& terrain, Vector2 point, int* outIndex) const;
     void DrawTooltipForPowerup(const Powerup& pu, Vector2 anchor, Lang lang) const;
 };

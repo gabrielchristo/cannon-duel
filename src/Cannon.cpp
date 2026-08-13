@@ -12,6 +12,7 @@ void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
     pendingDoubleDamage = false;
     queuedDoubleDamage = false;
     pendingGuided = false;
+    queuedGuided = false;
     trajectoryPreviewTurnsLeft = 0;
     queuedTrajectoryPreviewTurns = 0;
     shieldTurnsLeft = 0;
@@ -137,6 +138,7 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* sprite) const {
         if (pendingDoubleDamage) badge(Color{220, 60, 40, 255});
         if (queuedDoubleDamage)  badge(Color{240, 140, 60, 255}); // "vai ativar no próximo tiro"
         if (pendingGuided)       badge(Color{150, 70, 200, 255});
+        if (queuedGuided)        badge(Color{190, 120, 220, 255});
         if (trajectoryPreviewTurnsLeft > 0) badge(Color{60, 130, 220, 255});
         if (shieldTurnsLeft > 0) badge(Color{60, 200, 210, 255});
     }
@@ -153,6 +155,10 @@ void Cannon::OnShotResolved() {
     if (queuedDoubleDamage) {
         pendingDoubleDamage = true;
         queuedDoubleDamage = false;
+    }
+    if (queuedGuided) {
+        pendingGuided = true;
+        queuedGuided = false;
     }
     if (queuedTrajectoryPreviewTurns > 0) {
         trajectoryPreviewTurnsLeft = queuedTrajectoryPreviewTurns;

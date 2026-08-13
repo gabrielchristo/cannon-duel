@@ -132,6 +132,7 @@ void Game::ShutdownOnlinePresence() {
 
 void Game::EndOnlineMatchOpponentLeft() {
     onlineWinByDisconnect = true;
+    onlineLobby.ClearRematchRoom();
     int winner = netMatch.TakeAbandonWinner();
     if (winner == 0) {
         winner = WinnerWhenPlayerLeaves(netMatch.MyPlayerNumber(), matchComposition);
@@ -220,6 +221,7 @@ void Game::BeginRemoteShotReplay(const RemoteTurnResult& remote) {
 
     if (audioReady) PlaySound(sndFire);
     if (version == GameVersion::Plus) shooter.OnShotFired();
+    powerups.ResetRemotePickupShot();
     state = GameState::RemoteShotReplay;
 }
 
@@ -247,7 +249,7 @@ void Game::BeginRemoteProjectileLive(const LiveShotStart& shot) {
     if (audioReady) PlaySound(sndFire);
     if (version == GameVersion::Plus) shooter.OnShotFired();
     state = GameState::RemoteProjectileLive;
-    powerups.RemoteEffectApplied() = false;
+    powerups.ResetRemotePickupShot();
     DebugLogf(LOG_INFO, "GAME: stream projétil ao vivo P%d", shot.shooterPlayer);
 }
 
@@ -398,11 +400,13 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     remoteLiveSamples.clear();
     netMatch.ClearLiveShot();
 
-    // Power-up coletado no tiro remoto (autoritativo).
-    if (version == GameVersion::Plus && remote.pickedPowerupType >= 0) {
-        powerups.ApplyRemotePickup(remote.pickedPowerupType, remote.pickedPowerupX,
-                                   GetCannon(remote.shooterPlayer),
-                                   language, true, powerups.RemoteEffectApplied());
+    // Power-ups coletados no tiro remoto (visual + efeitos nos badges).
+    if (version == GameVersion::Plus) {
+        const bool applyEffects = !powerups.RemotePickupsAppliedThisShot();
+        for (const auto& pu : remote.pickedPowerups) {
+            powerups.ApplyRemotePickup(pu.type, pu.x, GetCannon(remote.shooterPlayer),
+                                       language, applyEffects, powerups.RemoteEffectApplied());
+        }
     }
     powerups.RemoteEffectApplied() = false;
 
@@ -423,6 +427,8 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     if (version == GameVersion::Plus) {
         effects.TriggerShake(cfg::SHAKE_MAGNITUDE_TERRAIN_PX, cfg::SHAKE_DURATION_TERRAIN_SEC);
     }
+
+    TryOnlinePowerupSpawn(remote.turnNumber);
 
     windForce = remote.nextWind;
     currentPlayer = ResolveOnlineTurnPlayer(remote.nextTurnPlayer);
@@ -455,35 +461,50 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
             stateTimer = 1.0f;
         }
     } else {
-        OnOnlineTurnCompleted(currentPlayer);
         state = GameState::TurnTransition;
         stateTimer = 0.35f;
     }
 }
 
-void Game::OnOnlineTurnCompleted(int /*startingTurnPlayer*/) {
-    onlineCompletedTurns++;
-    if (version == GameVersion::Plus) {
-        if (onlineCompletedTurns % cfg::POWERUP_SPAWN_EVERY_TURNS == 0) {
-            powerups.MaybeSpawnSeeded(onlineSeed, onlineCompletedTurns, roster);
-        }
+void Game::TryOnlinePowerupSpawn(int completedTurn, int* outType, float* outX) {
+    if (mode != GameMode::Online || version != GameVersion::Plus) return;
+    if (completedTurn <= 0 || completedTurn == lastOnlineSpawnTurn_) return;
+    if (completedTurn % cfg::POWERUP_SPAWN_EVERY_TURNS != 0) return;
+    lastOnlineSpawnTurn_ = completedTurn;
+    powerups.MaybeSpawnSeeded(onlineSeed, completedTurn, roster, outType, outX, true);
+}
+
+void Game::ApplyOnlinePowerupSpawn(int type, float x) {
+    if (version != GameVersion::Plus || type < 0 || type >= static_cast<int>(PowerupType::COUNT)) return;
+    for (const auto& pu : powerups.Active()) {
+        if (pu.active && static_cast<int>(pu.type) == type && std::fabs(pu.x - x) < 1.0f) return;
+    }
+    powerups.SpawnAtExact(x, static_cast<PowerupType>(type));
+}
+
+void Game::ConsumeRemotePowerupSpawns() {
+    LivePowerupSpawn sp;
+    while (netMatch.PollRemotePowerupSpawn(sp)) {
+        if (sp.type < 0) continue;
+        ApplyOnlinePowerupSpawn(sp.type, sp.x);
     }
 }
 
 void Game::ConsumeRemotePowerupPickups() {
     LivePowerupPickup pu;
     while (netMatch.PollRemotePowerupPickup(pu)) {
-        int shooter = netMatch.SyncedCurrentTurnPlayer();
-        powerups.ApplyRemotePickup(pu.type, pu.x, GetCannon(shooter),
-                                   language, false, powerups.RemoteEffectApplied());
+        if (pu.player <= 0 || pu.type < 0) continue;
+        powerups.ApplyRemotePickup(pu.type, pu.x, GetCannon(pu.player),
+                                   language, true, powerups.RemoteEffectApplied());
     }
 }
 
 void Game::ApplyTurnSilently(const RemoteTurnResult& turn) {
-    if (version == GameVersion::Plus && turn.pickedPowerupType >= 0) {
-        powerups.ApplyRemotePickup(turn.pickedPowerupType, turn.pickedPowerupX,
-                                   GetCannon(turn.shooterPlayer),
-                                   language, true, powerups.RemoteEffectApplied());
+    if (version == GameVersion::Plus) {
+        for (const auto& pu : turn.pickedPowerups) {
+            powerups.ApplyRemotePickup(pu.type, pu.x, GetCannon(turn.shooterPlayer),
+                                       language, true, powerups.RemoteEffectApplied());
+        }
         powerups.RemoteEffectApplied() = false;
     }
 
@@ -498,9 +519,10 @@ void Game::ApplyTurnSilently(const RemoteTurnResult& turn) {
     terrain.Explode(turn.impactX, turn.impactY, turn.craterRadius);
     ApplyRemoteTurnDamage(turn);
 
+    TryOnlinePowerupSpawn(turn.turnNumber);
+
     windForce = turn.nextWind;
     currentPlayer = ResolveOnlineTurnPlayer(turn.nextTurnPlayer);
-    OnOnlineTurnCompleted(currentPlayer);
 }
 
 void Game::StartSpectating(const ActiveMatchCard& match) {
@@ -572,7 +594,6 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
 
     ResetRound(seed);
     onlineSeed = seed;
-    onlineCompletedTurns = 0;
     powerups.Reset();
     if (version == GameVersion::Plus) {
         powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS);
@@ -628,6 +649,7 @@ void Game::ReturnToOnlineLobbyAfterMatch() {
 }
 
 void Game::ReturnToTeamRoomForRematch() {
+    if (onlineWinByDisconnect) return;
     if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
     netMatch.LeaveMatch();
     isSpectating = false;
@@ -658,9 +680,16 @@ void Game::UpdateOnlineRoundOver() {
     if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) return;
 
     const Vector2 mouse = ::GetVirtualMouse();
-    if (onlineLobby.HasRematchTeamRoom() && CheckCollisionPointRec(mouse, OnlineRematchBtnRect())) {
+    if (!onlineWinByDisconnect && onlineLobby.HasRematchTeamRoom() &&
+        CheckCollisionPointRec(mouse, OnlineRematchBtnRect())) {
         ReturnToTeamRoomForRematch();
-    } else if (CheckCollisionPointRec(mouse, OnlineLobbyBtnRect())) {
+        return;
+    }
+
+    const Rectangle lobbyRect = onlineWinByDisconnect
+        ? Rectangle{ cfg::SCREEN_WIDTH / 2.0f - 100.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f }
+        : OnlineLobbyBtnRect();
+    if (CheckCollisionPointRec(mouse, lobbyRect)) {
         ReturnToOnlineLobbyAfterMatch();
     }
 }
@@ -679,10 +708,10 @@ void Game::DrawOnlineRoundOverOptions() const {
     };
 
     const char* rematchLbl = T(TK::RoundOverRematch, language);
-    if (onlineLobby.HasRematchTeamRoom()) {
+    if (!onlineWinByDisconnect && onlineLobby.HasRematchTeamRoom()) {
         drawBtn(OnlineRematchBtnRect(), rematchLbl,
                 Color{70, 140, 90, 255}, Color{95, 185, 110, 255});
-    } else {
+    } else if (!onlineWinByDisconnect) {
         Rectangle rect = OnlineRematchBtnRect();
         DrawRectangleRec(rect, Color{55, 55, 55, 180});
         DrawRectangleLinesEx(rect, 2, Color{80, 80, 80, 255});
@@ -691,7 +720,10 @@ void Game::DrawOnlineRoundOverOptions() const {
         DrawText(rematchLbl, static_cast<int>(rect.x + rect.width / 2 - tw / 2),
                  static_cast<int>(rect.y + rect.height / 2 - fs / 2), fs, Color{140, 140, 140, 255});
     }
-    drawBtn(OnlineLobbyBtnRect(), T(TK::RoundOverBackToLobby, language),
+    const Rectangle lobbyRect = onlineWinByDisconnect
+        ? Rectangle{ cfg::SCREEN_WIDTH / 2.0f - 100.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f }
+        : OnlineLobbyBtnRect();
+    drawBtn(lobbyRect, T(TK::RoundOverBackToLobby, language),
             Color{90, 75, 55, 255}, Color{120, 100, 75, 255});
 }
 

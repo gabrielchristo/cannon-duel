@@ -160,7 +160,6 @@ void Game::ResetRound(unsigned int seed) {
     currentPlayer = 1;
     if (mode == GameMode::Online) {
         onlineSeed = seed;
-        onlineCompletedTurns = 0;
         nightMode = ((seed >> 17) & 1u) == 0;
         windForce = SeededWind(0);
         currentMusicIndex = static_cast<int>((seed >> 25) % 2);
@@ -173,6 +172,7 @@ void Game::ResetRound(unsigned int seed) {
 
     powerups.Reset();
     powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS);
+    lastOnlineSpawnTurn_ = 0;
     remoteReplayT = 0.0f;
     remoteReplayAimTimer = 0.0f;
     opponentAimPlayer = 0;

@@ -101,7 +101,7 @@ Em partidas de equipe, vitória é por **equipe** (player 1 = time A, player 2 =
 
 ## Power-ups (Plus)
 
-Spawn a cada **2 tiros de jogador** (`POWERUP_SPAWN_EVERY_TURNS = 2`), não por rodada completa de time.
+Spawn a cada **3 tiros de jogador** (`POWERUP_SPAWN_EVERY_TURNS = 3`), não por rodada completa de time.
 
 Máximo 6 ativos simultaneamente. Spawn evita posição sobre canhões (`POWERUP_SPAWN_CANNON_CLEARANCE_PX`).
 

@@ -107,6 +107,7 @@ public:
     void MarkIdle();
     void SnapshotRematchRoom();
     bool HasRematchTeamRoom() const;
+    void ClearRematchRoom();
     void ReturnToLobbyAfterMatch();
     void EnterTeamRoomForRematch();
     void AbandonActiveMatch(const std::string& matchId, int winnerPlayer);

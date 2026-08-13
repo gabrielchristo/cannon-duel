@@ -2,6 +2,7 @@
 #include "../Platform.h"
 #include "../GameTypes.h"
 #include "../MatchRoster.h"
+#include "../PowerupSystem.h"
 
 #include <atomic>
 #include <deque>
@@ -12,6 +13,11 @@
 #include "RealtimeClient.h"
 
 struct RemoteTurnResult {
+    struct PickedPowerupEntry {
+        int type = -1;
+        float x = 0.0f;
+    };
+
     int turnNumber = 0;
     int shooterPlayer = 1;
     float shootAngle = 45.0f;
@@ -27,8 +33,11 @@ struct RemoteTurnResult {
     int nextTurnPlayer = 1;
     bool matchOver = false;
     int winnerPlayer = 0;
-    int pickedPowerupType = -1; // -1 = nenhum; senão cast de PowerupType
+    int pickedPowerupType = -1; // legado / primeiro da lista
     float pickedPowerupX = 0.0f;
+    std::vector<PickedPowerupEntry> pickedPowerups;
+    int spawnPowerupType = -1; // spawn autoritativo do turno (-1 = nenhum)
+    float spawnPowerupX = 0.0f;
 };
 
 struct LiveAimState {
@@ -57,8 +66,16 @@ struct ProjSample {
 };
 
 struct LivePowerupPickup {
+    int player = 0;
     int type = -1;
     float x = 0.0f;
+    bool valid = false;
+};
+
+struct LivePowerupSpawn {
+    int type = -1;
+    float x = 0.0f;
+    int turnNumber = 0;
     bool valid = false;
 };
 
@@ -106,7 +123,8 @@ public:
                        const float healthAfter[MatchRoster::kMaxCannons],
                        float nextWind, int nextTurnPlayer,
                        bool matchOver, int winnerPlayer,
-                       int pickedPowerupType = -1, float pickedPowerupX = 0.0f);
+                       const std::vector<ShotPowerupPickup>& pickups = {},
+                       int spawnPowerupType = -1, float spawnPowerupX = 0.0f);
 
     void PublishLiveAim(float dt, float angleDeg, float power01, const char* phase);
     LiveAimState GetOpponentLiveAim() const;
@@ -114,6 +132,10 @@ public:
     // Aviso imediato de coleta (visual); o efeito autoritativo vem no match_turns.
     void PublishPowerupPicked(int type, float x);
     bool PollRemotePowerupPickup(LivePowerupPickup& out);
+
+    void PublishPowerupSpawn(int type, float x, int turnNumber);
+    bool PollRemotePowerupSpawn(LivePowerupSpawn& out);
+    bool PollSpawnResync(RemoteTurnResult& out);
 
     // Stream do projétil (atirador → adversário via broadcast).
     void PublishShotFired(float angleDeg, float power01, float wind,
@@ -184,8 +206,11 @@ private:
     int pendingAbandonWinner_ = 0;
     bool disconnectReported_ = false;
     LiveAimState opponentAim_{};
-    bool hasPendingPowerupPickup_ = false;
-    LivePowerupPickup pendingPowerupPickup_{};
+    std::deque<LivePowerupPickup> pendingPowerupPickups_;
+    std::deque<LivePowerupSpawn> pendingPowerupSpawns_;
+
+    bool hasPendingSpawnResync_ = false;
+    RemoteTurnResult pendingSpawnResync_{};
 
     bool hasPendingDevCommand_ = false;
     DevCommand pendingDevCommand_{};

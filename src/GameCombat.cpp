@@ -105,6 +105,7 @@ void Game::UpdateAiming() {
         if (audioReady) PlaySound(sndFire);
         aimPhase = AimPhase::Angle;
         state = GameState::ProjectileFlying;
+        powerups.ClearShotPickups();
         return;
     }
 
@@ -177,8 +178,7 @@ void Game::UpdateAiming() {
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
             state = GameState::ProjectileFlying;
-            powerups.ShotPickedType() = -1;
-            powerups.ShotPickedX() = 0.0f;
+            powerups.ClearShotPickups();
             if (mode == GameMode::Online && netMatch.InMatch()) {
                 Vector2 muzz = active.MuzzlePosition();
                 netMatch.PublishShotFired(active.angleDeg, active.power01, windForce, muzz.x, muzz.y);
@@ -451,12 +451,19 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         }
 
         netMatch.PublishShotEnded(impactPos.x, impactPos.y);
+
+        int spawnType = -1;
+        float spawnX = 0.0f;
+        const int completedTurn = netMatch.TurnsCompleted() + 1;
+        if (version == GameVersion::Plus) {
+            TryOnlinePowerupSpawn(completedTurn, &spawnType, &spawnX);
+        }
+
         netMatch.SubmitMyTurn(shooter.angleDeg, shooter.power01, windAtShot,
                                impactPos.x, impactPos.y, craterRadius,
                                dmgApplied, healthAfter, nextWind, nextTurnPlayer, matchOver, winnerPlayer,
-                               powerups.ShotPickedType(), powerups.ShotPickedX());
-        powerups.ShotPickedType() = -1;
-        powerups.ShotPickedX() = 0.0f;
+                               powerups.ShotPickups(), spawnType, spawnX);
+        powerups.ClearShotPickups();
 
         if (version == GameVersion::Plus && roster.IsPlayerAlive(currentPlayer)) {
             GetCannon(currentPlayer).OnTurnEnded();
@@ -471,7 +478,6 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
             }
         } else {
             windForce = nextWind;
-            OnOnlineTurnCompleted(currentPlayer);
             state = GameState::TurnTransition;
             stateTimer = 0.35f;
         }
@@ -527,14 +533,7 @@ void Game::EndTurn() {
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
 
-    if (mode == GameMode::Online) {
-        if (version == GameVersion::Plus) {
-            const int nextPlayer = roster.NextSlotInterleaved(ActiveSlot()) + 1;
-            OnOnlineTurnCompleted(nextPlayer);
-        } else {
-            onlineCompletedTurns++;
-        }
-    } else {
+    if (mode != GameMode::Online) {
         windForce = RandF(-1.0f, 1.0f) *
                     std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
 

@@ -5,7 +5,7 @@
 enum class PowerupType {
     DoubleDamage,   // dano em dobro no próximo tiro (consumido ao resolver, acerto ou erro)
     TrajectoryPreview, // trajetória prevista por 1 rodada
-    Guided,         // 3. próximo tiro teleguiado, dano menor (mais raro)
+    Guided,         // próximo tiro teleguiado (queued → pending após resolver o tiro atual)
     Heal,           // 4. cura entre 1/4 e 1/2 da vida total
     Shield,         // imune a dano por N turnos deste canhão (ver POWERUP_SHIELD_TURNS)
     COUNT

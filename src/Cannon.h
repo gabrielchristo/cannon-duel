@@ -32,13 +32,14 @@ public:
     bool pendingDoubleDamage = false; // ativo NO PRÓXIMO tiro
     bool queuedDoubleDamage  = false; // acabou de pegar; só vira "pending" após o tiro atual resolver
     bool pendingGuided       = false;
+    bool queuedGuided        = false; // coletado neste tiro; ativo no próximo
     int  trajectoryPreviewTurnsLeft = 0;
     int  queuedTrajectoryPreviewTurns = 0; // acabou de pegar; só vira ativo após o tiro atual resolver
     int  shieldTurnsLeft            = 0;
     bool shieldPickedThisTurn       = false; // não consome escudo no fim do turno em que foi coletado
 
     bool HasActiveEffectIndicator() const {
-        return pendingDoubleDamage || queuedDoubleDamage || pendingGuided ||
+        return pendingDoubleDamage || queuedDoubleDamage || pendingGuided || queuedGuided ||
                trajectoryPreviewTurnsLeft > 0 || queuedTrajectoryPreviewTurns > 0 || shieldTurnsLeft > 0;
     }
 

@@ -9,7 +9,7 @@
 #   source /caminho/pro/emsdk/emsdk_env.sh
 #
 # Uso:
-#   ./web/build_web.sh [debug|release]
+#   ./build_web.sh [debug|release]
 #
 # Saída:
 #   web/dist/CannonDuel.html (+ .js, .wasm, .data)
@@ -17,12 +17,12 @@
 set -euo pipefail
 
 BUILD_TYPE="${1:-release}"
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$PROJECT_ROOT/web/build"
 DIST_DIR="$PROJECT_ROOT/web/dist"
 
 if ! command -v emcmake >/dev/null 2>&1; then
-    for candidate in "${EMSDK:-}" "$HOME/emsdk"; do
+    for candidate in "${EMSDK:-}" "$HOME/Git/emsdk" "$HOME/emsdk"; do
         if [ -n "$candidate" ] && [ -f "$candidate/emsdk_env.sh" ]; then
             # shellcheck disable=SC1091
             source "$candidate/emsdk_env.sh"

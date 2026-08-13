@@ -5,6 +5,8 @@ build/
 build-*/
 cmake-build-*/
 android/build/
+web/build/
+web/dist/
 
 # ---------------------------------------------------------------------------
 # CMake

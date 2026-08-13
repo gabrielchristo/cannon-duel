@@ -120,6 +120,12 @@ if(EMSCRIPTEN)
     #   COOP/COEP que pthreads exigiriam).
     # -lwebsocket.js: API emscripten_websocket usada pelo RealtimeClient web.
     # -lidbfs.js: persistência do player_identity.txt entre reloads.
+    # -sEXPORTED_RUNTIME_METHODS=HEAPF32: Emscripten recente parou de expor
+    #   Module.HEAPF32 por padrão; o backend Web Audio (ScriptProcessorNode)
+    #   do miniaudio embutido no raylib acessa Module.HEAPF32.buffer
+    #   diretamente (ver miniaudio.h, onaudioprocess), e sem isso o callback
+    #   de áudio lança exceção a cada buffer — o jogo carrega normalmente mas
+    #   fica mudo (fire/explosion/music), sem erro visível fora do console.
     # --preload-file: empacota assets/ no mesmo prefixo "assets/" usado por
     #   AssetPath.h no desktop, então esse arquivo não precisa mudar.
     target_link_options(CannonDuel PRIVATE
@@ -127,6 +133,7 @@ if(EMSCRIPTEN)
         -sASYNCIFY
         -sALLOW_MEMORY_GROWTH=1
         -sFORCE_FILESYSTEM=1
+        -sEXPORTED_RUNTIME_METHODS=HEAPF32
         -lwebsocket.js
         -lidbfs.js
         --preload-file ${CMAKE_SOURCE_DIR}/assets@assets

@@ -12,14 +12,15 @@ por `CANNON_DUEL_WEB_BUILD` (ver `src/Platform.h`).
   cd ~/emsdk && ./emsdk install latest && ./emsdk activate latest
   source ~/emsdk/emsdk_env.sh
   ```
-  (`build_web.sh` tenta encontrar `~/emsdk` sozinho se `emcmake` não estiver
-  no PATH da sessão atual — mas precisa ter sido instalado/ativado uma vez.)
+  (`build_web.sh` tenta encontrar `~/Git/emsdk` ou `~/emsdk` sozinho se
+  `emcmake` não estiver no PATH da sessão atual — mas precisa ter sido
+  instalado/ativado uma vez.)
 
 ## Build
 
 ```bash
-./web/build_web.sh          # release
-./web/build_web.sh debug    # com dev panel + log overlay (CANNON_DUEL_DEBUG_MODE)
+./build_web.sh          # release
+./build_web.sh debug    # com dev panel + log overlay (CANNON_DUEL_DEBUG_MODE)
 ```
 
 Gera `web/dist/CannonDuel.{html,js,wasm,data}`.
@@ -39,7 +40,7 @@ cd web/dist && python3 -m http.server 8080
 Não é automatizado por este script de propósito (é uma ação que publica
 pra fora do repo). Passos manuais:
 
-1. Rode `./web/build_web.sh`.
+1. Rode `./build_web.sh`.
 2. Copie o conteúdo de `web/dist/` pra pasta que o GitHub Pages serve
    (ex.: `docs/` na branch publicada, ou uma branch `gh-pages`).
 3. Configure o Pages do repositório pra apontar pra essa pasta/branch.

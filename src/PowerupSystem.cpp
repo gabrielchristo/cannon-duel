@@ -25,6 +25,10 @@ void PowerupSystem::ResetSpawnCounter() {
     turnsSinceSpawnCheck_ = 0;
 }
 
+void PowerupSystem::SetSpawnEveryTurns(int turns) {
+    spawnEveryTurns_ = std::max(1, turns);
+}
+
 PowerupType PowerupSystem::RollWeightedType(float roll01) const {
     struct Entry { PowerupType type; float weight; };
     const Entry entries[] = {
@@ -54,7 +58,7 @@ void PowerupSystem::PushSpawn(float x, PowerupType type) {
 
 void PowerupSystem::MaybeSpawnRandom() {
     if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
-    if (turnsSinceSpawnCheck_ < cfg::POWERUP_SPAWN_EVERY_TURNS) return;
+    if (turnsSinceSpawnCheck_ < spawnEveryTurns_) return;
     turnsSinceSpawnCheck_ = 0;
 
     float margin = 160.0f;
@@ -219,6 +223,52 @@ bool PowerupSystem::CheckProjectileCollision(Vector2 projFrom, Vector2 projTo, i
         if (dist > hitRadius) continue;
 
         Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
+        PowerupType type = pu.type;
+        float px = pu.x;
+        pu.active = false;
+        picked = true;
+
+        if (onOnlinePickup) {
+            shotPickedType_ = static_cast<int>(type);
+            shotPickedX_ = px;
+            onOnlinePickup(shotPickedType_, shotPickedX_);
+        }
+
+        ApplyEffect(shooter, type, lang);
+        break;
+    }
+
+    active_.erase(std::remove_if(active_.begin(), active_.end(),
+                                 [](const Powerup& p) { return !p.active; }),
+                  active_.end());
+    return picked;
+}
+
+bool PowerupSystem::CheckProjectileCollisionRoster(Vector2 projFrom, Vector2 projTo, int currentPlayer,
+                                                 MatchRoster& roster, const Terrain& terrain, Lang lang,
+                                                 const std::function<void(int type, float x)>& onOnlinePickup) {
+    Vector2 seg = { projTo.x - projFrom.x, projTo.y - projFrom.y };
+    float segLenSq = seg.x * seg.x + seg.y * seg.y;
+    float hitRadius = cfg::POWERUP_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + cfg::POWERUP_HIT_TOLERANCE_PX;
+
+    bool picked = false;
+    for (auto& pu : active_) {
+        if (!pu.active) continue;
+
+        float y = terrain.HeightAt(pu.x);
+        Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f };
+
+        float t = 0.0f;
+        if (segLenSq > 0.0001f) {
+            t = ((center.x - projFrom.x) * seg.x + (center.y - projFrom.y) * seg.y) / segLenSq;
+            t = std::clamp(t, 0.0f, 1.0f);
+        }
+        Vector2 closest = { projFrom.x + seg.x * t, projFrom.y + seg.y * t };
+        float dist = std::sqrt(std::pow(closest.x - center.x, 2) + std::pow(closest.y - center.y, 2));
+
+        if (dist > hitRadius) continue;
+
+        Cannon& shooter = roster.AtPlayerNum(currentPlayer);
         PowerupType type = pu.type;
         float px = pu.x;
         pu.active = false;

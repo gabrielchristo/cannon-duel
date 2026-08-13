@@ -23,6 +23,7 @@ constexpr float CRATER_RADIUS_PX     = 42.0f;         // raio da cratera de expl
 constexpr float CANNON_MAX_HEALTH    = 180.0f; // = 3x EXPLOSION_DAMAGE_MAX (3 acertos diretos derrubam o canhão)
 constexpr float CANNON_BODY_RADIUS_PX = 18.0f;
 constexpr float CANNON_MARGIN_PX     = 70.0f;   // distância mínima da borda da tela
+constexpr float TEAM_CANNON_PAIR_SPACING_PX = 110.0f; // parceiros de equipe lado a lado
 
 // ---- Projétil ----
 constexpr float PROJECTILE_RADIUS_PX = 5.0f;

@@ -18,6 +18,7 @@
 
 void Game::StartOnlineMatch(const MatchStart& ms) {
     mode = GameMode::Online;
+    matchFormat = MatchFormat::Duel1v1;
     version = ms.isPlus ? GameVersion::Plus : GameVersion::Classic;
     onlineWinByDisconnect = false;
     onlineLobby.PauseRealtime();
@@ -82,7 +83,7 @@ void Game::UpdateOpponentAimSim(float dt) {
 }
 
 void Game::DrawOpponentAim(int shooterPlayer, float angleDeg, float power01) const {
-    const Cannon& active = (shooterPlayer == 1) ? player1 : player2;
+    const Cannon& active = GetCannon(shooterPlayer);
     Vector2 base = { active.x, active.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
     Color aimColor = Fade(SKYBLUE, 0.75f);
 
@@ -109,7 +110,7 @@ void Game::BeginRemoteShotReplay(const RemoteTurnResult& remote) {
     remoteLiveActive = false;
     remoteLiveHasPendingResult = false;
 
-    Cannon& shooter = (remote.shooterPlayer == 1) ? player1 : player2;
+    Cannon& shooter = GetCannon(remote.shooterPlayer);
     shooter.SetAim(remote.shootAngle, remote.shootPower);
     windForce = remote.windAtShot;
     currentPlayer = remote.shooterPlayer;
@@ -139,7 +140,7 @@ void Game::BeginRemoteProjectileLive(const LiveShotStart& shot) {
     remoteLiveSamples.push_back(ProjSample{ 0, 0.0f, shot.muzzleX, shot.muzzleY });
     remoteLiveLastSeq = 0;
 
-    Cannon& shooter = (shot.shooterPlayer == 1) ? player1 : player2;
+    Cannon& shooter = GetCannon(shot.shooterPlayer);
     shooter.SetAim(shot.angleDeg, shot.power01);
     windForce = shot.wind;
     currentPlayer = shot.shooterPlayer;
@@ -266,7 +267,7 @@ void Game::UpdateRemoteProjectileLive(float dt) {
 
 void Game::UpdateRemoteShotReplay(float dt) {
     const RemoteTurnResult& remote = pendingRemoteTurn;
-    Vector2 start = (remote.shooterPlayer == 1) ? player1.MuzzlePosition() : player2.MuzzlePosition();
+    Vector2 start = GetCannon(remote.shooterPlayer).MuzzlePosition();
     Vector2 end = { remote.impactX, remote.impactY };
 
     if (remoteReplayAimTimer > 0.0f) {
@@ -304,12 +305,12 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     // Power-up coletado no tiro remoto (autoritativo).
     if (version == GameVersion::Plus && remote.pickedPowerupType >= 0) {
         powerups.ApplyRemotePickup(remote.pickedPowerupType, remote.pickedPowerupX,
-                                   remote.shooterPlayer, player1, player2,
+                                   remote.shooterPlayer, GetCannon(1), GetCannon(2),
                                    language, true, powerups.RemoteEffectApplied());
     }
     powerups.RemoteEffectApplied() = false;
 
-    Cannon& shooter = (remote.shooterPlayer == 1) ? player1 : player2;
+    Cannon& shooter = GetCannon(remote.shooterPlayer);
     if (version == GameVersion::Plus) {
         shooter.OnShotResolved();
     }
@@ -318,11 +319,11 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     particles.EmitExplosion(impactPos, 50);
     terrain.Explode(impactPos.x, impactPos.y, remote.craterRadius);
 
-    player1.TakeDamage(remote.damageP1);
-    player2.TakeDamage(remote.damageP2);
+    GetCannon(1).TakeDamage(remote.damageP1);
+    GetCannon(2).TakeDamage(remote.damageP2);
 
-    player1.groundY = terrain.HeightAt(player1.x);
-    player2.groundY = terrain.HeightAt(player2.x);
+    GetCannon(1).groundY = terrain.HeightAt(GetCannon(1).x);
+    GetCannon(2).groundY = terrain.HeightAt(GetCannon(2).x);
 
     if (version == GameVersion::Plus) {
         effects.TriggerShake(cfg::SHAKE_MAGNITUDE_TERRAIN_PX, cfg::SHAKE_DURATION_TERRAIN_SEC);
@@ -361,7 +362,7 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
 void Game::OnOnlineTurnCompleted(int startingTurnPlayer) {
     onlineCompletedTurns++;
     if (version == GameVersion::Plus) {
-        Cannon& startingCannon = (startingTurnPlayer == 1) ? player1 : player2;
+        Cannon& startingCannon = GetCannon(startingTurnPlayer);
         startingCannon.OnTurnStarted();
         if (onlineCompletedTurns % cfg::POWERUP_SPAWN_EVERY_TURNS == 0) {
             powerups.MaybeSpawnSeeded(onlineSeed, onlineCompletedTurns);
@@ -373,7 +374,7 @@ void Game::ConsumeRemotePowerupPickups() {
     LivePowerupPickup pu;
     while (netMatch.PollRemotePowerupPickup(pu)) {
         int shooter = netMatch.SyncedCurrentTurnPlayer();
-        powerups.ApplyRemotePickup(pu.type, pu.x, shooter, player1, player2,
+        powerups.ApplyRemotePickup(pu.type, pu.x, shooter, GetCannon(1), GetCannon(2),
                                    language, false, powerups.RemoteEffectApplied());
     }
 }

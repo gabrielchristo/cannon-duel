@@ -27,8 +27,13 @@ void Game::UpdateMainMenu() {
     Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 569, 280, 56 };
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-        if (CheckCollisionPointRec(m, btn1P)) StartMatch(GameMode::PvAI);
-        else if (CheckCollisionPointRec(m, btn2P)) StartMatch(GameMode::PvP);
+        if (CheckCollisionPointRec(m, btn1P)) {
+            pendingMatchMode = GameMode::PvAI;
+            state = GameState::FormatSelect;
+        } else if (CheckCollisionPointRec(m, btn2P)) {
+            pendingMatchMode = GameMode::PvP;
+            state = GameState::FormatSelect;
+        }
         else if (CheckCollisionPointRec(m, btnOnline)) {
             onlineLobby.EnterLobby();
             state = GameState::OnlineLobby;

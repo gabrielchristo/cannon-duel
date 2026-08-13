@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "GameTypes.h"
+#include "MatchRoster.h"
 #include "PhysicsWorld.h"
 #include "Terrain.h"
 #include "Cannon.h"
@@ -61,11 +62,13 @@ private:
     void ConsumeRemotePowerupPickups();
 
     // --- gameplay local ---
-    void StartMatch(GameMode mode);
+    void UpdateFormatSelect();
+    void DrawFormatSelect();
+    void StartMatch(GameMode mode, MatchFormat format = MatchFormat::Duel1v1);
     void ResetRound(unsigned int seed);
     void UpdateAiming();
     void UpdateProjectileFlight(float dt);
-    void BeginGuidedFlight(Vector2 muzzle, const Cannon& opponent);
+    void BeginGuidedFlight(Vector2 muzzle, const Cannon& target);
     Vector2 SampleGuidedPath(float t) const;
     void ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget);
     void EndTurn();
@@ -127,15 +130,21 @@ private:
                              float x = 0.0f, float value = 0.0f);
 #endif
 
+    Cannon& GetCannon(int playerNum) { return roster.AtPlayerNum(playerNum); }
+    const Cannon& GetCannon(int playerNum) const { return roster.AtPlayerNum(playerNum); }
+    int ActiveSlot() const { return currentPlayer - 1; }
+
     // --- estado geral ---
     GameState state = GameState::MainMenu;
     GameMode  mode  = GameMode::PvAI;
+    MatchFormat matchFormat = MatchFormat::Duel1v1;
+    GameMode pendingMatchMode = GameMode::PvAI;
     GameVersion version = GameVersion::Classic;
     Lang language = Lang::PT_BR;
 
     PhysicsWorld physics;
     Terrain terrain;
-    Cannon player1, player2;
+    MatchRoster roster;
     Projectile projectile;
     ParticleSystem particles;
     AI ai;
@@ -171,6 +180,8 @@ private:
     Vector2 guidedPathStart{};
     Vector2 guidedPathApex{};
     Vector2 guidedPathTarget{};
+
+    int guidedTargetPlayerNum = 2;
 
     bool onlineNameEditing = false;
     std::string onlineNameEditBuffer;

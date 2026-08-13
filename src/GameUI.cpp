@@ -7,6 +7,7 @@
 #include "net/NetWorker.h"
 #include "net/SupabaseClient.h"
 
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -171,6 +172,65 @@ void Game::DrawMainMenu() {
     drawButton(btnOnline, T(TK::OnlineButton, language));
     drawButton(btnAbout, T(TK::AboutButton, language));
     drawButton(btnInstructions, T(TK::InstructionsButton, language));
+}
+
+void Game::UpdateFormatSelect() {
+    Vector2 m = ::GetVirtualMouse();
+    UpdateVersionSwitch(m);
+    UpdateLanguageFlags(m);
+
+    Rectangle btn1v1 = { cfg::SCREEN_WIDTH / 2.0f - 140, 320, 280, 56 };
+    Rectangle btn2v2 = { cfg::SCREEN_WIDTH / 2.0f - 140, 396, 280, 56 };
+    Rectangle btnBack = { cfg::SCREEN_WIDTH / 2.0f - 100, 500, 200, 52 };
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(m, btn1v1)) {
+            StartMatch(pendingMatchMode, MatchFormat::Duel1v1);
+        } else if (CheckCollisionPointRec(m, btn2v2)) {
+            StartMatch(pendingMatchMode, MatchFormat::Team2v2);
+        } else if (CheckCollisionPointRec(m, btnBack)) {
+            state = GameState::MainMenu;
+        }
+    }
+}
+
+void Game::DrawFormatSelect() {
+    ClearBackground(Color{ 235, 214, 190, 255 });
+
+    const char* title = T(TK::FormatSelectTitle, language);
+    int fs = 40;
+    int tw = MeasureText(title, fs);
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 95, fs, Color{40, 30, 20, 255});
+
+    Vector2 m = ::GetVirtualMouse();
+    DrawVersionSwitch(m);
+    DrawLanguageFlags(m);
+
+    Rectangle btn1v1 = { cfg::SCREEN_WIDTH / 2.0f - 140, 320, 280, 56 };
+    Rectangle btn2v2 = { cfg::SCREEN_WIDTH / 2.0f - 140, 396, 280, 56 };
+    Rectangle btnBack = { cfg::SCREEN_WIDTH / 2.0f - 100, 500, 200, 52 };
+
+    auto drawButton = [&](Rectangle r, const char* label) {
+        bool hover = CheckCollisionPointRec(m, r);
+        Color fill = hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255};
+        DrawRectangleRec(r, fill);
+        DrawRectangleLinesEx(r, 2, Color{60, 40, 20, 255});
+        int fs2 = 22;
+        int tw2 = MeasureText(label, fs2);
+        DrawText(label, static_cast<int>(r.x + r.width / 2 - tw2 / 2),
+                 static_cast<int>(r.y + r.height / 2 - fs2 / 2), fs2, Color{40, 25, 10, 255});
+    };
+
+    drawButton(btn1v1, T(TK::FormatDuel1v1, language));
+    drawButton(btn2v2, T(TK::FormatTeam2v2, language));
+
+    bool backHover = CheckCollisionPointRec(m, btnBack);
+    DrawRectangleRec(btnBack, backHover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
+    DrawRectangleLinesEx(btnBack, 2, Color{60, 40, 20, 255});
+    const char* backLbl = T(TK::FormatBack, language);
+    int bw = MeasureText(backLbl, 20);
+    DrawText(backLbl, static_cast<int>(btnBack.x + btnBack.width / 2 - bw / 2),
+             static_cast<int>(btnBack.y + btnBack.height / 2 - 10), 20, Color{40, 25, 10, 255});
 }
 
 void Game::DrawInstructions() {
@@ -415,12 +475,25 @@ void Game::DrawWindIndicator() const {
 void Game::DrawHUD() {
     DrawWindIndicator();
 
-    const char* turnLabel = (mode == GameMode::PvAI && currentPlayer == 2)
-        ? T(TK::TurnAI, language)
-        : (currentPlayer == 1 ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language));
+    const char* turnLabel = nullptr;
+    char turnBuf[64] = {};
+    if (roster.IsAISlot(ActiveSlot(), mode)) {
+        turnLabel = T(TK::TurnAI, language);
+    } else if (IsTeamMode(matchFormat) && mode == GameMode::PvP) {
+        turnLabel = (ActiveSlot() == 0) ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language);
+    } else if (IsTeamMode(matchFormat)) {
+        const int slot = ActiveSlot();
+        const int team = roster.TeamOfSlot(slot);
+        const int cannonIdx = (team == 0) ? slot + 1 : slot - roster.PerTeam() + 1;
+        const char* teamLetter = (team == 0) ? "A" : "B";
+        snprintf(turnBuf, sizeof(turnBuf), T(TK::TurnTeamFmt, language), teamLetter, cannonIdx);
+        turnLabel = turnBuf;
+    } else {
+        turnLabel = (currentPlayer == 1) ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language);
+    }
     DrawText(turnLabel, 20, 20, 22, HudTextColor());
 
-    Cannon& active = (currentPlayer == 1) ? player1 : player2;
+    Cannon& active = GetCannon(currentPlayer);
     const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
     std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
     DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
@@ -437,6 +510,6 @@ void Game::DrawOnlineCannonLabels() const {
         DrawText(name.c_str(), tx, ty, fs, WHITE);
     };
 
-    drawLabel(player1, onlineP1Name);
-    drawLabel(player2, onlineP2Name);
+    drawLabel(GetCannon(1), onlineP1Name);
+    drawLabel(GetCannon(2), onlineP2Name);
 }

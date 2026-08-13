@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "Powerup.h"
 #include "Localization.h"
+#include "MatchRoster.h"
 #include "Terrain.h"
 #include "Cannon.h"
 
@@ -17,6 +18,7 @@ public:
 
     void TickSpawnCounter();
     void ResetSpawnCounter();
+    void SetSpawnEveryTurns(int turns);
 
     void MaybeSpawnRandom();
     void MaybeSpawnSeeded(unsigned seed, int completedTurns);
@@ -37,6 +39,10 @@ public:
                                   Lang lang,
                                   const std::function<void(int type, float x)>& onOnlinePickup);
 
+    bool CheckProjectileCollisionRoster(Vector2 projFrom, Vector2 projTo, int currentPlayer,
+                                        MatchRoster& roster, const Terrain& terrain, Lang lang,
+                                        const std::function<void(int type, float x)>& onOnlinePickup);
+
     bool ApplyRemotePickup(int type, float x, int shooterPlayer,
                            Cannon& player1, Cannon& player2,
                            Lang lang, bool applyEffect, bool& remoteEffectApplied);
@@ -48,12 +54,13 @@ public:
     bool& RemoteEffectApplied() { return remoteEffectApplied_; }
 
     int TurnsSinceSpawnCheck() const { return turnsSinceSpawnCheck_; }
-    void ForceSpawnReady() { turnsSinceSpawnCheck_ = cfg::POWERUP_SPAWN_EVERY_TURNS; }
+    void ForceSpawnReady() { turnsSinceSpawnCheck_ = spawnEveryTurns_; }
     void SpawnAt(float x, PowerupType type);
 
 private:
     std::vector<Powerup> active_;
     int turnsSinceSpawnCheck_ = 0;
+    int spawnEveryTurns_ = cfg::POWERUP_SPAWN_EVERY_TURNS;
     int shotPickedType_ = -1;
     float shotPickedX_ = 0.0f;
     bool remoteEffectApplied_ = false;

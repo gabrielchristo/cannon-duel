@@ -29,6 +29,16 @@ enum class TK {
     RoundP2Wins,
     RoundP1WinsBuried,
     RoundP2WinsBuried,
+    RoundTeamAWins,
+    RoundTeamBWins,
+    RoundTeamAWinsBuried,
+    RoundTeamBWinsBuried,
+
+    FormatSelectTitle,
+    FormatDuel1v1,
+    FormatTeam2v2,
+    FormatBack,
+    TurnTeamFmt,
 
     RoundOpponentDisconnected,
 
@@ -70,7 +80,7 @@ inline const char* T(TK key, Lang lang) {
     bool pt = (lang == Lang::PT_BR);
     switch (key) {
         case TK::Title: return "CANNON DUEL";
-        case TK::OnePlayer: return pt ? "1 JOGADOR (vs IA)" : "1 PLAYER (vs AI)";
+        case TK::OnePlayer: return pt ? "1 JOGADOR" : "1 PLAYER";
         case TK::TwoPlayers: return pt ? "2 JOGADORES" : "2 PLAYERS";
         case TK::AboutButton: return pt ? "SOBRE" : "ABOUT";
         case TK::ClassicLabel: return pt ? "CLASSIC" : "CLASSIC";
@@ -95,6 +105,15 @@ inline const char* T(TK key, Lang lang) {
         case TK::RoundP2Wins: return pt ? "JOGADOR 2 VENCEU!" : "PLAYER 2 WINS!";
         case TK::RoundP1WinsBuried: return pt ? "JOGADOR 1 VENCEU! (canhao 2 soterrado)" : "PLAYER 1 WINS! (cannon 2 buried)";
         case TK::RoundP2WinsBuried: return pt ? "JOGADOR 2 VENCEU! (canhao 1 soterrado)" : "PLAYER 2 WINS! (cannon 1 buried)";
+        case TK::RoundTeamAWins: return pt ? "EQUIPE A VENCEU!" : "TEAM A WINS!";
+        case TK::RoundTeamBWins: return pt ? "EQUIPE B VENCEU!" : "TEAM B WINS!";
+        case TK::RoundTeamAWinsBuried: return pt ? "EQUIPE A VENCEU! (equipe B soterrada)" : "TEAM A WINS! (team B buried)";
+        case TK::RoundTeamBWinsBuried: return pt ? "EQUIPE B VENCEU! (equipe A soterrada)" : "TEAM B WINS! (team A buried)";
+        case TK::FormatSelectTitle: return pt ? "ESCOLHA O FORMATO" : "CHOOSE FORMAT";
+        case TK::FormatDuel1v1: return pt ? "DUELO 1 x 1" : "1 vs 1 DUEL";
+        case TK::FormatTeam2v2: return pt ? "EQUIPE 2 x 2" : "TEAM 2 vs 2";
+        case TK::FormatBack: return pt ? "VOLTAR" : "BACK";
+        case TK::TurnTeamFmt: return pt ? "Equipe %s - Canhao %d" : "Team %s - Cannon %d";
         case TK::RoundOpponentDisconnected: return pt ? "VITORIA! Adversario desconectou." : "YOU WIN! Opponent disconnected.";
 
         case TK::AboutTitle: return pt ? "SOBRE O JOGO" : "ABOUT THE GAME";

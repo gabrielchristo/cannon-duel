@@ -15,6 +15,7 @@ void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
     trajectoryPreviewTurnsLeft = 0;
     queuedTrajectoryPreviewTurns = 0;
     shieldTurnsLeft = 0;
+    tintColor = WHITE;
 }
 
 void Cannon::SetAim(float pAngleDeg, float pPower01) {
@@ -46,8 +47,10 @@ Vector2 Cannon::MuzzlePosition() const {
 
 void Cannon::Draw(bool isCurrentTurn, Texture2D* sprite) const {
     Vector2 base = { x, groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+    const bool customColor = !(tintColor.a == 255 && tintColor.r == 255 &&
+                               tintColor.g == 255 && tintColor.b == 255);
 
-    if (sprite && sprite->id != 0) {
+    if (sprite && sprite->id != 0 && !customColor) {
         // Sprite estático (o cano é desenhado separadamente por cima,
         // rotacionado, já que a arte placeholder tem o cano em ângulo fixo).
         float scale = (cfg::CANNON_BODY_RADIUS_PX * 2.6f) / sprite->width;
@@ -56,8 +59,9 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* sprite) const {
         Rectangle dst = { base.x, base.y, sprite->width * scale, sprite->height * scale };
         DrawTexturePro(*sprite, src, dst, origin, 0.0f, WHITE);
     } else {
-        Color bodyColor = (side == CannonSide::Left) ? Color{60, 120, 220, 255}
-                                                       : Color{220, 70, 60, 255};
+        Color bodyColor = customColor
+            ? tintColor
+            : ((side == CannonSide::Left) ? Color{60, 120, 220, 255} : Color{220, 70, 60, 255});
         // cano
         Vector2 muzzle = MuzzlePosition();
         DrawLineEx(base, muzzle, 7.0f, DARKGRAY);
@@ -66,6 +70,10 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* sprite) const {
         DrawCircleV(base, cfg::CANNON_BODY_RADIUS_PX, bodyColor);
         DrawCircleLines(static_cast<int>(base.x), static_cast<int>(base.y),
                          cfg::CANNON_BODY_RADIUS_PX, BLACK);
+        if (customColor) {
+            DrawCircleLines(static_cast<int>(base.x), static_cast<int>(base.y),
+                            cfg::CANNON_BODY_RADIUS_PX + 3, Fade(bodyColor, 0.85f));
+        }
     }
 
     // Indicador fino do ângulo real (sobreposto ao sprite, já que a arte

@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "DebugLog.h"
 #include "GameRand.h"
+#include "MatchRoster.h"
 #include "VirtualScreen.h"
 #include "net/NetWorker.h"
 #include "net/SupabaseClient.h"
@@ -16,41 +17,39 @@
 #include <string>
 #include <vector>
 
+namespace {
+
+bool FriendlyFireEnabled(MatchFormat format, GameVersion ver) {
+    return IsTeamMode(format) && ver == GameVersion::Plus;
+}
+
+} // namespace
+
 bool Game::IsLocalHumanTurn() const {
     if (state != GameState::Aiming) return false;
-    if (mode == GameMode::PvAI && currentPlayer == 2) return false;
     if (mode == GameMode::Online) {
         if (!netMatch.IsMyTurn()) return false;
         if (currentPlayer != netMatch.MyPlayerNumber()) return false;
     }
-    return true;
+    return roster.IsHumanSlot(ActiveSlot(), mode);
 }
 
 void Game::UpdateAiming() {
-    // Multiplayer online: só controlo o MEU canhão quando o servidor diz
-    // que é minha vez — nunca o canhão indicado por currentPlayer sozinho.
     if (mode == GameMode::Online && !netMatch.IsMyTurn()) {
         return;
     }
 
-    int activePlayer = currentPlayer;
-    if (mode == GameMode::Online) {
-        activePlayer = netMatch.MyPlayerNumber();
-    }
-    Cannon& active = (activePlayer == 1) ? player1 : player2;
-    Cannon& other  = (activePlayer == 1) ? player2 : player1;
+    const int activeSlot = (mode == GameMode::Online) ? (netMatch.MyPlayerNumber() - 1) : ActiveSlot();
+    Cannon& active = roster.At(activeSlot);
 
-    bool isAITurn = (mode == GameMode::PvAI && currentPlayer == 2);
+    const bool isAITurn = roster.IsAISlot(ActiveSlot(), mode);
 
     if (isAITurn) {
-        // IA "pensa" e atira quase imediatamente (poderia adicionar delay/timer)
-        float targetX = other.x;
-        float targetY = other.groundY;
+        const int targetSlot = roster.LowestHpEnemySlot(ActiveSlot());
+        Cannon& primaryEnemy = roster.At(targetSlot);
+        float targetX = primaryEnemy.x;
+        float targetY = primaryEnemy.groundY;
 
-        // Versão Plus: a IA às vezes prefere mirar num power-up no mapa em
-        // vez de atacar o adversário diretamente — com prioridade maior
-        // quando está com pouca vida (cura/escudo) e uma chance geral menor
-        // pros demais casos, pra não ficar sempre ignorando o adversário.
         if (version == GameVersion::Plus && !powerups.Active().empty()) {
             float healthRatio = active.health / cfg::CANNON_MAX_HEALTH;
             int chosenIdx = -1;
@@ -58,13 +57,13 @@ void Game::UpdateAiming() {
 
             for (size_t i = 0; i < powerups.Active().size(); ++i) {
                 const Powerup& pu = powerups.Active()[i];
-                float priority = 0.25f; // chance-base de considerar qualquer power-up
+                float priority = 0.25f;
 
                 if (healthRatio < 0.45f &&
                     (pu.type == PowerupType::Heal || pu.type == PowerupType::Shield)) {
-                    priority = 0.85f; // prioridade alta quando a vida está baixa
+                    priority = 0.85f;
                 } else if (pu.type == PowerupType::DoubleDamage || pu.type == PowerupType::Guided) {
-                    priority = 0.4f; // vantagens ofensivas valem um pouco mais que a base
+                    priority = 0.4f;
                 }
 
                 if (priority > bestPriority) {
@@ -82,20 +81,16 @@ void Game::UpdateAiming() {
         ai.ComputeShot(active, targetX, targetY, windForce);
 
         Vector2 muzzle = active.MuzzlePosition();
-        // Teleguiado sempre sai com um ângulo mínimo elevado, garantindo que
-        // comece subindo (arco por cima) em vez de eventualmente sair quase
-        // reto e bater no terreno próximo antes da correção de rota conseguir agir.
         Vector2 dir = (version == GameVersion::Plus && active.pendingGuided)
             ? active.DirectionAtAngle(std::max(active.angleDeg, cfg::POWERUP_GUIDED_MIN_ANGLE_DEG))
             : active.AimDirection();
         projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
         prevProjectilePos = muzzle;
         if (version == GameVersion::Plus && active.pendingGuided) {
-            BeginGuidedFlight(muzzle, other);
+            guidedTargetPlayerNum = targetSlot + 1;
+            BeginGuidedFlight(muzzle, roster.At(targetSlot));
             projectile.SetKinematicPositionPx(muzzle);
         }
-        // Trajetória prevista é consumida no exato momento do disparo — é
-        // aqui que o jogador de fato "usou" a rodada com o preview visível.
         if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
             active.OnShotFired();
         }
@@ -105,15 +100,8 @@ void Game::UpdateAiming() {
         return;
     }
 
-    // ---- Mecanismo original: oscila e trava no clique ----
     aimOscTimer += GetFrameTime();
 
-    // Atalhos de teclado (espaço = confirmar/atirar, B = resetar/voltar ao
-    // ângulo) só existem na build de PC — foram pensados para permitir que,
-    // no modo 2 jogadores, um jogador use o mouse e o outro o teclado,
-    // compartilhando a mesma tela. Numa build mobile/touch os dois jogadores
-    // compartilham a tela de toque, então esses atalhos não fazem sentido e
-    // o botão in-game de resetar ângulo (touch-friendly) cobre essa função.
 #if CANNON_DUEL_ANDROID_BUILD
     bool confirmPressed = false;
     bool resetPressed = false;
@@ -123,15 +111,11 @@ void Game::UpdateAiming() {
 #endif
 
     if (aimPhase == AimPhase::Angle) {
-        // -90° (reto pra baixo) a 90° (reto pra cima), oscilando continuamente
-        // (onda triangular), na direção do oponente. Com "trajetória
-        // prevista" ativa, oscila mais devagar também — senão o preview não
-        // ajuda muito, já que o timing fica apertado demais em ambas as fases.
         float period = cfg::ANGLE_OSC_PERIOD_SEC *
             ((version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0)
                 ? cfg::POWERUP_TRAJECTORY_AIM_SLOWDOWN : 1.0f);
-        float t = fmodf(aimOscTimer, period) / period; // 0..1
-        float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
+        float t = fmodf(aimOscTimer, period) / period;
+        float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f);
         float angle = -90.0f + tri * 180.0f;
         active.SetAim(angle, active.power01);
 
@@ -140,21 +124,17 @@ void Game::UpdateAiming() {
             aimOscTimer = 0.0f;
         }
         if (resetPressed) {
-            // reseta a linha de ângulo, reiniciando a oscilação do começo
             aimOscTimer = 0.0f;
         }
-    } else { // AimPhase::Power
-        // Com "trajetória prevista" ativa, a barra oscila mais devagar —
-        // senão o preview não ajuda muito, já que o timing fica apertado demais.
+    } else {
         float period = cfg::POWER_OSC_PERIOD_SEC *
             ((version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0)
                 ? cfg::POWERUP_TRAJECTORY_AIM_SLOWDOWN : 1.0f);
-        float t = fmodf(aimOscTimer, period) / period; // 0..1
-        float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f); // 0->1->0
+        float t = fmodf(aimOscTimer, period) / period;
+        float tri = (t < 0.5f) ? (t * 2.0f) : (2.0f - t * 2.0f);
         active.SetAim(active.angleDeg, tri);
 
         if (IsMouseButtonPressed(MOUSE_RIGHT_BUTTON) || resetPressed) {
-            // volta para a seleção de ângulo, começando a oscilação do zero
             aimPhase = AimPhase::Angle;
             aimOscTimer = 0.0f;
             return;
@@ -168,7 +148,9 @@ void Game::UpdateAiming() {
             projectile.Spawn(physics.Id(), muzzle, dir, active.power01);
             prevProjectilePos = muzzle;
             if (version == GameVersion::Plus && active.pendingGuided) {
-                BeginGuidedFlight(muzzle, other);
+                const int targetSlot = roster.LowestHpEnemySlot(ActiveSlot());
+                guidedTargetPlayerNum = targetSlot + 1;
+                BeginGuidedFlight(muzzle, roster.At(targetSlot));
                 projectile.SetKinematicPositionPx(muzzle);
             }
             if (version == GameVersion::Plus && active.trajectoryPreviewTurnsLeft > 0) {
@@ -193,15 +175,15 @@ void Game::UpdateAiming() {
     }
 }
 
-void Game::BeginGuidedFlight(Vector2 muzzle, const Cannon& opponent) {
+void Game::BeginGuidedFlight(Vector2 muzzle, const Cannon& target) {
     guidedPathT = 0.0f;
     guidedPathStart = muzzle;
-    const float groundAtOpp = terrain.HeightAt(opponent.x);
+    const float groundAtOpp = terrain.HeightAt(target.x);
     float apexY = std::min(cfg::POWERUP_GUIDED_APEX_Y_PX,
                              groundAtOpp - cfg::POWERUP_GUIDED_APEX_CLEARANCE_PX);
     apexY = std::max(24.0f, apexY);
-    guidedPathApex = { opponent.x, apexY };
-    guidedPathTarget = { opponent.x, opponent.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+    guidedPathApex = { target.x, apexY };
+    guidedPathTarget = { target.x, target.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
 }
 
 Vector2 Game::SampleGuidedPath(float t) const {
@@ -224,9 +206,9 @@ Vector2 Game::SampleGuidedPath(float t) const {
 }
 
 void Game::UpdateProjectileFlight(float dt) {
-    Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
-    Cannon& opponent = (currentPlayer == 1) ? player2 : player1;
+    Cannon& shooter = GetCannon(currentPlayer);
     const bool guidedActive = (version == GameVersion::Plus && shooter.pendingGuided);
+    const bool friendlyFire = FriendlyFireEnabled(matchFormat, version);
 
     if (guidedActive) {
         if (!projectile.IsActive()) return;
@@ -246,18 +228,19 @@ void Game::UpdateProjectileFlight(float dt) {
         particles.EmitTrail(pos, vel, Color{180, 120, 230, 255});
 
         if (version == GameVersion::Plus) {
-            powerups.CheckProjectileCollision(prevProjectilePos, pos, currentPlayer,
-                                              player1, player2, terrain, language,
-                                              [this](int type, float x) {
-                                                  if (mode == GameMode::Online && netMatch.InMatch()) {
-                                                      netMatch.PublishPowerupPicked(type, x);
-                                                  }
-                                              });
+            powerups.CheckProjectileCollisionRoster(prevProjectilePos, pos, currentPlayer,
+                                                    roster, terrain, language,
+                                                    [this](int type, float x) {
+                                                        if (mode == GameMode::Online && netMatch.InMatch()) {
+                                                            netMatch.PublishPowerupPicked(type, x);
+                                                        }
+                                                    });
         }
         prevProjectilePos = pos;
 
         if (guidedPathT >= 1.0f) {
-            ResolveImpact(guidedPathTarget, true, &opponent);
+            Cannon& target = GetCannon(guidedTargetPlayerNum);
+            ResolveImpact(guidedPathTarget, true, &target);
         }
         return;
     }
@@ -274,44 +257,40 @@ void Game::UpdateProjectileFlight(float dt) {
     }
 
     Color trailColor = (version == GameVersion::Plus && shooter.pendingDoubleDamage)
-        ? Color{255, 130, 40, 255}  // rastro em chamas (dano em dobro)
+        ? Color{255, 130, 40, 255}
         : Color{235, 230, 215, 255};
     particles.EmitTrail(pos, projectile.VelocityPx(), trailColor);
 
     if (version == GameVersion::Plus) {
-        powerups.CheckProjectileCollision(prevProjectilePos, pos, currentPlayer,
-                                          player1, player2, terrain, language,
-                                          [this](int type, float x) {
-                                              if (mode == GameMode::Online && netMatch.InMatch()) {
-                                                  netMatch.PublishPowerupPicked(type, x);
-                                              }
-                                          });
+        powerups.CheckProjectileCollisionRoster(prevProjectilePos, pos, currentPlayer,
+                                              roster, terrain, language,
+                                              [this](int type, float x) {
+                                                  if (mode == GameMode::Online && netMatch.InMatch()) {
+                                                      netMatch.PublishPowerupPicked(type, x);
+                                                  }
+                                              });
     }
     prevProjectilePos = pos;
 
-    // fora da tela (nunca deveria bater em nada) -> encerra o turno
     if (pos.x < -50 || pos.x > cfg::SCREEN_WIDTH + 50 || pos.y > cfg::SCREEN_HEIGHT + 200) {
-        // ResolveImpact também envia o turno online — EndTurn() sozinho
-        // deixaria o adversário esperando para sempre.
         ResolveImpact(pos, false, nullptr);
         return;
     }
 
-    // Colisão com o canhão adversário é checada ANTES do terreno: se o
-    // canhão estiver parcialmente afundado (terreno destruído ao redor),
-    // um acerto direto deve continuar contando como acerto direto, não como
-    // um simples impacto de terreno (senão perderíamos, por exemplo, o
-    // bônus de dano em dobro em impacto direto).
-    Cannon& target = (currentPlayer == 1) ? player2 : player1;
-    Vector2 targetBase = { target.x, target.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
-    float distToTarget = std::sqrt(std::pow(pos.x - targetBase.x, 2) + std::pow(pos.y - targetBase.y, 2));
+    const int shooterSlot = ActiveSlot();
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        if (i == shooterSlot) continue;
+        if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
 
-    if (distToTarget <= cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX) {
-        ResolveImpact(pos, true, &target);
-        return;
+        Cannon& target = roster.At(i);
+        Vector2 targetBase = { target.x, target.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+        float distToTarget = std::sqrt(std::pow(pos.x - targetBase.x, 2) + std::pow(pos.y - targetBase.y, 2));
+        if (distToTarget <= cfg::CANNON_BODY_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX) {
+            ResolveImpact(pos, true, &target);
+            return;
+        }
     }
 
-    // colisão com terreno (heightmap)
     if (terrain.IsPointInside(pos.x, pos.y)) {
         ResolveImpact(pos, false, nullptr);
         return;
@@ -322,84 +301,107 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
     projectile.Destroy();
     if (audioReady) PlaySound(sndExplosion);
 
-    // Multiplicadores de dano/raio vindos de power-ups do atirador (versão Plus)
-    Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
+    Cannon& shooter = GetCannon(currentPlayer);
     float damageMult = 1.0f;
     float radiusMult = 1.0f;
-    bool wasGuided = false;
 
     if (version == GameVersion::Plus) {
         if (shooter.pendingDoubleDamage) { damageMult *= cfg::POWERUP_DOUBLE_DAMAGE_MULT; }
-        if (shooter.pendingGuided) { damageMult *= cfg::POWERUP_GUIDED_DAMAGE_MULT; wasGuided = true; }
-
+        if (shooter.pendingGuided) { damageMult *= cfg::POWERUP_GUIDED_DAMAGE_MULT; }
         shooter.OnShotResolved();
     }
 
     float craterRadius = cfg::CRATER_RADIUS_PX * radiusMult;
     float explosionRadius = cfg::EXPLOSION_RADIUS_PX * radiusMult;
-    int particleCount = 50;
 
-    particles.EmitExplosion(impactPos, particleCount);
+    particles.EmitExplosion(impactPos, 50);
     terrain.Explode(impactPos.x, impactPos.y, craterRadius);
 
     if (version == GameVersion::Plus) {
         effects.TriggerShake(hitCannon ? cfg::SHAKE_MAGNITUDE_DIRECT_PX : cfg::SHAKE_MAGNITUDE_TERRAIN_PX,
                              hitCannon ? cfg::SHAKE_DURATION_DIRECT_SEC : cfg::SHAKE_DURATION_TERRAIN_SEC);
     }
-    (void)wasGuided;
 
-    // dano em área para os dois canhões, ponderado pela distância
+    const int shooterSlot = ActiveSlot();
+    const bool friendlyFire = FriendlyFireEnabled(matchFormat, version);
     float dmgAppliedP1 = 0.0f, dmgAppliedP2 = 0.0f;
-    Cannon* cannons[2] = { &player1, &player2 };
-    for (Cannon* c : cannons) {
-        Vector2 base = { c->x, c->groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
+
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
+
+        Cannon& c = roster.At(i);
+        Vector2 base = { c.x, c.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
         float dist = std::sqrt(std::pow(impactPos.x - base.x, 2) + std::pow(impactPos.y - base.y, 2));
-        if (dist <= explosionRadius) {
-            float falloff = 1.0f - (dist / explosionRadius);
-            float dmg = cfg::EXPLOSION_DAMAGE_MAX * falloff * damageMult;
-            if (hitCannon && c == hitTarget) dmg = cfg::EXPLOSION_DAMAGE_MAX * damageMult; // impacto direto
+        if (dist > explosionRadius) continue;
 
-            // escudo (power-up) bloqueia todo o dano enquanto ativo
-            if (c->shieldTurnsLeft > 0) dmg = 0.0f;
+        float falloff = 1.0f - (dist / explosionRadius);
+        float dmg = cfg::EXPLOSION_DAMAGE_MAX * falloff * damageMult;
+        if (hitCannon && hitTarget && &c == hitTarget) {
+            dmg = cfg::EXPLOSION_DAMAGE_MAX * damageMult;
+        }
+        if (c.shieldTurnsLeft > 0) dmg = 0.0f;
 
-            c->TakeDamage(dmg);
-            if (c == &player1) dmgAppliedP1 = dmg; else dmgAppliedP2 = dmg;
+        c.TakeDamage(dmg);
+        if (i == 0) dmgAppliedP1 = dmg;
+        else if (i == 1) dmgAppliedP2 = dmg;
+    }
+
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        Cannon& c = roster.At(i);
+        c.groundY = terrain.HeightAt(c.x);
+    }
+
+    if (IsTeamMode(matchFormat)) {
+        const bool team0Buried = roster.IsTeamBuried(0, terrain);
+        const bool team1Buried = roster.IsTeamBuried(1, terrain);
+        if (team0Buried || team1Buried) {
+            if (team0Buried) {
+                for (int i = 0; i < roster.PerTeam(); ++i) roster.At(i).health = 0.0f;
+            }
+            if (team1Buried) {
+                for (int i = 0; i < roster.PerTeam(); ++i) {
+                    roster.At(roster.PerTeam() + i).health = 0.0f;
+                }
+            }
+            roundOutcome = (team0Buried && team1Buried) ? RoundOutcome::DrawBuried
+                           : (team0Buried ? RoundOutcome::TeamBWinsBuried : RoundOutcome::TeamAWinsBuried);
+            state = GameState::RoundOver;
+            stateTimer = 1.0f;
+        } else {
+            CheckRoundEnd();
+        }
+    } else {
+        bool p1Buried = terrain.IsFullyGone(GetCannon(1).x);
+        bool p2Buried = terrain.IsFullyGone(GetCannon(2).x);
+        if (p1Buried || p2Buried) {
+            if (p1Buried) GetCannon(1).health = 0.0f;
+            if (p2Buried) GetCannon(2).health = 0.0f;
+
+            roundOutcome = (p1Buried && p2Buried) ? RoundOutcome::DrawBuried
+                           : (p1Buried ? RoundOutcome::P2WinsBuried : RoundOutcome::P1WinsBuried);
+            state = GameState::RoundOver;
+            stateTimer = 1.0f;
+        } else {
+            CheckRoundEnd();
         }
     }
 
-    // canhões podem "afundar" se o chão embaixo deles foi cavado
-    player1.groundY = terrain.HeightAt(player1.x);
-    player2.groundY = terrain.HeightAt(player2.x);
-
-    // Vitória imediata: se o terreno abaixo de um canhão foi completamente
-    // destruído (ele deixaria de ser visível na tela), o outro jogador vence
-    // na hora, independente da vida restante.
-    bool p1Buried = terrain.IsFullyGone(player1.x);
-    bool p2Buried = terrain.IsFullyGone(player2.x);
-    if (p1Buried || p2Buried) {
-        if (p1Buried) player1.health = 0.0f;
-        if (p2Buried) player2.health = 0.0f;
-
-        roundOutcome = (p1Buried && p2Buried) ? RoundOutcome::DrawBuried
-                       : (p1Buried ? RoundOutcome::P2WinsBuried : RoundOutcome::P1WinsBuried);
-        state = GameState::RoundOver;
-        stateTimer = 1.0f;
-    } else {
-        CheckRoundEnd(); // pode terminar a partida (RoundOver) ou chamar EndTurn()
-    }
-
-    // Multiplayer online: eu (o atirador) mando o RESULTADO autoritativo
-    // (impacto, cratera, dano). O adversário só aplica esse pacote — nunca
-    // recalcula Box2D. Assim terreno/dano ficam idênticos nos dois clientes.
     if (mode == GameMode::Online) {
-        // Captura o vento do disparo ANTES de qualquer troca de turno.
         const float windAtShot = windForce;
         bool matchOver = (state == GameState::RoundOver);
         int winnerPlayer = 0;
         if (matchOver) {
             switch (roundOutcome) {
-                case RoundOutcome::P1Wins: case RoundOutcome::P1WinsBuried: winnerPlayer = 1; break;
-                case RoundOutcome::P2Wins: case RoundOutcome::P2WinsBuried: winnerPlayer = 2; break;
+                case RoundOutcome::P1Wins:
+                case RoundOutcome::P1WinsBuried:
+                case RoundOutcome::TeamAWins:
+                case RoundOutcome::TeamAWinsBuried:
+                    winnerPlayer = 1; break;
+                case RoundOutcome::P2Wins:
+                case RoundOutcome::P2WinsBuried:
+                case RoundOutcome::TeamBWins:
+                case RoundOutcome::TeamBWinsBuried:
+                    winnerPlayer = 2; break;
                 default: winnerPlayer = 0; break;
             }
         }
@@ -427,11 +429,21 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
 }
 
 void Game::CheckRoundEnd() {
-    if (!player1.IsAlive() || !player2.IsAlive()) {
-        roundOutcome = (!player1.IsAlive() && !player2.IsAlive()) ? RoundOutcome::Draw
-                       : (!player1.IsAlive() ? RoundOutcome::P2Wins : RoundOutcome::P1Wins);
+    if (IsTeamMode(matchFormat)) {
+        const bool team0Dead = roster.IsTeamEliminated(0);
+        const bool team1Dead = roster.IsTeamEliminated(1);
+        if (team0Dead || team1Dead) {
+            roundOutcome = (team0Dead && team1Dead) ? RoundOutcome::Draw
+                           : (team0Dead ? RoundOutcome::TeamBWins : RoundOutcome::TeamAWins);
+            state = GameState::RoundOver;
+            stateTimer = 1.0f;
+            return;
+        }
+    } else if (!GetCannon(1).IsAlive() || !GetCannon(2).IsAlive()) {
+        roundOutcome = (!GetCannon(1).IsAlive() && !GetCannon(2).IsAlive()) ? RoundOutcome::Draw
+                       : (!GetCannon(1).IsAlive() ? RoundOutcome::P2Wins : RoundOutcome::P1Wins);
         state = GameState::RoundOver;
-        stateTimer = 1.0f; // pequena trava antes de aceitar clique para voltar ao menu
+        stateTimer = 1.0f;
         return;
     }
     EndTurn();
@@ -440,14 +452,15 @@ void Game::CheckRoundEnd() {
 void Game::EndTurn() {
     if (state == GameState::RoundOver) return;
     if (mode != GameMode::Online) {
-        currentPlayer = (currentPlayer == 1) ? 2 : 1;
+        currentPlayer = roster.NextSlotInterleaved(ActiveSlot()) + 1;
     }
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
 
     if (mode == GameMode::Online) {
         if (version == GameVersion::Plus) {
-            OnOnlineTurnCompleted(currentPlayer == 1 ? 2 : 1);
+            const int nextPlayer = roster.NextSlotInterleaved(ActiveSlot()) + 1;
+            OnOnlineTurnCompleted(nextPlayer);
         } else {
             onlineCompletedTurns++;
         }
@@ -456,9 +469,7 @@ void Game::EndTurn() {
                     std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
 
         if (version == GameVersion::Plus) {
-            Cannon& startingCannon = (currentPlayer == 1) ? player1 : player2;
-            startingCannon.OnTurnStarted();
-
+            GetCannon(currentPlayer).OnTurnStarted();
             powerups.TickSpawnCounter();
             powerups.MaybeSpawnRandom();
         }
@@ -467,4 +478,3 @@ void Game::EndTurn() {
     stateTimer = 0.4f;
     state = GameState::TurnTransition;
 }
-

@@ -2,6 +2,7 @@
 #include "../DebugLog.h"
 #include "NetValidation.h"
 #include <raylib.h>
+#include <algorithm>
 #include <ctime>
 #include <cstdio>
 #include <iomanip>
@@ -236,7 +237,7 @@ void OnlineLobby::RefreshPlayerList() {
     const std::string cutoffIso = cutoffOss.str();
 
     json rows = client.Select("lobby_presence",
-        "select=player_id,display_name,wins,losses,last_seen&order=last_seen.desc&limit=30");
+        "select=player_id,display_name,wins,losses,last_seen&order=player_id.asc&limit=30");
 
     players.clear();
     if (!rows.is_array()) {
@@ -259,6 +260,12 @@ void OnlineLobby::RefreshPlayerList() {
         card.losses = row.value("losses", 0);
         players.push_back(card);
     }
+
+    std::sort(players.begin(), players.end(),
+              [](const LobbyPlayerCard& a, const LobbyPlayerCard& b) {
+                  return a.playerId < b.playerId;
+              });
+
     DebugLogf(LOG_INFO, "LOBBY: eu=%s | %d online (filtrado)",
               identity->Id().c_str(), static_cast<int>(players.size()));
 }

@@ -18,6 +18,8 @@ public:
     Vector2 AimDirection() const;   // vetor unitário da direção de disparo
     Vector2 DirectionAtAngle(float angleDeg) const; // como AimDirection, mas com ângulo customizado (não altera o estado)
 
+    Color tintColor = WHITE;
+
     void Draw(bool isCurrentTurn, Texture2D* sprite = nullptr) const;
 
     float x, groundY;

@@ -107,7 +107,8 @@ float Game::ComputeSafeMaxWindAccel() const {
     // vento possível (soprando contra, o tempo todo, no ângulo mais
     // desfavorável) ainda sobra alcance para acertar com folga — cobrindo
     // imprecisões de ângulo/tempo de clique do jogador.
-    float distPx = std::fabs(player2.x - player1.x);
+    float distPx = roster.MaxEnemyDistancePx(0);
+    if (distPx < 1.0f) distPx = std::fabs(GetCannon(2).x - GetCannon(1).x);
     float D = cfg::PxToM(distPx);
     float v = cfg::MAX_POWER;
     float g = cfg::GRAVITY_MPS2;
@@ -130,11 +131,7 @@ void Game::ResetRound(unsigned int seed) {
     terrain.GenerateRandom(seed);
     terrain.RebuildPhysicsBody(physics.Id());
 
-    float leftX  = cfg::CANNON_MARGIN_PX;
-    float rightX = cfg::SCREEN_WIDTH - cfg::CANNON_MARGIN_PX;
-
-    player1.Init(leftX,  terrain.HeightAt(leftX),  CannonSide::Left);
-    player2.Init(rightX, terrain.HeightAt(rightX), CannonSide::Right);
+    roster.Setup(matchFormat, terrain);
 
     currentPlayer = 1;
     if (mode == GameMode::Online) {
@@ -151,6 +148,7 @@ void Game::ResetRound(unsigned int seed) {
     aimOscTimer = 0.0f;
 
     powerups.Reset();
+    powerups.SetSpawnEveryTurns(cfg::POWERUP_SPAWN_EVERY_TURNS * roster.PerTeam());
     remoteReplayT = 0.0f;
     remoteReplayAimTimer = 0.0f;
     opponentAimPlayer = 0;
@@ -164,8 +162,9 @@ void Game::ResetRound(unsigned int seed) {
     state = GameState::Aiming;
 }
 
-void Game::StartMatch(GameMode m) {
+void Game::StartMatch(GameMode m, MatchFormat format) {
     mode = m;
+    matchFormat = format;
     if (mode == GameMode::PvAI) ai.SetDifficulty(0.55f);
     ResetRound(static_cast<unsigned int>(time(nullptr)) ^ rand());
 
@@ -189,6 +188,10 @@ const char* Game::ResolveRoundMessage() const {
         case RoundOutcome::P2Wins: return T(TK::RoundP2Wins, language);
         case RoundOutcome::P1WinsBuried: return T(TK::RoundP1WinsBuried, language);
         case RoundOutcome::P2WinsBuried: return T(TK::RoundP2WinsBuried, language);
+        case RoundOutcome::TeamAWins: return T(TK::RoundTeamAWins, language);
+        case RoundOutcome::TeamBWins: return T(TK::RoundTeamBWins, language);
+        case RoundOutcome::TeamAWinsBuried: return T(TK::RoundTeamAWinsBuried, language);
+        case RoundOutcome::TeamBWinsBuried: return T(TK::RoundTeamBWinsBuried, language);
         default: return "";
     }
 }
@@ -351,6 +354,9 @@ void Game::Update(float dt) {
     switch (state) {
         case GameState::MainMenu:
             UpdateMainMenu();
+            break;
+        case GameState::FormatSelect:
+            UpdateFormatSelect();
             break;
         case GameState::About:
             UpdateAbout();

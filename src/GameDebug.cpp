@@ -233,8 +233,9 @@ void Game::ApplyDevCommand(const DevCommand& cmd) {
     if (!cmd.valid || cmd.action.empty()) return;
 
     if (cmd.action == "heal_all") {
-        player1.health = cfg::CANNON_MAX_HEALTH;
-        player2.health = cfg::CANNON_MAX_HEALTH;
+        for (int i = 0; i < roster.CannonCount(); ++i) {
+            roster.At(i).health = cfg::CANNON_MAX_HEALTH;
+        }
     } else if (cmd.action == "wind_zero") {
         windForce = 0.0f;
     } else if (cmd.action == "spawn_powerup") {
@@ -245,7 +246,7 @@ void Game::ApplyDevCommand(const DevCommand& cmd) {
     } else if (cmd.action == "grant_powerup") {
         if (version != GameVersion::Plus) version = GameVersion::Plus;
         if (cmd.type < 0 || cmd.type >= static_cast<int>(PowerupType::COUNT)) return;
-        Cannon& target = (cmd.player == 2) ? player2 : player1;
+        Cannon& target = GetCannon(cmd.player > 0 ? cmd.player : 1);
         powerups.ApplyEffect(target, static_cast<PowerupType>(cmd.type), language);
     } else if (cmd.action == "skip_turn") {
         if (cmd.player == 1 || cmd.player == 2) {
@@ -262,8 +263,9 @@ void Game::ApplyDevCommand(const DevCommand& cmd) {
 }
 
 void Game::DevHealAll() {
-    player1.health = cfg::CANNON_MAX_HEALTH;
-    player2.health = cfg::CANNON_MAX_HEALTH;
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        roster.At(i).health = cfg::CANNON_MAX_HEALTH;
+    }
     DevBroadcastCommand("heal_all");
 }
 
@@ -300,7 +302,7 @@ void Game::DevForceSpawnPowerup() {
 
 void Game::DevGrantPowerup(int playerNumber, PowerupType type) {
     if (version != GameVersion::Plus) version = GameVersion::Plus;
-    Cannon& target = (playerNumber == 2) ? player2 : player1;
+    Cannon& target = GetCannon(playerNumber > 0 ? playerNumber : 1);
     powerups.ApplyEffect(target, type, language);
     DevBroadcastCommand("grant_powerup", playerNumber, static_cast<int>(type));
 }

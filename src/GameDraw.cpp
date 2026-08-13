@@ -65,6 +65,16 @@ void Game::Draw() {
         return;
     }
 
+    if (state == GameState::FormatSelect) {
+        DrawFormatSelect();
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
+        if (devMode) DrawDevPanel();
+#endif
+        PresentScreenWithDebug();
+        return;
+    }
+
     if (state == GameState::OnlineLobby) {
         DrawOnlineLobby();
 #if CANNON_DUEL_DEBUG_MODE
@@ -101,10 +111,15 @@ void Game::Draw() {
     BeginMode2D(shakeCam);
 
     terrain.Draw();
-    player1.Draw(currentPlayer == 1 && state != GameState::RoundOver,
-                 spritesReady ? &texCannonLeft : nullptr);
-    player2.Draw(currentPlayer == 2 && state != GameState::RoundOver,
-                 spritesReady ? &texCannonRight : nullptr);
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        const int playerNum = i + 1;
+        const bool isActive = (currentPlayer == playerNum && state != GameState::RoundOver);
+        Texture2D* tex = nullptr;
+        if (!IsTeamMode(matchFormat) && spritesReady) {
+            tex = roster.SpriteForSlot(i, &texCannonLeft, &texCannonRight);
+        }
+        roster.At(i).Draw(isActive, tex);
+    }
 
     if (mode == GameMode::Online) {
         DrawOnlineCannonLabels();
@@ -162,7 +177,7 @@ void Game::Draw() {
     // mecanismo de mira: linha oscilando (fase ângulo) ou barra de força (fase potência)
     if (IsLocalHumanTurn()) {
         int activePlayer = (mode == GameMode::Online) ? netMatch.MyPlayerNumber() : currentPlayer;
-        Cannon& active = (activePlayer == 1) ? player1 : player2;
+        Cannon& active = GetCannon(activePlayer);
         Vector2 base = { active.x, active.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
 
         // power-up "trajetória prevista": desenha o arco balístico estimado

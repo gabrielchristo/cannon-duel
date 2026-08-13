@@ -87,6 +87,7 @@ public:
     const std::string& OpponentName() const { return opponentName; }
     bool IsMyTurn() const;
     bool InMatch() const { return !matchId.empty(); }
+    const std::string& MatchId() const { return matchId; }
     bool AwaitingOpponentTurn() const { return awaitingOpponentTurn_.load(); }
     bool RealtimeConnected() const { return realtime_.IsConnected(); }
 

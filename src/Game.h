@@ -52,6 +52,7 @@ private:
     void ApplyTurnSilently(const RemoteTurnResult& turn);
     void EndSpectatorMatch(int winnerPlayer);
     void ExitSpectatorToLobby();
+    void ShutdownOnlinePresence();
     void EndOnlineMatchOpponentLeft();
     void BeginRemoteShotReplay(const RemoteTurnResult& remote);
     void UpdateRemoteShotReplay(float dt);
@@ -109,7 +110,7 @@ private:
 #if CANNON_DUEL_DEBUG_MODE
     void DrawDebugLogOverlay() const;
     bool UpdateDebugLogOverlay();
-    bool debugLogVisible = true;
+    bool debugLogVisible = false;
     int debugLogScrollIndex = 0;
     bool debugLogFollowTail = true;
     bool debugLogDragging = false;

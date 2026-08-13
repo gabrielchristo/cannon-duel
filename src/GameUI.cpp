@@ -319,8 +319,11 @@ void Game::UpdateMenuConfirmDialog() {
                     onlineLobby.EnterLobby();
                 } else {
                     if (netMatch.InMatch()) {
-                        netMatch.AbandonMatch();
-                        onlineLobby.MarkIdle();
+                        if (netMatch.MyPlayerNumber() != 0) {
+                            onlineLobby.MarkIdle();
+                            onlineLobby.AbandonActiveMatch(netMatch.MatchId(), netMatch.MyPlayerNumber());
+                        }
+                        netMatch.LeaveMatch();
                     } else {
                         netMatch.LeaveMatch();
                     }
@@ -467,7 +470,7 @@ bool Game::HandleResetAngleButtonClick() {
 
 void Game::DrawWindIndicator() const {
     int cx = cfg::SCREEN_WIDTH / 2;
-    int cy = 40;
+    int cy = isSpectating ? 68 : 40;
     DrawText(T(TK::WindLabel, language), cx - 30, cy - 22, 16, HudTextColor());
 
     float ratio = windForce / cfg::WIND_MAX_ACCEL; // -1..1

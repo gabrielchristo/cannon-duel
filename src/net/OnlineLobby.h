@@ -72,6 +72,7 @@ public:
     void HeartbeatInMatch(float dt);
     void MarkInMatch(const std::string& matchId);
     void MarkIdle();
+    void AbandonActiveMatch(const std::string& matchId, int myPlayerNumber);
 
     const std::vector<LobbyPlayerCard>& Players() const { return players; }
     const std::vector<IncomingChallenge>& IncomingChallenges() const { return incoming; }
@@ -129,7 +130,8 @@ private:
     std::atomic<bool> dirtyPresence_{false};
     std::atomic<bool> dirtyChallenges_{false};
 
-    static constexpr int LIVE_MATCH_MAX_AGE_SEC = 120;
+    static constexpr int LIVE_MATCH_MAX_AGE_SEC = 45;
+    static constexpr int IN_MATCH_STALE_SEC = 8;
 
     bool hasReadyMatch = false;
     MatchStart readyMatch;

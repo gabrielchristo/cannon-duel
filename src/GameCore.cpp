@@ -61,12 +61,9 @@ Game::Game() {
 }
 
 Game::~Game() {
-    if (state == GameState::OnlineLobby) {
-        onlineLobby.LeaveLobby();
-    }
-    if (netMatch.InMatch()) {
-        netMatch.LeaveMatch();
-    } else {
+    ShutdownOnlinePresence();
+
+    if (!netMatch.InMatch()) {
         GlobalNetWorker().Stop();
     }
 

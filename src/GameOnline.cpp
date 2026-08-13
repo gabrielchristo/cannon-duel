@@ -44,6 +44,21 @@ void Game::StartOnlineMatch(const MatchStart& ms) {
     }
 }
 
+void Game::ShutdownOnlinePresence() {
+    if (mode != GameMode::Online) return;
+
+    if (netMatch.InMatch()) {
+        if (!isSpectating && netMatch.MyPlayerNumber() != 0) {
+            const std::string mid = netMatch.MatchId();
+            onlineLobby.MarkIdle();
+            onlineLobby.AbandonActiveMatch(mid, netMatch.MyPlayerNumber());
+        }
+        netMatch.LeaveMatch();
+    } else if (state == GameState::OnlineLobby) {
+        onlineLobby.LeaveLobby();
+    }
+}
+
 void Game::EndOnlineMatchOpponentLeft() {
     onlineWinByDisconnect = true;
     roundOutcome = (netMatch.MyPlayerNumber() == 1)

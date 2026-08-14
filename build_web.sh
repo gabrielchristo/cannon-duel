@@ -9,20 +9,29 @@
 #   source /caminho/pro/emsdk/emsdk_env.sh
 #
 # Uso:
-#   ./build_web.sh [debug|release]
+#   ./build_web.sh debug|release
 #
-# Saída:
-#   web/dist/CannonDuel.html (+ .js, .wasm, .data)
+# Saída (artefatos finais):
+#   web/dist/release/...   (padrão)
+#   web/dist/debug/...     (./build_web.sh debug)
+#
+# CMake usa sempre web/build/ (debug e release compartilham — reconfigura ao trocar).
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-BUILD_TYPE="${1:-release}"
+usage() {
+    echo "Uso: $0 debug|release" >&2
+    exit 1
+}
+
+case "${1:-}" in
+    debug|release) BUILD_TYPE="$1" ;;
+    *) usage ;;
+esac
+
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="$PROJECT_ROOT/web/build"
-if [ "$BUILD_TYPE" = "release" ]; then
-    BUILD_DIR="$PROJECT_ROOT/web/build_release"
-fi
-DIST_DIR="$PROJECT_ROOT/web/dist"
+DIST_DIR="$PROJECT_ROOT/web/dist/$BUILD_TYPE"
 
 if ! command -v emcmake >/dev/null 2>&1; then
     for candidate in "${EMSDK:-}" "$HOME/Git/emsdk" "$HOME/emsdk"; do
@@ -59,8 +68,13 @@ for ext in html js wasm data; do
     [ -f "$f" ] && cp "$f" "$DIST_DIR/"
 done
 
+date -Iseconds > "$DIST_DIR/build-stamp.txt"
+echo "build=$BUILD_TYPE" >> "$DIST_DIR/build-stamp.txt"
+echo "cmake=$CMAKE_BUILD_TYPE" >> "$DIST_DIR/build-stamp.txt"
+
 echo ""
 echo "Build pronta em: $DIST_DIR"
+echo "Deploy: arraste web/dist/release/ em app.netlify.com (Deploy manually)"
 echo "Pra testar localmente (fetch() exige http:// ou https://, não file://):"
 echo "  cd \"$DIST_DIR\" && python3 -m http.server 8080"
 echo "  depois abra http://localhost:8080/CannonDuel.html"

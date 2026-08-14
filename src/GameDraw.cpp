@@ -19,7 +19,9 @@
 void Game::PresentScreenWithDebug() {
     EndTextureMode();
     BeginDrawing();
+#if !CANNON_DUEL_WEB_BUILD
     ClearBackground(BLACK);
+#endif
     DrawVirtualScreenScaled(virtualScreen);
 #if CANNON_DUEL_DEBUG_MODE
     DrawDebugLogOverlay();

@@ -17,6 +17,7 @@
 
 #if CANNON_DUEL_WEB_BUILD
 #include <emscripten/emscripten.h>
+#include <emscripten/html5.h>
 #endif
 
 Game::Game() {
@@ -105,6 +106,7 @@ Game::~Game() {
 #if CANNON_DUEL_WEB_BUILD
 void Game::WebMainLoopStep(void* userData) {
     Game* game = static_cast<Game*>(userData);
+    SyncWebCanvasSize();
     float dt = GetFrameTime();
     game->Update(dt);
     game->Draw();

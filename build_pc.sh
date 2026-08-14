@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
-# Uso: ./build_pc.sh [debug|release]
+# Uso: ./build_pc.sh
+# Compila build/ — o modo (debug/release) vem do último ./run_cmake.sh.
 set -euo pipefail
 
-BUILD_TYPE="${1:-debug}"
-BUILD_DIR="build"
-if [ "$BUILD_TYPE" = "release" ]; then
-    BUILD_DIR="build_release"
-fi
-
-cmake --build "$BUILD_DIR" -j
+cmake --build build -j

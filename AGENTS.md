@@ -39,36 +39,40 @@ na primeira configuração (o CMake baixa raylib, Box2D e nlohmann/json via
 `FetchContent`).
 
 ```bash
-./run_cmake.sh          # debug   -> build/
-./run_cmake.sh release  # release -> build_release/
-./build_pc.sh           # debug
-./build_pc.sh release   # release
-./run_pc.sh             # debug
-./run_pc.sh release     # release
+./run_cmake.sh debug    # ou: ./run_cmake.sh release
+./build_pc.sh
+./run_pc.sh
 ```
 
-Equivalente manual (debug, pasta `build/`; troque por `build_release` e
-`-DCMAKE_BUILD_TYPE=Release` pra release):
+Debug e release **compartilham `build/`**. No Linux (Make/Ninja), o tipo de
+build fica fixo na configuração — para trocar debug ↔ release, rode
+`./run_cmake.sh` de novo com o outro argumento.
+
+Equivalente manual (debug):
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-Wno-error=maybe-uninitialized"
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+  -DCANNON_DUEL_DEBUG_MODE=ON \
+  -DCMAKE_C_FLAGS="-Wno-error=maybe-uninitialized"
 cmake --build build -j
 ./build/CannonDuel
 ```
+
+Release: `-DCMAKE_BUILD_TYPE=Release -DCANNON_DUEL_DEBUG_MODE=OFF`
 
 A flag `-DCMAKE_C_FLAGS="-Wno-error=maybe-uninitialized"` evita que um
 falso-positivo do GCC dentro do próprio código do Box2D (não é bug seu)
 quebre a build — ver detalhes na seção [Notas de build](#notas-de-build)
 abaixo.
 
-Windows (Visual Studio):
+Windows (Visual Studio — mesma pasta `build/`, configs Debug/Release):
+
 ```bash
 cmake -S . -B build
 cmake --build build --config Debug
 build\Debug\CannonDuel.exe
 
-cmake -S . -B build_release
-cmake --build build_release --config Release
-build_release\Release\CannonDuel.exe
+cmake --build build --config Release
+build\Release\CannonDuel.exe
 ```
 
 ### Android
@@ -87,7 +91,17 @@ fazendo:
 ```bash
 export ANDROID_HOME=/caminho/pro/seu/sdk
 export ANDROID_NDK_HOME=$ANDROID_HOME/ndk/<versão instalada>
-./build_android.sh debug
+./run_cmake_android.sh debug   # ou: ./run_cmake_android.sh release
+./build_android.sh
+```
+
+### Web (WebAssembly + Netlify)
+
+Requer [emsdk](https://emscripten.org/) ativado. Build local; deploy manual no Netlify.
+
+```bash
+./build_web.sh release          # → web/dist/release/
+./build_web.sh debug            # → web/dist/debug/ (dev panel F9)
 ```
 
 ### Notas de build
@@ -196,7 +210,7 @@ aleatoriamente a cada partida.
 | Sala de equipes | `GameTeamRoom.cpp`, `OnlineLobbyTeam.cpp` |
 | Schema DB | `supabase/schema.sql`, `supabase/migration_*.sql` |
 | UI pós-partida / rematch | `GameOnline.cpp`, `GameDraw.cpp`, `GameCore.cpp` |
-| Android | `android/`, `Platform.h`, `build_android.sh` |
+| Android | `android/`, `Platform.h`, `run_cmake_android.sh`, `build_android.sh` |
 
 ## Multiplayer online
 

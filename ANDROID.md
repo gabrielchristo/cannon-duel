@@ -17,13 +17,16 @@ export PATH=$PATH:$ANDROID_HOME/platform-tools
 
 ## Como buildar
 
+Debug e release **compartilham `android/build/`** — mesmo princípio do desktop.
+Para trocar debug ↔ release, rode `./run_cmake_android.sh` de novo com o outro
+modo.
+
 ```bash
-./build_android.sh debug    # -> android/build/
-./build_android.sh release  # -> android/build_release/
+./run_cmake_android.sh debug    # ou: ./run_cmake_android.sh release
+./build_android.sh
 ```
 
-O APK final fica em `android/build/CannonDuel.apk` (ou
-`android/build_release/CannonDuel.apk` pra release).
+O APK final fica sempre em `android/build/CannonDuel.apk`.
 
 ## Instalando no celular
 

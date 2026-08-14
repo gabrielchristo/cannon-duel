@@ -13,7 +13,7 @@ em loja — inclusive em iOS, onde não há build nativa planejada.
 ## Como builda
 
 ```bash
-./build_web.sh          # release
+./build_web.sh release
 ./build_web.sh debug    # + dev panel / log overlay
 ```
 
@@ -76,16 +76,10 @@ qualquer outro caminho.
 - Sem pthreads reais (ver tabela acima): uma requisição HTTP em andamento
   pode pausar a renderização por um frame ou dois. Aceitável pra um jogo
   por turnos.
-- Publicação no GitHub Pages é manual (copiar `web/dist/` pra pasta/branch
-  servida) — de propósito não automatizado, por ser uma ação que publica
-  pra fora do repo.
 - `fetch()`/WebSocket exigem `http://`/`https://`; abrir o `.html` como
-  `file://` não funciona (rodar com `python3 -m http.server`).
+  `file://` não funciona (rodar com `./run_web.sh release` ou `debug`).
 
 ## Pendências
 
-- Publicar de fato no GitHub Pages (hoje só builda localmente).
-- Persistir UUID/nome do jogador é crítico — são as credenciais do jogador
-  nessa versão (não há login). Validar em browser real que a migração pra
-  OPFS preserva esse arquivo entre reloads (só foi validada por compilação
-  até agora, não em runtime — ver nota abaixo).
+- Validar OPFS em browser real (UUID entre reloads).
+- Teste web ↔ desktop online.

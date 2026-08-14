@@ -128,7 +128,7 @@ void Game::Draw() {
         Texture2D* tex = nullptr;
         if (spritesReady) {
             if (IsTeamGame()) {
-                tex = roster.SpriteForTeamSlot(i, &texCannon1, &texCannon2, &texCannon3, &texCannon4);
+                tex = roster.SpriteForTeamSlot(i, texCannonTeamA, texCannonTeamB);
             } else {
                 tex = roster.SpriteForSlot(i, &texCannonLeft, &texCannonRight);
             }

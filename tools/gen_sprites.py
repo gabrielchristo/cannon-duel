@@ -236,13 +236,23 @@ def make_background_night() -> Image.Image:
 
 
 # Paletas por slot de canhão (equipe A: esquerda, B: direita).
+# Cores alinhadas com MatchRoster::ColorForSlot (src/MatchRoster.cpp), pra que o
+# canhão em campo combine com a cor usada em nome/barra de vida/HUD do slot.
 CANNON_PALETTES: tuple[tuple[tuple[int, int, int, int], tuple[int, int, int, int], bool, str], ...] = (
     ((60, 120, 220, 255), (35, 75, 145, 255), False, "cannon_left.png"),
     ((220, 70, 60, 255), (150, 40, 35, 255), True, "cannon_right.png"),
-    ((60, 120, 220, 255), (35, 75, 145, 255), False, "cannon_1.png"),
+    # Equipe A (slots 0-4) — tons frios, canhão virado pra direita.
+    ((55, 115, 220, 255), (35, 75, 145, 255), False, "cannon_1.png"),
     ((35, 175, 195, 255), (20, 120, 140, 255), False, "cannon_2.png"),
-    ((55, 160, 85, 255), (30, 105, 55, 255), True, "cannon_3.png"),
-    ((235, 135, 45, 255), (180, 95, 30, 255), True, "cannon_4.png"),
+    ((80, 200, 120, 255), (45, 140, 80, 255), False, "cannon_3.png"),
+    ((155, 75, 195, 255), (105, 45, 140, 255), False, "cannon_4.png"),
+    ((120, 140, 220, 255), (75, 90, 160, 255), False, "cannon_5.png"),
+    # Equipe B (slots 0-4) — tons quentes, canhão virado pra esquerda.
+    ((215, 65, 55, 255), (150, 35, 30, 255), True, "cannon_6.png"),
+    ((235, 135, 45, 255), (180, 95, 30, 255), True, "cannon_7.png"),
+    ((195, 55, 135, 255), (140, 30, 90, 255), True, "cannon_8.png"),
+    ((220, 180, 60, 255), (170, 130, 25, 255), True, "cannon_9.png"),
+    ((180, 100, 70, 255), (125, 65, 40, 255), True, "cannon_10.png"),
 )
 
 

@@ -190,10 +190,8 @@ private:
 
     Texture2D texCannonLeft{};
     Texture2D texCannonRight{};
-    Texture2D texCannon1{};
-    Texture2D texCannon2{};
-    Texture2D texCannon3{};
-    Texture2D texCannon4{};
+    std::array<Texture2D, MatchRoster::kMaxPerTeam> texCannonTeamA{};
+    std::array<Texture2D, MatchRoster::kMaxPerTeam> texCannonTeamB{};
     Texture2D texBackground{};
     Texture2D texBackgroundNight{};
     Texture2D texProjectile{};

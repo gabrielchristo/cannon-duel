@@ -54,8 +54,8 @@ public:
     Color ColorForSlot(int slot) const;
 
     Texture2D* SpriteForSlot(int slot, Texture2D* leftTex, Texture2D* rightTex) const;
-    Texture2D* SpriteForTeamSlot(int slot, Texture2D* cannon1Tex, Texture2D* cannon2Tex,
-                                 Texture2D* cannon3Tex, Texture2D* cannon4Tex) const;
+    Texture2D* SpriteForTeamSlot(int slot, std::array<Texture2D, kMaxPerTeam>& teamATex,
+                                 std::array<Texture2D, kMaxPerTeam>& teamBTex) const;
 
 private:
     MatchFormat format_ = MatchFormat::Duel1v1;

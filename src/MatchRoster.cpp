@@ -213,18 +213,13 @@ Texture2D* MatchRoster::SpriteForSlot(int slot, Texture2D* leftTex, Texture2D* r
     return (TeamOfSlot(slot) == 0) ? leftTex : rightTex;
 }
 
-Texture2D* MatchRoster::SpriteForTeamSlot(int slot, Texture2D* cannon1Tex, Texture2D* cannon2Tex,
-                                          Texture2D* cannon3Tex, Texture2D* cannon4Tex) const {
-    auto pick = [](Texture2D* preferred, Texture2D* fallback) -> Texture2D* {
-        return (preferred && preferred->id != 0) ? preferred : fallback;
-    };
-    const int teamSlot = (TeamOfSlot(slot) == 0) ? slot : (slot - perTeamA_);
-    switch (teamSlot % 4) {
-        case 0: return pick(cannon1Tex, cannon1Tex);
-        case 1: return pick(cannon2Tex, cannon1Tex);
-        case 2: return pick(cannon3Tex, cannon1Tex);
-        default: return pick(cannon4Tex, cannon1Tex);
-    }
+Texture2D* MatchRoster::SpriteForTeamSlot(int slot, std::array<Texture2D, kMaxPerTeam>& teamATex,
+                                          std::array<Texture2D, kMaxPerTeam>& teamBTex) const {
+    const bool isTeamA = (TeamOfSlot(slot) == 0);
+    const int teamSlot = isTeamA ? slot : (slot - perTeamA_);
+    std::array<Texture2D, kMaxPerTeam>& teamTex = isTeamA ? teamATex : teamBTex;
+    Texture2D& preferred = teamTex[static_cast<size_t>(teamSlot) % teamTex.size()];
+    return (preferred.id != 0) ? &preferred : &teamTex[0];
 }
 
 float MatchRoster::TeamSpacing(int count) const {

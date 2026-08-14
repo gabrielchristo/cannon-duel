@@ -49,10 +49,14 @@ Game::Game() {
 
     texCannonLeft   = LoadTexture(AssetPath("sprites/cannon_left.png").c_str());
     texCannonRight  = LoadTexture(AssetPath("sprites/cannon_right.png").c_str());
-    texCannon1      = LoadTexture(AssetPath("sprites/cannon_1.png").c_str());
-    texCannon2      = LoadTexture(AssetPath("sprites/cannon_2.png").c_str());
-    texCannon3      = LoadTexture(AssetPath("sprites/cannon_3.png").c_str());
-    texCannon4      = LoadTexture(AssetPath("sprites/cannon_4.png").c_str());
+    for (size_t i = 0; i < texCannonTeamA.size(); ++i) {
+        std::string path = "sprites/cannon_" + std::to_string(i + 1) + ".png";
+        texCannonTeamA[i] = LoadTexture(AssetPath(path.c_str()).c_str());
+    }
+    for (size_t i = 0; i < texCannonTeamB.size(); ++i) {
+        std::string path = "sprites/cannon_" + std::to_string(i + 1 + texCannonTeamA.size()) + ".png";
+        texCannonTeamB[i] = LoadTexture(AssetPath(path.c_str()).c_str());
+    }
 #if CANNON_DUEL_DEBUG_MODE
     texBackground       = LoadTexture(AssetPath("sprites/background.png").c_str());
     texBackgroundNight  = LoadTexture(AssetPath("sprites/background_night.png").c_str());
@@ -89,10 +93,8 @@ Game::~Game() {
     }
     UnloadTexture(texCannonLeft);
     UnloadTexture(texCannonRight);
-    UnloadTexture(texCannon1);
-    UnloadTexture(texCannon2);
-    UnloadTexture(texCannon3);
-    UnloadTexture(texCannon4);
+    for (Texture2D& tex : texCannonTeamA) UnloadTexture(tex);
+    for (Texture2D& tex : texCannonTeamB) UnloadTexture(tex);
     UnloadTexture(texBackground);
     UnloadTexture(texBackgroundNight);
     UnloadTexture(texProjectile);

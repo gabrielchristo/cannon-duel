@@ -70,6 +70,7 @@ Power-up **Guided** desativa física Box2D durante o voo:
 - Array `heights[1280]` — altura Y da superfície por coluna.
 - `HeightAt(x)` — interpola coluna de `worldX`.
 - Geração: **midpoint displacement**, normalizado entre `TERRAIN_MIN_HEIGHT` (120 px) e `TERRAIN_MAX_HEIGHT` (380 px) a partir do chão.
+- Cenário **Vale do Fim**: o mesmo ruído, depois um envelope que afunda só o miolo (laterais de spawn intactas).
 
 ### Colisão
 
@@ -139,8 +140,9 @@ Canhões mortos ignorados na detecção.
 
 ```cpp
 // Config.h (namespace cfg)
-SCREEN_WIDTH          = 1280
+SCREEN_WIDTH          = 1280  // mundo lógico (sempre)
 SCREEN_HEIGHT         = 720
+WINDOW_WIDTH/HEIGHT   = 1280×720 debug / 1920×1080 release (só a janela)
 CRATER_RADIUS_PX      = 42
 EXPLOSION_RADIUS_PX   = 60
 EXPLOSION_DAMAGE_MAX  = 60

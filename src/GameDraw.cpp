@@ -108,10 +108,11 @@ void Game::Draw() {
         return;
     }
 
-    // ---- background (sprite gerado: dia com sol/nuvens, ou noite com estrelas/lua) ----
-    Texture2D& bgTex = nightMode ? texBackgroundNight : texBackground;
-    if (spritesReady && bgTex.id != 0) {
-        DrawTexture(bgTex, 0, 0, WHITE);
+    Texture2D* bgTex = &texBackground;
+    if (scenario == Scenario::Night) bgTex = &texBackgroundNight;
+    else if (scenario == Scenario::ValleyOfTheEnd) bgTex = &texBackgroundValley;
+    if (spritesReady && bgTex->id != 0) {
+        DrawTexture(*bgTex, 0, 0, WHITE);
     } else {
         DrawCircle(cfg::SCREEN_WIDTH - 140, 110, 60, Color{255, 221, 130, 255});
         DrawRectangle(0, cfg::SCREEN_HEIGHT - 460, cfg::SCREEN_WIDTH, 40, Color{225, 200, 175, 180});

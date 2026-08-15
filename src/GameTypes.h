@@ -52,6 +52,17 @@ inline MatchComposition ParseMatchComposition(const std::string& matchFormat,
     return CompositionFromFormat(MatchFormat::Duel1v1);
 }
 
+enum class Scenario { Day, Night, ValleyOfTheEnd };
+inline constexpr int kScenarioCount = 3;
+
+inline Scenario ScenarioFromSeed(unsigned int seed) {
+    return static_cast<Scenario>((seed >> 17) % static_cast<unsigned>(kScenarioCount));
+}
+
+inline bool ScenarioUsesLightHud(Scenario scenario) {
+    return scenario != Scenario::Day;
+}
+
 enum class GameMode { PvP, PvAI, Online };
 enum class GameVersion { Classic, Plus };
 enum class GameState {

@@ -2,14 +2,20 @@
 
 namespace cfg {
 
-// ---- Janela ----
-// HD em builds de debug (iteração mais rápida), Full HD em builds de release.
-#if CANNON_DUEL_DEBUG_MODE
+// ---- Mundo lógico ----
+// Física, terreno, mira e acertos vivem sempre em HD. A janela/dispositivo
+// pode ser maior: o VirtualScreen escala o render target (mesmo princípio
+// do Android/Web). Debug e release jogam igual.
 constexpr int   SCREEN_WIDTH   = 1280;
 constexpr int   SCREEN_HEIGHT  = 720;
+
+// ---- Janela desktop ----
+#if CANNON_DUEL_DEBUG_MODE
+constexpr int   WINDOW_WIDTH   = 1280;
+constexpr int   WINDOW_HEIGHT  = 720;
 #else
-constexpr int   SCREEN_WIDTH   = 1920;
-constexpr int   SCREEN_HEIGHT  = 1080;
+constexpr int   WINDOW_WIDTH   = 1920;
+constexpr int   WINDOW_HEIGHT  = 1080;
 #endif
 constexpr int   TARGET_FPS     = 60;
 

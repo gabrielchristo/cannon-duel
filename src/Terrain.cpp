@@ -3,6 +3,35 @@
 #include <random>
 #include <algorithm>
 
+void Terrain::SetScenario(Scenario scenario) {
+    scenario_ = scenario;
+}
+
+void Terrain::Generate(unsigned int seed, Scenario scenario) {
+    scenario_ = scenario;
+    GenerateRandom(seed);
+    if (scenario_ == Scenario::ValleyOfTheEnd) {
+        ApplyValleyEnvelope();
+    }
+}
+
+void Terrain::ApplyValleyEnvelope() {
+    const int n = static_cast<int>(heights.size());
+    if (n < 2) return;
+
+    // Laterais (zonas de spawn) ficam no relevo original. O miolo afunda
+    // num U suave — vale jogável sem nascer canhão no fundo.
+    for (int x = 0; x < n; ++x) {
+        const float u = static_cast<float>(x) / static_cast<float>(n - 1);
+        const float dist = std::fabs(u - 0.5f);
+        const float t = std::clamp((0.28f - dist) / 0.16f, 0.0f, 1.0f);
+        const float dip = t * t * (3.0f - 2.0f * t);
+        float elev = static_cast<float>(cfg::SCREEN_HEIGHT) - heights[static_cast<size_t>(x)];
+        elev = std::max(cfg::TERRAIN_MIN_HEIGHT * 0.45f, elev - dip * 168.0f);
+        heights[static_cast<size_t>(x)] = static_cast<float>(cfg::SCREEN_HEIGHT) - elev;
+    }
+}
+
 // Midpoint displacement (1D) para gerar um relevo suave e aleatório,
 // depois normalizado para os limites min/max configurados.
 void Terrain::GenerateRandom(unsigned int seed) {
@@ -103,14 +132,16 @@ void Terrain::RebuildPhysicsBody(b2WorldId worldId) {
 }
 
 void Terrain::Draw() const {
-    // Preenche o terreno com triângulos coluna a coluna (rápido e simples).
-    Color topColor  = Color{101, 67, 33, 255};
-    Color baseColor = Color{60, 40, 20, 255};
+    // Paleta fixa do terrain_tile.png — mesma em todos os cenários.
+    // O relevo continua o midpoint displacement original (só o Vale aplica
+    // o envelope no miolo). Não carimbar o tile: isso mudava o visual.
+    const Color topColor{ 76, 153, 60, 255 };
+    const Color baseColor{ 101, 67, 33, 255 };
 
     for (int x = 0; x < static_cast<int>(heights.size()) - 1; x += 2) {
-        float y0 = heights[x];
+        const float y0 = heights[static_cast<size_t>(x)];
         DrawRectangle(x, static_cast<int>(y0), 2,
                       cfg::SCREEN_HEIGHT - static_cast<int>(y0), baseColor);
-        DrawRectangle(x, static_cast<int>(y0), 2, 4, topColor); // "grama"
+        DrawRectangle(x, static_cast<int>(y0), 2, 4, topColor);
     }
 }

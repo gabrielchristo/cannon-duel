@@ -93,6 +93,16 @@ Dano com falloff linear pela distância ao centro da explosão.
 
 Em partidas de equipe, vitória é por **equipe** (player 1 = time A, player 2 = time B no resultado online).
 
+## Cenários
+
+Sorteados no `ResetRound`. Online o índice sai de `terrain_seed` (`ScenarioFromSeed`); local é `rand`. Mesmo mundo lógico (1280×720) em qualquer janela.
+
+| Cenário | Fundo | Terreno | Música |
+|---------|-------|---------|--------|
+| **Dia** | `background.png` | Midpoint displacement aleatório | `music.ogg` |
+| **Noite** | `background_night.png` | Mesmo gerador aleatório | `music2.ogg` |
+| **Vale do Fim** | `background_valley.png` (arte autoral) | Aleatório + vale no centro | `music_valley.ogg` |
+
 ## Terreno destrutível
 
 - Crateras semicirculares ao impacto.

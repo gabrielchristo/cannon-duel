@@ -189,11 +189,12 @@ repositório — nada pendente pra rodar o jogo do zero. Os scripts em
 `tools/` (`gen_sprites.py`, `gen_skins.py`, `gen_ammo.py`, `gen_sounds.py`,
 `gen_icon.py`) regeneram esses assets caso você queira ajustar cores/formas/efeitos.
 
-A música de fundo (`assets/sounds/music.ogg` e `music2.ogg`) é sorteada
-aleatoriamente a cada partida.
+A música de fundo é determinística por cenário: dia → `music.ogg`,
+noite → `music2.ogg`, Vale do Fim → `music_valley.ogg`.
 
 ## Convenções
 
+- **Mundo lógico:** sempre 1280×720 (`cfg::SCREEN_*`). A janela (`cfg::WINDOW_*`) só escala via VirtualScreen — força, vento e acertos não mudam com a resolução.
 - **Constantes de jogo:** sempre em `src/Config.h` (`namespace cfg`), não magic numbers espalhados.
 - **Balanceamento Plus vs Classic:** `GameVersion::Classic` / `GameVersion::Plus`; power-ups só em Plus.
 - **Composição online:** `MatchComposition { teamA, teamB }` até 5×5; slots mapeados para `player1_id`…`player10_id`.

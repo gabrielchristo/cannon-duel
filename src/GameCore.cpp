@@ -26,7 +26,7 @@ Game::Game() {
 #if CANNON_DUEL_DEBUG_MODE
     DebugLog::InstallOverlayCapture();
 #endif
-    InitWindow(cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, "Cannon Duel");
+    InitWindow(cfg::WINDOW_WIDTH, cfg::WINDOW_HEIGHT, "Cannon Duel");
     SetTargetFPS(cfg::TARGET_FPS);
 
     // No Android, InitWindow ignora a largura/altura pedidas e usa sempre a
@@ -44,6 +44,7 @@ Game::Game() {
 
         musicTracks[0] = LoadMusicStream(AssetPath("sounds/music.ogg").c_str());
         musicTracks[1] = LoadMusicStream(AssetPath("sounds/music2.ogg").c_str());
+        musicTracks[2] = LoadMusicStream(AssetPath("sounds/music_valley.ogg").c_str());
         for (Music& m : musicTracks) {
             m.looping = true;
             if (m.frameCount > 0) SetMusicVolume(m, 0.5f);
@@ -58,13 +59,9 @@ Game::Game() {
     for (size_t i = 0; i < texCannonOverlays.size(); ++i) {
         texCannonOverlays[i] = LoadTexture(AssetPath(kCannonSkinFiles[i]).c_str());
     }
-#if CANNON_DUEL_DEBUG_MODE
     texBackground       = LoadTexture(AssetPath("sprites/background.png").c_str());
     texBackgroundNight  = LoadTexture(AssetPath("sprites/background_night.png").c_str());
-#else
-    texBackground       = LoadTexture(AssetPath("sprites/background_fhd.png").c_str());
-    texBackgroundNight  = LoadTexture(AssetPath("sprites/background_night_fhd.png").c_str());
-#endif
+    texBackgroundValley = LoadTexture(AssetPath("sprites/background_valley.png").c_str());
     texProjectile   = LoadTexture(AssetPath("sprites/projectile.png").c_str());
     for (size_t i = 0; i < texAmmo.size(); ++i) {
         texAmmo[i] = LoadTexture(AssetPath(kAmmoSpriteFiles[i]).c_str());
@@ -96,8 +93,7 @@ Game::~Game() {
     if (audioReady) {
         UnloadSound(sndFire);
         UnloadSound(sndExplosion);
-        UnloadMusicStream(musicTracks[0]);
-        UnloadMusicStream(musicTracks[1]);
+        for (Music& m : musicTracks) UnloadMusicStream(m);
         CloseAudioDevice();
     }
     UnloadTexture(texCannonLeft);
@@ -106,6 +102,7 @@ Game::~Game() {
     for (Texture2D& tex : texCannonOverlays) UnloadTexture(tex);
     UnloadTexture(texBackground);
     UnloadTexture(texBackgroundNight);
+    UnloadTexture(texBackgroundValley);
     UnloadTexture(texProjectile);
     for (Texture2D& tex : texAmmo) UnloadTexture(tex);
     UnloadRenderTexture(virtualScreen);
@@ -179,8 +176,37 @@ int Game::ClampPlayerNum(int playerNum) const {
     return playerNum;
 }
 
+void Game::ApplyScenario(Scenario next, bool rebuildTerrain) {
+    scenario = next;
+    if (rebuildTerrain && roster.CannonCount() > 0 && state != GameState::MainMenu) {
+        terrain.Generate(roundSeed_, scenario);
+        terrain.RebuildPhysicsBody(physics.Id());
+        for (int i = 0; i < roster.CannonCount(); ++i) {
+            Cannon& c = roster.At(i);
+            c.groundY = terrain.HeightAt(c.x);
+        }
+    } else {
+        terrain.SetScenario(scenario);
+    }
+    if (audioReady) {
+        StopMusicStream(musicTracks[currentMusicIndex]);
+        PickMatchMusic();
+        if (musicTracks[currentMusicIndex].frameCount > 0) {
+            PlayMusicStream(musicTracks[currentMusicIndex]);
+        }
+    } else {
+        PickMatchMusic();
+    }
+}
+
 void Game::ResetRound(unsigned int seed) {
-    terrain.GenerateRandom(seed);
+    roundSeed_ = seed;
+    if (mode == GameMode::Online) {
+        scenario = ScenarioFromSeed(seed);
+    } else {
+        scenario = static_cast<Scenario>(rand() % kScenarioCount);
+    }
+    terrain.Generate(seed, scenario);
     terrain.RebuildPhysicsBody(physics.Id());
 
     if (mode == GameMode::Online) {
@@ -199,13 +225,11 @@ void Game::ResetRound(unsigned int seed) {
     currentPlayer = 1;
     if (mode == GameMode::Online) {
         onlineSeed = seed;
-        nightMode = ((seed >> 17) & 1u) == 0;
         windForce = SeededWind(0);
-        currentMusicIndex = static_cast<int>((seed >> 25) % 2);
     } else {
         windForce = RandF(-1.0f, 1.0f) * std::min(cfg::WIND_MAX_ACCEL, ComputeSafeMaxWindAccel());
-        nightMode = (rand() % 2) == 0;
     }
+    PickMatchMusic();
     aimPhase = AimPhase::Angle;
     aimOscTimer = 0.0f;
 
@@ -402,11 +426,16 @@ void Game::StartMatch(GameMode m, MatchFormat format) {
     if (mode == GameMode::PvAI) ai.SetDifficulty(0.55f);
     ResetRound(static_cast<unsigned int>(time(nullptr)) ^ rand());
 
-    // Música toca em loop só durante a partida (não no menu) — faixa
-    // sorteada aleatoriamente a cada partida.
-    currentMusicIndex = rand() % 2;
     if (audioReady && musicTracks[currentMusicIndex].frameCount > 0) {
         PlayMusicStream(musicTracks[currentMusicIndex]);
+    }
+}
+
+void Game::PickMatchMusic() {
+    switch (scenario) {
+        case Scenario::Night: currentMusicIndex = 1; break;
+        case Scenario::ValleyOfTheEnd: currentMusicIndex = 2; break;
+        default: currentMusicIndex = 0; break;
     }
 }
 

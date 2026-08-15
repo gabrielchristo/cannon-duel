@@ -3,6 +3,7 @@
 #include <box2d/box2d.h>
 #include <raylib.h>
 #include "Config.h"
+#include "GameTypes.h"
 
 // Terreno representado como heightmap 1D (uma altura por coluna de pixel).
 // A colisão é resolvida por comparação direta com o heightmap (raycast 1D),
@@ -10,7 +11,9 @@
 // b2Body poligonal complexo sendo reconstruído a cada explosão.
 class Terrain {
 public:
-    void GenerateRandom(unsigned int seed);
+    void Generate(unsigned int seed, Scenario scenario);
+    void SetScenario(Scenario scenario);
+    Scenario CurrentScenario() const { return scenario_; }
 
     // Retorna a altura do terreno (em px, medida a partir do topo da tela)
     // na coluna X informada.
@@ -41,8 +44,12 @@ public:
 
 private:
     std::vector<float> heights; // heights[col] = altura da superfície (px do topo)
+    Scenario scenario_ = Scenario::Day;
     b2BodyId groundBody = b2_nullBodyId;
     b2WorldId physWorld = b2_nullWorldId;
+
+    void GenerateRandom(unsigned int seed);
+    void ApplyValleyEnvelope();
 
     int ColumnOf(float worldX) const;
 };

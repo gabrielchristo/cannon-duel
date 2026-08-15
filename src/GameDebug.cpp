@@ -187,8 +187,16 @@ struct DevPanelItem {
     bool isSection = false;
 };
 
+const char* ScenarioDevLabel(Scenario scenario) {
+    switch (scenario) {
+        case Scenario::Night: return "Cenario: NOITE";
+        case Scenario::ValleyOfTheEnd: return "Cenario: VALE DO FIM";
+        default: return "Cenario: DIA";
+    }
+}
+
 void CollectDevPanelItems(bool inMatch, bool isMainMenu, bool isAiming,
-                          GameVersion version, bool nightMode,
+                          GameVersion version, Scenario scenario,
                           std::vector<DevPanelItem>& out) {
     out.clear();
     auto button = [&](DevAction act, const char* label, bool enabled, bool highlight = false,
@@ -205,7 +213,7 @@ void CollectDevPanelItems(bool inMatch, bool isMainMenu, bool isAiming,
     button(DevAction::SkipTurn, "Pular turno", inMatch && isAiming);
     button(DevAction::ToggleVersion,
            version == GameVersion::Plus ? "Versao: PLUS" : "Versao: CLASSIC", true);
-    button(DevAction::ToggleNight, nightMode ? "Cenario: NOITE" : "Cenario: DIA", true);
+    button(DevAction::ToggleNight, ScenarioDevLabel(scenario), true);
     button(DevAction::QuickMatch, "Iniciar partida rapida (1J)", isMainMenu);
 
     section("Power-up -> Jogador 1:");
@@ -258,7 +266,10 @@ void Game::ApplyDevCommand(const DevCommand& cmd) {
             state = GameState::TurnTransition;
         }
     } else if (cmd.action == "night_mode") {
-        nightMode = cmd.value >= 0.5f;
+        ApplyScenario(cmd.value >= 0.5f ? Scenario::Night : Scenario::Day, true);
+    } else if (cmd.action == "scenario") {
+        const int idx = std::clamp(static_cast<int>(cmd.value), 0, kScenarioCount - 1);
+        ApplyScenario(static_cast<Scenario>(idx), true);
     }
 }
 
@@ -366,7 +377,7 @@ bool Game::UpdateDevPanel() {
 
     std::vector<DevPanelItem> items;
     CollectDevPanelItems(inMatch, state == GameState::MainMenu, state == GameState::Aiming,
-                         version, nightMode, items);
+                         version, scenario, items);
 
     const float bw = panel.width - 20.0f - scrollBarW;
     float y = contentTop - devPanelScrollY;
@@ -387,10 +398,12 @@ bool Game::UpdateDevPanel() {
                     case DevAction::ToggleVersion:
                         version = (version == GameVersion::Classic) ? GameVersion::Plus : GameVersion::Classic;
                         break;
-                    case DevAction::ToggleNight:
-                        nightMode = !nightMode;
-                        DevBroadcastCommand("night_mode", 0, -1, 0.0f, nightMode ? 1.0f : 0.0f);
+                    case DevAction::ToggleNight: {
+                        const int next = (static_cast<int>(scenario) + 1) % kScenarioCount;
+                        ApplyScenario(static_cast<Scenario>(next), true);
+                        DevBroadcastCommand("scenario", 0, -1, 0.0f, static_cast<float>(next));
                         break;
+                    }
                     case DevAction::QuickMatch: StartMatch(GameMode::PvAI); break;
                     case DevAction::GrantP1: DevGrantPowerup(1, item.powerType); break;
                     case DevAction::GrantP2: DevGrantPowerup(2, item.powerType); break;
@@ -433,7 +446,7 @@ void Game::DrawDevPanel() const {
 
     std::vector<DevPanelItem> items;
     CollectDevPanelItems(inMatch, state == GameState::MainMenu, state == GameState::Aiming,
-                         version, nightMode, items);
+                         version, scenario, items);
 
     Vector2 m = ::GetVirtualMouse();
     const float bw = panel.width - 20.0f - scrollBarW;

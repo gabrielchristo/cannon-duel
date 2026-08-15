@@ -83,13 +83,13 @@ Gerencia até **10 canhões** (`kMaxCannons = 10`, `kMaxPerTeam = 5`):
 
 ## Terreno (`Terrain`)
 
-Heightmap 1D com **1280 colunas** (1 px por coluna). Geração por midpoint displacement. Colisão do projétil é **manual** contra o heightmap (`IsPointInside`), não via shape Box2D.
+Heightmap 1D com **1280 colunas** (1 px por coluna). Geração por midpoint displacement; o cenário Vale do Fim aplica um envelope de vale no miolo. Colisão do projétil é **manual** contra o heightmap (`IsPointInside`), não via shape Box2D.
 
 `Terrain::RebuildPhysicsBody` é intencionalmente no-op — canhões não usam corpo físico de terreno.
 
 ## Renderização
 
-- **VirtualScreen** — render target fixo 1280×720, escalado para janela/dispositivo.
+- **VirtualScreen** — mundo lógico fixo 1280×720 (`SCREEN_*`); a janela desktop pode ser 1920×1080 (`WINDOW_*`). Física e acertos não mudam com a resolução da janela.
 - **ScreenEffects** — screen shake (Plus) aplicado via `Camera2D` offset.
 - Sprites em `assets/sprites/`; gerados por `tools/gen_sprites.py`.
 
@@ -134,6 +134,6 @@ Assets commitados no repo; scripts para regenerar.
 ## Princípios de design de código
 
 1. **Autoridade no atirador (online)** — física roda no cliente do atirador; demais aplicam resultado.
-2. **Determinismo parcial online** — vento e spawn de power-ups seeded por `terrain_seed`.
+2. **Determinismo parcial online** — vento, cenário e spawn de power-ups seeded por `terrain_seed`.
 3. **Sem over-engineering** — helpers só quando reutilizados; diffs mínimos.
 4. **Config centralizado** — `Config.h` para tuning.

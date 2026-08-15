@@ -151,8 +151,12 @@ private:
     void DrawLanguageFlags(Vector2 mouse);
     void UpdateLanguageFlags(Vector2 mouse);
 
-    Color HudTextColor() const { return nightMode ? Color{235, 235, 235, 255} : Color{40, 30, 20, 255}; }
-    Color HudTextColorDim() const { return nightMode ? Color{200, 200, 210, 255} : Color{60, 45, 30, 255}; }
+    Color HudTextColor() const {
+        return ScenarioUsesLightHud(scenario) ? Color{235, 235, 235, 255} : Color{40, 30, 20, 255};
+    }
+    Color HudTextColorDim() const {
+        return ScenarioUsesLightHud(scenario) ? Color{200, 200, 210, 255} : Color{60, 45, 30, 255};
+    }
 
     void PresentScreenWithDebug();
 
@@ -212,8 +216,9 @@ private:
 
     Sound sndFire{};
     Sound sndExplosion{};
-    Music musicTracks[2]{};
+    Music musicTracks[3]{};
     int currentMusicIndex = 0;
+    void PickMatchMusic();
     bool audioReady = false;
 
     Texture2D texCannonLeft{};
@@ -224,11 +229,14 @@ private:
     Texture2D* ResolveCannonOverlay(int rosterSlot);
     Texture2D texBackground{};
     Texture2D texBackgroundNight{};
+    Texture2D texBackgroundValley{};
     Texture2D texProjectile{};
     std::array<Texture2D, kAmmoSpriteFileCount> texAmmo{};
     const Texture2D* ResolveAmmoTexture(AmmoStyle style) const;
     bool spritesReady = false;
-    bool nightMode = false;
+    Scenario scenario = Scenario::Day;
+    unsigned int roundSeed_ = 0;
+    void ApplyScenario(Scenario next, bool rebuildTerrain);
 
     AimPhase aimPhase = AimPhase::Angle;
     float aimOscTimer = 0.0f;

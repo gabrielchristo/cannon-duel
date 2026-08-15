@@ -375,6 +375,18 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* baseSprite, Texture2D* overlayS
         if (trajectoryPreviewTurnsLeft > 0) badge(Color{60, 130, 220, 255});
         if (shieldTurnsLeft > 0) badge(Color{60, 200, 210, 255});
     }
+
+    if (!IsAlive()) {
+        const float s = r * 1.2f;
+        const Vector2 a = { base.x - s, base.y - s };
+        const Vector2 b = { base.x + s, base.y + s };
+        const Vector2 c = { base.x + s, base.y - s };
+        const Vector2 d = { base.x - s, base.y + s };
+        DrawLineEx(a, b, 7.0f, Color{ 40, 0, 0, 230 });
+        DrawLineEx(c, d, 7.0f, Color{ 40, 0, 0, 230 });
+        DrawLineEx(a, b, 4.5f, Color{ 220, 28, 28, 255 });
+        DrawLineEx(c, d, 4.5f, Color{ 220, 28, 28, 255 });
+    }
 }
 
 void Cannon::OnShotFired() {

@@ -149,6 +149,9 @@ public:
     void ReportMatchResult(bool won);
     bool UpdateDisplayName(const std::string& rawName, std::string& outSanitized);
 
+    int MyWins() const { return myWins_; }
+    int MyLosses() const { return myLosses_; }
+
 private:
     PlayerIdentity* identity = nullptr;
     SupabaseClient client;
@@ -192,6 +195,9 @@ private:
     OutgoingChallengeResult challengeResult_ = OutgoingChallengeResult::None;
     std::string challengeResultOpponent_;
     float challengeResultTimer_ = 0.0f;
+
+    int myWins_ = 0;
+    int myLosses_ = 0;
 
     bool registeredPlayer = false;
     bool realtimeStarted_ = false;

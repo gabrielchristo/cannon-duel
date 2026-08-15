@@ -100,6 +100,8 @@ void OnlineLobby::UpsertPresenceWithStatus(const char* status, const std::string
         myWins = json_helpers::Int(me[0], "wins", 0);
         myLosses = json_helpers::Int(me[0], "losses", 0);
     }
+    myWins_ = myWins;
+    myLosses_ = myLosses;
 
     json body = {
         { "player_id", identity->Id() },
@@ -802,6 +804,8 @@ void OnlineLobby::ReportMatchResult(bool won) {
         losses = me[0].value("losses", 0);
     }
     if (won) wins++; else losses++;
+    myWins_ = wins;
+    myLosses_ = losses;
 
     json body = { { "wins", wins }, { "losses", losses } };
     client.Update("players", "id=eq." + identity->Id(), body);

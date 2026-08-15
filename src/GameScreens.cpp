@@ -504,6 +504,11 @@ void Game::DrawOnlineLobby() {
                  static_cast<int>(editBtn.y + 7), 14, Color{40, 25, 10, 255});
     }
 
+    char myRecordBuf[64];
+    snprintf(myRecordBuf, sizeof(myRecordBuf), T(TK::OnlineRecordFmt, language),
+             onlineLobby.MyWins(), onlineLobby.MyLosses());
+    DrawText(myRecordBuf, 20, 106, 14, Color{100, 85, 65, 255});
+
     const char* title = T(TK::OnlineTitle, language);
     int titleW = MeasureText(title, 28);
     DrawText(title, cfg::SCREEN_WIDTH / 2 - titleW / 2, 28, 28, Color{40, 30, 20, 255});

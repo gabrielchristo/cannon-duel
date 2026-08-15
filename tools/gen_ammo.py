@@ -151,6 +151,35 @@ def make_duck() -> Image.Image:
     return img
 
 
+def make_dildo() -> Image.Image:
+    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    ink = (90, 50, 125, 255)
+    shaft = (214, 176, 236, 255)
+    shaft_d = (176, 128, 210, 255)
+    glans = (205, 145, 215, 255)
+    glans_d = (170, 100, 185, 255)
+    hi = (246, 232, 255, 230)
+
+    d.ellipse([1, 12, 27, 36], fill=ink)
+    d.ellipse([1, 28, 27, 52], fill=ink)
+    d.ellipse([3, 14, 25, 34], fill=shaft_d)
+    d.ellipse([3, 30, 25, 50], fill=shaft_d)
+    d.ellipse([8, 18, 16, 26], fill=hi)
+    d.ellipse([8, 34, 16, 42], fill=hi)
+
+    d.rounded_rectangle([14, 21, 46, 43], radius=9, fill=ink)
+    d.rounded_rectangle([16, 23, 44, 41], radius=8, fill=shaft)
+    d.ellipse([20, 24, 40, 31], fill=hi)
+    d.line([(22, 37), (40, 35)], fill=shaft_d, width=2)
+
+    d.ellipse([40, 17, 54, 47], fill=glans_d, outline=ink, width=2)
+    d.ellipse([44, 15, 63, 49], fill=glans, outline=ink, width=2)
+    d.ellipse([50, 19, 58, 28], fill=hi)
+    d.line([(58, 26), (58, 38)], fill=ink, width=2)
+    return img
+
+
 def make_nuclear() -> Image.Image:
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
@@ -174,6 +203,7 @@ GENERATORS = (
     ("ammo_67.png", make_67),
     ("ammo_tomato.png", make_tomato),
     ("ammo_duck.png", make_duck),
+    ("ammo_dildo.png", make_dildo),
     ("ammo_nuclear.png", make_nuclear),
 )
 

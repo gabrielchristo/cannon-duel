@@ -13,7 +13,7 @@ enum class CannonEffectStyle {
 };
 enum class NameEffectStyle { Plain, Flame, DarkSmoke, PurpleGlow, Cunt, OceanWave, Sakura };
 enum class AmmoStyle {
-    Default, Ice, Rasengan, Chidori, Shuriken, Kuromi, Pride, SixSeven, Tomato, Duck, Nuclear
+    Default, Ice, Rasengan, Chidori, Shuriken, Kuromi, Pride, SixSeven, Tomato, Duck, Dildo, Nuclear
 };
 
 struct ShopItem {
@@ -46,6 +46,7 @@ inline constexpr const char* kAmmoSpriteFiles[] = {
     "sprites/ammo_67.png",
     "sprites/ammo_tomato.png",
     "sprites/ammo_duck.png",
+    "sprites/ammo_dildo.png",
     "sprites/ammo_nuclear.png",
 };
 inline constexpr int kAmmoSpriteFileCount = sizeof(kAmmoSpriteFiles) / sizeof(kAmmoSpriteFiles[0]);
@@ -61,7 +62,8 @@ inline int AmmoSpriteIndex(AmmoStyle style) {
         case AmmoStyle::SixSeven: return 6;
         case AmmoStyle::Tomato: return 7;
         case AmmoStyle::Duck: return 8;
-        case AmmoStyle::Nuclear: return 9;
+        case AmmoStyle::Dildo: return 9;
+        case AmmoStyle::Nuclear: return 10;
         default: return -1;
     }
 }
@@ -78,6 +80,7 @@ inline constexpr const char* kCannonColorFiles[] = {
     "sprites/cannon_gold.png",
     "sprites/cannon_black.png",
     "sprites/cannon_tan.png",
+    "sprites/cannon_pink.png",
 };
 inline constexpr int kCannonColorFileCount = sizeof(kCannonColorFiles) / sizeof(kCannonColorFiles[0]);
 
@@ -115,6 +118,8 @@ inline constexpr ShopItem kShopCatalog[] = {
       TK::ShopColorBlack, WHITE, Color{45, 48, 55, 255}, 8 },
     { "color_tan", ShopCategory::CannonColor, kCannonColorPrice,
       TK::ShopColorTan, WHITE, Color{196, 142, 88, 255}, 9 },
+    { "color_pink", ShopCategory::CannonColor, kCannonColorPrice,
+      TK::ShopColorPink, WHITE, Color{235, 90, 160, 255}, 10 },
 
     // --- Skin gráfica (overlay sobre a cor equipada) ---
     { kDefaultCannonSkinId, ShopCategory::CannonSkin, 0,
@@ -215,6 +220,9 @@ inline constexpr ShopItem kShopCatalog[] = {
     { "ammo_pride", ShopCategory::Ammo, 85,
       TK::ShopAmmoPride, WHITE, Color{255, 90, 180, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
       AmmoStyle::Pride },
+    { "ammo_dildo", ShopCategory::Ammo, 50,
+      TK::ShopAmmoDildo, WHITE, Color{210, 175, 235, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Dildo },
     { "ammo_nuclear", ShopCategory::Ammo, 10000,
       TK::ShopAmmoNuclear, WHITE, Color{255, 220, 40, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
       AmmoStyle::Nuclear },

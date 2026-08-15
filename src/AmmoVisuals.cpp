@@ -78,6 +78,59 @@ void DrawSpriteOrCircle(Vector2 pos, const Texture2D* sprite, float radius, floa
     }
 }
 
+Vector2 Along(Vector2 o, float ang, float dist, float perp = 0.0f) {
+    return {
+        o.x + std::cos(ang) * dist + std::cos(ang + PI * 0.5f) * perp,
+        o.y + std::sin(ang) * dist + std::sin(ang + PI * 0.5f) * perp
+    };
+}
+
+void DrawDildoProjectile(Vector2 pos, float rotDeg, float r) {
+    const float ang = rotDeg * DEG2RAD;
+    const Color ink{ 90, 50, 125, 255 };
+    const Color shaft{ 214, 176, 236, 255 };
+    const Color shaftD{ 176, 128, 210, 255 };
+    const Color glans{ 205, 145, 215, 255 };
+    const Color glansD{ 170, 100, 185, 255 };
+    const Color hi{ 246, 232, 255, 230 };
+
+    const float halfLen = r * 1.45f;
+    const float shaftW = r * 1.05f;
+    const float headR = r * 0.78f;
+    const float ballR = r * 0.62f;
+
+    const Vector2 base = Along(pos, ang, -halfLen);
+    const Vector2 corona = Along(pos, ang, halfLen * 0.72f);
+    const Vector2 tip = Along(pos, ang, halfLen + headR * 0.35f);
+
+    const Vector2 b1 = Along(base, ang, r * 0.08f, ballR * 0.78f);
+    const Vector2 b2 = Along(base, ang, r * 0.08f, -ballR * 0.78f);
+    DrawCircleV(b1, ballR + 1.4f, ink);
+    DrawCircleV(b2, ballR + 1.4f, ink);
+    DrawCircleV(b1, ballR, shaftD);
+    DrawCircleV(b2, ballR, shaftD);
+    DrawCircleV(Along(b1, ang, -ballR * 0.12f, ballR * 0.18f), ballR * 0.32f, hi);
+    DrawCircleV(Along(b2, ang, -ballR * 0.12f, -ballR * 0.18f), ballR * 0.32f, hi);
+
+    DrawLineEx(base, corona, shaftW + 2.6f, ink);
+    DrawLineEx(base, corona, shaftW, shaft);
+    DrawLineEx(Along(pos, ang, -r * 0.15f, -shaftW * 0.22f),
+               Along(pos, ang, r * 0.55f, -shaftW * 0.20f),
+               shaftW * 0.20f, hi);
+    DrawLineEx(Along(base, ang, r * 0.4f, shaftW * 0.14f),
+               Along(corona, ang, -r * 0.15f, shaftW * 0.08f),
+               1.5f, shaftD);
+
+    DrawCircleV(tip, headR + 1.4f, ink);
+    DrawCircleV(tip, headR, glans);
+    DrawCircleV(corona, headR * 0.95f, glansD);
+    DrawCircleV(Along(tip, ang, -headR * 0.18f), headR * 0.82f, glans);
+    DrawCircleV(Along(tip, ang, -headR * 0.28f, -headR * 0.30f), headR * 0.26f, hi);
+    DrawLineEx(Along(tip, ang, headR * 0.42f, -headR * 0.22f),
+               Along(tip, ang, headR * 0.42f, headR * 0.22f),
+               1.8f, ink);
+}
+
 } // namespace
 
 void EmitAmmoTrail(ParticleSystem& particles, Vector2 pos, Vector2 vel,
@@ -136,6 +189,11 @@ void EmitAmmoTrail(ParticleSystem& particles, Vector2 pos, Vector2 vel,
             particles.Emit(pos, { RandRange(-8, 8), RandRange(-18, -4) },
                            0.4f, 2.8f, Color{ 210, 240, 255, 220 }, -0.35f);
             break;
+        case AmmoStyle::Dildo:
+            particles.EmitTrail(pos, vel, Color{ 210, 175, 235, 255 });
+            particles.Emit(pos, { RandRange(-12, 12), RandRange(-8, 6) },
+                           0.3f, 2.4f, Color{ 240, 220, 255, 230 }, 0.25f);
+            break;
         case AmmoStyle::Nuclear:
             particles.EmitTrail(pos, vel, Color{ 80, 90, 70, 255 });
             particles.EmitTrail(pos, vel, Color{ 255, 200, 40, 200 });
@@ -192,6 +250,10 @@ void EmitAmmoImpact(ParticleSystem& particles, Vector2 pos, AmmoStyle ammo) {
                                RandRange(0.5f, 1.1f), RandRange(2.5f, 6.5f),
                                Color{ 200, 235, 255, 230 }, -0.45f);
             }
+            break;
+        case AmmoStyle::Dildo:
+            Burst(particles, pos, 36, Color{ 200, 155, 230, 255 }, Color{ 240, 220, 255, 255 },
+                  70.0f, 230.0f, 2.0f, 5.4f, 0.75f);
             break;
         case AmmoStyle::Nuclear:
             Burst(particles, pos, 90, Color{ 255, 230, 80, 255 }, Color{ 255, 90, 20, 255 },
@@ -265,6 +327,10 @@ void DrawAmmoProjectile(Vector2 pos, Vector2 vel, AmmoStyle ammo,
             }
             break;
         }
+        case AmmoStyle::Dildo:
+            DrawCircleV(pos, r + 3.0f * visualScale, Fade(Color{ 210, 175, 235, 255 }, 0.22f));
+            DrawDildoProjectile(pos, rot, r);
+            break;
         case AmmoStyle::Nuclear:
             DrawCircleV(pos, r + 4.0f * visualScale, Fade(Color{ 255, 220, 40, 255 }, 0.3f));
             DrawSpriteOrCircle(pos, sprite, r + 1.0f * visualScale, rot, WHITE);

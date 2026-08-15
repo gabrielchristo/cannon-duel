@@ -137,6 +137,7 @@ enum class TK {
     ShopColorGold,
     ShopColorBlack,
     ShopColorTan,
+    ShopColorPink,
 
     ShopItemDefaultSkin,
     ShopSkinKuromi,
@@ -179,6 +180,7 @@ enum class TK {
     ShopAmmoSixSeven,
     ShopAmmoTomato,
     ShopAmmoDuck,
+    ShopAmmoDildo,
     ShopAmmoNuclear,
 };
 
@@ -387,6 +389,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::ShopColorGold: return pt ? "Dourado" : "Gold";
         case TK::ShopColorBlack: return pt ? "Preto" : "Black";
         case TK::ShopColorTan: return pt ? "Marrom Claro" : "Light Brown";
+        case TK::ShopColorPink: return pt ? "Rosa" : "Pink";
 
         case TK::ShopItemDefaultSkin: return pt ? "Sem Skin" : "No Skin";
         case TK::ShopSkinKuromi: return pt ? "Skin Kuromi" : "Kuromi Skin";
@@ -426,9 +429,10 @@ inline const char* T(TK key, Lang lang) {
         case TK::ShopAmmoShuriken: return pt ? "Shuriken" : "Shuriken";
         case TK::ShopAmmoKuromi: return pt ? "Estrela Kuromi" : "Kuromi Star";
         case TK::ShopAmmoPride: return pt ? "Bola Cunt" : "Cunt Ball";
-        case TK::ShopAmmoSixSeven: return pt ? "Emoji 67" : "67 Emoji";
+        case TK::ShopAmmoSixSeven: return "67";
         case TK::ShopAmmoTomato: return pt ? "Tomate" : "Tomato";
         case TK::ShopAmmoDuck: return pt ? "Pato de Borracha" : "Rubber Duck";
+        case TK::ShopAmmoDildo: return pt ? "Dildo" : "Dildo";
         case TK::ShopAmmoNuclear: return pt ? "Bomba Nuclear" : "Nuclear Bomb";
 
         default: return "";

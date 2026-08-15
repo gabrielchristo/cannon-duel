@@ -135,17 +135,21 @@ src/
 ├── GameScreens.cpp       # lobby, menus
 ├── GameOnline.cpp        # partida online, replay remoto
 ├── GameTeamRoom.cpp      # sala de composição
-├── GameUI.cpp            # HUD, toggles Classic/Plus
+├── GameUI.cpp            # HUD, toggles Classic/Plus, nomes na partida
+├── GameShop.cpp          # UI da loja
 ├── GameDebug.cpp         # painel dev (F9, desktop)
 ├── Config.h              # constantes de balanceamento (namespace cfg)
+├── ShopCatalog.h         # IDs, preços, categorias da loja
+├── AmmoVisuals.cpp/h     # tiro / rastro / impacto / preview da munição
+├── CoinPopup.cpp/h       # "+N" flutuante ao ganhar moedas
 ├── GameTypes.h           # enums: GameMode, GameState, MatchComposition
 ├── MatchRoster.cpp/h     # até 10 canhões, ordem intercalada de turnos
 ├── Terrain.cpp/h         # heightmap 1D, crateras
-├── Cannon.cpp/h          # canhão, vida, efeitos Plus
+├── Cannon.cpp/h          # canhão, vida, efeitos Plus, cosméticos
 ├── Projectile.cpp/h        # corpo Box2D dinâmico
 ├── PowerupSystem.cpp/h     # spawn, colisão, efeitos (Plus)
 ├── AI.cpp/h                # IA balística
-└── net/                    # Supabase, Realtime, lobby, sync de partida
+└── net/                    # Supabase, Realtime, lobby, sync, PlayerWallet
 ```
 
 ## Arquitetura (visão rápida)
@@ -182,8 +186,8 @@ cada passo de física. A IA compensa a potência do tiro considerando o vento.
 
 Sprites, sons e música ficam em `assets/`, todos gerados/incluídos no
 repositório — nada pendente pra rodar o jogo do zero. Os scripts em
-`tools/` (`gen_sprites.py`, `gen_sounds.py`, `gen_icon.py`) regeneram esses
-assets caso você queira ajustar cores/formas/efeitos.
+`tools/` (`gen_sprites.py`, `gen_skins.py`, `gen_ammo.py`, `gen_sounds.py`,
+`gen_icon.py`) regeneram esses assets caso você queira ajustar cores/formas/efeitos.
 
 A música de fundo (`assets/sounds/music.ogg` e `music2.ogg`) é sorteada
 aleatoriamente a cada partida.
@@ -196,6 +200,9 @@ aleatoriamente a cada partida.
 - **Turnos online:** atirador autoritativo; oponentes aplicam **resultado** (`health_after`, cratera, dano) — não re-simulam física.
 - **Canhão morto:** permanece visível, não atira; turnos pulam via `NextLivingPlayerNum` / `MaybeAdvancePastDeadOnlineTurn`.
 - **Idioma:** strings em `Localization.h` (`TK` enum, PT-BR + EN).
+- **Loja:** catálogo, IDs, preços e visual em [`docs/shop.md`](docs/shop.md). Não alterar um ID listado sem pedido explícito. Tudo é cosmético, exceto `ammo_nuclear` (cratera/área fixas em `Config.h`).
+- **Cosméticos locais:** slots humanos usam a carteira do jogador (o jogador 2 pode repetir a mesma skin); slots de IA usam itens padrão. Nomes sempre visíveis no local (debug e release).
+- **Moedas:** +10 power-up, +15 acerto em inimigo, +50 vitória, +5 derrota, 0 empate (`cfg::COINS_ROUND_*`). Popup de acerto ~3,1s; a tela de fim mostra o ganho.
 - **Commits:** só quando o usuário pedir explicitamente.
 - **Não commitar:** `SupabaseConfig.h` com credenciais reais, `player_identity.txt`.
 
@@ -210,6 +217,9 @@ aleatoriamente a cada partida.
 | Sala de equipes | `GameTeamRoom.cpp`, `OnlineLobbyTeam.cpp` |
 | Schema DB | `supabase/schema.sql`, `supabase/migration_*.sql` |
 | UI pós-partida / rematch | `GameOnline.cpp`, `GameDraw.cpp`, `GameCore.cpp` |
+| Loja / catálogo / cosméticos | `ShopCatalog.h`, `GameShop.cpp`, `docs/shop.md`, `Localization.h` |
+| Visual de munição | `AmmoVisuals.cpp`, `tools/gen_ammo.py` |
+| Carteira / compra / equip | `net/PlayerWallet.cpp`, `supabase/migration_013_shop.sql`+ |
 | Android | `android/`, `Platform.h`, `run_cmake_android.sh`, `build_android.sh` |
 
 ## Multiplayer online
@@ -222,8 +232,8 @@ login/conta — só um identificador leve gerado localmente). Veja
 
 1. Preencher `src/net/SupabaseConfig.h` com a URL e a chave do seu próprio
    projeto Supabase.
-2. Aplicar `supabase/schema.sql` + migrations `001`–`011` no SQL Editor do
-   painel Supabase.
+2. Aplicar `supabase/schema.sql` + migrations `001`–`016` no SQL Editor do
+   painel Supabase (loja: 013–016; `equipped_ammo` é a 016).
 3. Habilitar Realtime nas tabelas (migration 005 + 011).
 
 Ver [`docs/networking.md`](docs/networking.md).
@@ -235,6 +245,8 @@ Ver [`docs/networking.md`](docs/networking.md).
 - **Canhão morto:** não recebe turno; partida continua até eliminar equipe.
 - **Rematch:** botões ao fim da partida → sala ou lobby.
 - **Convites:** aceitar convite de equipe não reexibe banner no lobby.
+- **Loja local:** IA com itens padrão; jogador 2 humano pode repetir a skin; nomes visíveis.
+- **Fim de partida:** mensagem mostra moedas da vitória (50) ou derrota (5).
 
 ## Documentação
 
@@ -244,6 +256,7 @@ Ver [`docs/networking.md`](docs/networking.md).
 | [`docs/networking.md`](docs/networking.md) | Supabase, Realtime, sync de turnos |
 | [`docs/physics.md`](docs/physics.md) | Box2D, terreno, vento, projétil |
 | [`docs/game-design.md`](docs/game-design.md) | Regras, modos, power-ups, composições |
+| [`docs/shop.md`](docs/shop.md) | Catálogo da loja (IDs, preços, visual) |
 | [`docs/web.md`](docs/web.md) | Build Web (WebAssembly), OPFS, limitações |
 
 ## Referência original

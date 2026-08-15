@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageOps
+    from PIL import Image, ImageDraw, ImageFilter
 except ImportError:
     print("Erro: Pillow não instalado. Rode: pip install -r tools/requirements.txt", file=sys.stderr)
     sys.exit(1)
@@ -261,116 +261,6 @@ def make_background_night() -> Image.Image:
     return img
 
 
-def _draw_valley_statue(
-    draw: ImageDraw.ImageDraw,
-    cx: float,
-    facing: float,
-    color: tuple[int, ...],
-) -> None:
-    """Silhueta estilizada (cabeça + ombros) virada para o centro."""
-    ink = color
-    # ombros / pedestal
-    draw.polygon(
-        [
-            (cx - 70 * facing, 560),
-            (cx + 55 * facing, 560),
-            (cx + 48 * facing, 430),
-            (cx - 20 * facing, 400),
-            (cx - 78 * facing, 470),
-        ],
-        fill=ink,
-    )
-    # cabeça
-    draw.ellipse([cx - 52, 250, cx + 38, 410], fill=ink)
-    # nariz / queixo apontando para o centro
-    draw.polygon(
-        [
-            (cx + 30 * facing, 320),
-            (cx + 78 * facing, 348),
-            (cx + 28 * facing, 372),
-        ],
-        fill=ink,
-    )
-    # cabelo / volume no topo
-    draw.ellipse([cx - 58, 230, cx + 20, 300], fill=ink)
-    draw.polygon(
-        [
-            (cx - 40, 250),
-            (cx - 10, 210),
-            (cx + 18, 248),
-        ],
-        fill=ink,
-    )
-
-
-def cartoonize_authored_background(src: Image.Image) -> Image.Image:
-    """Achaata arte pictórica no estilo dos fundos do jogo: faixas chatas, paleta curta."""
-    rgb = src.convert("RGB").resize((BG_WIDTH, BG_HEIGHT), Image.Resampling.LANCZOS)
-    rgb = rgb.filter(ImageFilter.GaussianBlur(radius=1.8))
-    rgb = rgb.filter(ImageFilter.MedianFilter(size=5))
-    rgb = ImageEnhance.Color(rgb).enhance(1.12)
-    rgb = ImageEnhance.Contrast(rgb).enhance(1.06)
-
-    big = rgb.filter(ImageFilter.GaussianBlur(radius=4.0))
-    edges = big.convert("L").filter(ImageFilter.FIND_EDGES)
-    edges = edges.point(lambda p: 255 if p > 18 else 0)
-    edges = edges.filter(ImageFilter.MinFilter(3))
-
-    rgb = ImageOps.posterize(rgb, 5)
-    ink = Image.new("RGB", rgb.size, (42, 30, 26))
-    rgb = Image.composite(ink, rgb, edges)
-    return quantize_retro(rgb.convert("RGBA"), 20)
-
-
-def make_background_valley() -> Image.Image:
-    """Vale do Fim: pôr do sol, duas estátuas se encarando, névoa no centro."""
-    img = Image.new("RGBA", (BG_WIDTH, BG_HEIGHT), (0, 0, 0, 255))
-    top, mid, bottom = (48, 28, 78), (210, 90, 70), (255, 190, 110)
-    for y in range(BG_HEIGHT):
-        t = y / BG_HEIGHT
-        if t < 0.45:
-            u = t / 0.45
-            a, b = top, mid
-        else:
-            u = (t - 0.45) / 0.55
-            a, b = mid, bottom
-        color = (
-            int(a[0] * (1 - u) + b[0] * u),
-            int(a[1] * (1 - u) + b[1] * u),
-            int(a[2] * (1 - u) + b[2] * u),
-            255,
-        )
-        ImageDraw.Draw(img).line([(0, y), (BG_WIDTH, y)], fill=color)
-
-    draw = ImageDraw.Draw(img, "RGBA")
-    sx, sy, sr = BG_WIDTH * 0.5, 210, 70
-    draw.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=(255, 220, 140, 255))
-    for radius in range(110, 70, -8):
-        draw.ellipse(
-            [sx - radius, sy - radius, sx + radius, sy + radius],
-            outline=(255, 180, 90, 28),
-            width=8,
-        )
-
-    # névoa / queda d'água no miolo
-    for i, alpha in enumerate((40, 55, 70)):
-        w = 70 + i * 18
-        draw.ellipse(
-            [sx - w, 380 + i * 16, sx + w, 560 + i * 10],
-            fill=(255, 230, 210, alpha),
-        )
-    for xoff in (-18, 0, 16):
-        draw.rectangle([sx + xoff - 4, 250, sx + xoff + 4, 480], fill=(240, 230, 220, 50))
-
-    statue = (28, 22, 36, 255)
-    _draw_valley_statue(draw, 210, 1.0, statue)
-    _draw_valley_statue(draw, BG_WIDTH - 210, -1.0, statue)
-
-    _draw_hills(draw, BG_WIDTH, BG_HEIGHT, 470, 26, (62, 40, 48, 230), seed=7, phase=1.1)
-    _draw_hills(draw, BG_WIDTH, BG_HEIGHT, 510, 18, (36, 24, 32, 255), seed=7, phase=1.1)
-    return img
-
-
 # cannon_left/right = casco padrão branco. Demais = cores da loja (cannon_{cor}.png).
 CANNON_WHITE_BODY = (248, 250, 252, 255)
 CANNON_WHITE_DARK = (198, 206, 218, 255)
@@ -406,14 +296,6 @@ def generate_sprites(output_dir: Path, *, retro: bool) -> None:
     save(make_terrain_tile(), "terrain_tile.png")
     save(make_background_day(), "background.png", n_colors=32)
     save(make_background_night(), "background_night.png", n_colors=32)
-    valley_src = output_dir / "background_valley_src.png"
-    if valley_src.exists():
-        save_sprite(
-            cartoonize_authored_background(Image.open(valley_src)),
-            output_dir,
-            "background_valley.png",
-            retro=False,
-        )
 
 
 def parse_args() -> argparse.Namespace:

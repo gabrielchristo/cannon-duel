@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "DebugLog.h"
 #include "GameRand.h"
+#include "MenuLayout.h"
 #include "ScrollList.h"
 #include "VirtualScreen.h"
 #include "net/NetWorker.h"
@@ -17,15 +18,21 @@
 #include <vector>
 
 void Game::UpdateMainMenu() {
+    if (!walletRefreshedOnce_) {
+        walletRefreshedOnce_ = true;
+        wallet.RefreshFromServer();
+    }
+
     Vector2 m = ::GetVirtualMouse();
     UpdateVersionSwitch(m);
     UpdateLanguageFlags(m);
 
-    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 265, 280, 56 };
-    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 341, 280, 56 };
-    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 417, 280, 56 };
-    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 493, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 569, 280, 56 };
+    Rectangle btn1P = menu_layout::MainMenuButtonRect(0);
+    Rectangle btn2P = menu_layout::MainMenuButtonRect(1);
+    Rectangle btnOnline = menu_layout::MainMenuButtonRect(2);
+    Rectangle btnShop = menu_layout::MainMenuButtonRect(3);
+    Rectangle btnInstructions = menu_layout::MainMenuButtonRect(4);
+    Rectangle btnAbout = menu_layout::MainMenuButtonRect(5);
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
         if (CheckCollisionPointRec(m, btn1P)) {
@@ -42,6 +49,11 @@ void Game::UpdateMainMenu() {
         }
         else if (CheckCollisionPointRec(m, btnAbout)) state = GameState::About;
         else if (CheckCollisionPointRec(m, btnInstructions)) state = GameState::Instructions;
+        else if (CheckCollisionPointRec(m, btnShop)) {
+            wallet.RefreshFromServer();
+            shopScroll_.scrollY = 0.0f;
+            state = GameState::Shop;
+        }
     }
 }
 

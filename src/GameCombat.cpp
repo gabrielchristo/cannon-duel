@@ -320,13 +320,17 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
     if (audioReady) PlaySound(sndExplosion);
 
     Cannon& shooter = GetCannon(currentPlayer);
+    bool pickedPowerup = false;
     if (version == GameVersion::Plus) {
         const auto onOnlinePickup = [this](int type, float x) {
             if (mode == GameMode::Online && netMatch.InMatch()) {
                 netMatch.PublishPowerupPicked(type, x);
             }
         };
-        powerups.TryPickupAtImpact(impactPos, shooter, terrain, language, onOnlinePickup);
+        pickedPowerup = powerups.TryPickupAtImpact(impactPos, shooter, terrain, language, onOnlinePickup);
+    }
+    if (pickedPowerup && IsLocalHumanShooter()) {
+        AwardCoinsWithPopup(currentPlayer, 10);
     }
 
     float damageMult = 1.0f;
@@ -376,6 +380,14 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
 
         c.TakeDamage(dmg);
         if (i < MatchRoster::kMaxCannons) dmgApplied[i] = dmg;
+    }
+
+    if (IsLocalHumanShooter()) {
+        for (int i = 0; i < roster.CannonCount(); ++i) {
+            if (dmgApplied[i] <= 0.0f) continue;
+            if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
+            AwardCoinsWithPopup(currentPlayer, 15);
+        }
     }
 
     for (int i = 0; i < roster.CannonCount(); ++i) {

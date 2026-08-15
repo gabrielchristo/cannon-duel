@@ -111,6 +111,55 @@ enum class TK {
     PowerupGuided,
     PowerupHeal,
     PowerupShield,
+
+    ShopButton,
+    ShopTitle,
+    ShopBack,
+    ShopTabColors,
+    ShopTabSkins,
+    ShopTabEffects,
+    ShopTabNames,
+    ShopNamePreviewSample,
+    ShopBuyButton,
+    ShopEquipButton,
+    ShopEquippedLabel,
+    ShopNotEnoughCoins,
+    ShopCoinsLabel,
+
+    ShopItemDefaultColor,
+    ShopColorBlue,
+    ShopColorCyan,
+    ShopColorGreen,
+    ShopColorPurple,
+    ShopColorRed,
+    ShopColorOrange,
+    ShopColorGold,
+    ShopColorBlack,
+
+    ShopItemDefaultSkin,
+    ShopSkinKuromi,
+    ShopSkinGothic,
+    ShopSkinSamurai,
+    ShopSkinPirate,
+
+    ShopItemDefaultEffect,
+    ShopEffectAuraSoft,
+    ShopEffectAuraFire,
+    ShopEffectImbueHoly,
+    ShopEffectDebuffGlow,
+    ShopEffectArcane,
+    ShopEffectLiquidInferno,
+    ShopEffectLiquidFrost,
+    ShopEffectLiquidVoid,
+    ShopEffectAuraCunt,
+
+    ShopItemDefaultName,
+    ShopItemEmberName,
+    ShopItemShadowName,
+    ShopItemAmethystName,
+    ShopItemCuntName,
+    ShopItemOceanName,
+    ShopItemSakuraName,
 };
 
 inline const char* T(TK key, Lang lang) {
@@ -292,6 +341,55 @@ inline const char* T(TK key, Lang lang) {
         case TK::PowerupGuided: return pt ? "Proximo tiro TELEGUIADO (dano menor)!" : "Next shot is GUIDED (lower damage)!";
         case TK::PowerupHeal: return pt ? "Vida recuperada!" : "Health restored!";
         case TK::PowerupShield: return pt ? "ESCUDO ativo por 1 turno!" : "SHIELD active for 1 turn!";
+
+        case TK::ShopButton: return pt ? "LOJA" : "SHOP";
+        case TK::ShopTitle: return pt ? "LOJA" : "SHOP";
+        case TK::ShopBack: return pt ? "VOLTAR" : "BACK";
+        case TK::ShopTabColors: return pt ? "CORES" : "COLORS";
+        case TK::ShopTabSkins: return pt ? "SKINS" : "SKINS";
+        case TK::ShopTabEffects: return pt ? "EFEITOS" : "EFFECTS";
+        case TK::ShopTabNames: return pt ? "NOMES" : "NAMES";
+        case TK::ShopNamePreviewSample: return pt ? "SEU NOME" : "YOUR NAME";
+        case TK::ShopBuyButton: return pt ? "COMPRAR" : "BUY";
+        case TK::ShopEquipButton: return pt ? "EQUIPAR" : "EQUIP";
+        case TK::ShopEquippedLabel: return pt ? "EQUIPADO" : "EQUIPPED";
+        case TK::ShopNotEnoughCoins: return pt ? "Moedas insuficientes" : "Not enough coins";
+        case TK::ShopCoinsLabel: return pt ? "MOEDAS" : "COINS";
+
+        case TK::ShopItemDefaultColor: return pt ? "Branco (Padrao)" : "White (Default)";
+        case TK::ShopColorBlue: return pt ? "Azul" : "Blue";
+        case TK::ShopColorCyan: return pt ? "Ciano" : "Cyan";
+        case TK::ShopColorGreen: return pt ? "Verde" : "Green";
+        case TK::ShopColorPurple: return pt ? "Roxo" : "Purple";
+        case TK::ShopColorRed: return pt ? "Vermelho" : "Red";
+        case TK::ShopColorOrange: return pt ? "Laranja" : "Orange";
+        case TK::ShopColorGold: return pt ? "Dourado" : "Gold";
+        case TK::ShopColorBlack: return pt ? "Preto" : "Black";
+
+        case TK::ShopItemDefaultSkin: return pt ? "Sem Skin" : "No Skin";
+        case TK::ShopSkinKuromi: return pt ? "Skin Kuromi" : "Kuromi Skin";
+        case TK::ShopSkinGothic: return pt ? "Skin Gotica" : "Gothic Skin";
+        case TK::ShopSkinSamurai: return pt ? "Skin Samurai" : "Samurai Skin";
+        case TK::ShopSkinPirate: return pt ? "Skin Pirata" : "Pirate Skin";
+
+        case TK::ShopItemDefaultEffect: return pt ? "Sem Efeito" : "No Effect";
+        case TK::ShopEffectAuraSoft: return pt ? "Aura + Ego" : "Aura + Ego";
+        case TK::ShopEffectAuraFire: return pt ? "Aura de Fogo" : "Fire Aura";
+        case TK::ShopEffectImbueHoly: return pt ? "Imbuimento Sagrado" : "Holy Imbue";
+        case TK::ShopEffectDebuffGlow: return pt ? "Brilho Envenenado" : "Poison Glow";
+        case TK::ShopEffectArcane: return pt ? "Faisca Arcana" : "Arcane Spark";
+        case TK::ShopEffectLiquidInferno: return pt ? "Inferno Liquido" : "Liquid Inferno";
+        case TK::ShopEffectLiquidFrost: return pt ? "Gelo Liquido" : "Liquid Frost";
+        case TK::ShopEffectLiquidVoid: return pt ? "Vazio Liquido" : "Liquid Void";
+        case TK::ShopEffectAuraCunt: return pt ? "Aura Cunt" : "Cunt Aura";
+
+        case TK::ShopItemDefaultName: return pt ? "Nome Padrao" : "Standard Name";
+        case TK::ShopItemEmberName: return pt ? "Nome em Brasa" : "Ember Name";
+        case TK::ShopItemShadowName: return pt ? "Nome Sombrio" : "Shadow Name";
+        case TK::ShopItemAmethystName: return pt ? "Nome Ametista" : "Amethyst Name";
+        case TK::ShopItemCuntName: return pt ? "Nome Cunt" : "Cunt Name";
+        case TK::ShopItemOceanName: return pt ? "Nome Oceano" : "Ocean Name";
+        case TK::ShopItemSakuraName: return pt ? "Nome Sakura" : "Sakura Name";
 
         default: return "";
     }

@@ -67,35 +67,61 @@ def make_cannon(
     flip: bool = False,
     size: int = 128,
 ) -> Image.Image:
-    """Desenha um tanque estilizado (corpo + torre + cano)."""
+    """Desenha um tanque estilizado (corpo + torre + cano + esteiras)."""
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     cx, cy = size * 0.42, size * 0.62
+    outline = (28, 28, 32, 255)
 
-    draw.ellipse([cx - 46, cy + 22, cx + 46, cy + 34], fill=(0, 0, 0, 90))
-    draw.rounded_rectangle([cx - 44, cy + 6, cx + 44, cy + 26], radius=10, fill=color_dark)
+    # Sombra no chão
+    draw.ellipse([cx - 48, cy + 24, cx + 48, cy + 36], fill=(0, 0, 0, 70))
+
+    # Esteiras
+    draw.rounded_rectangle([cx - 46, cy + 4, cx + 46, cy + 28], radius=11, fill=color_dark)
+    draw.rounded_rectangle([cx - 44, cy + 6, cx + 44, cy + 26], radius=10, fill=(38, 38, 42, 255))
     for i in range(-3, 4):
         wx = cx + i * 13
-        draw.ellipse([wx - 6, cy + 8, wx + 6, cy + 24], fill=(30, 30, 30, 255))
+        draw.rounded_rectangle([wx - 5, cy + 9, wx + 5, cy + 23], radius=3, fill=(52, 52, 58, 255))
+        draw.line([wx, cy + 10, wx, cy + 22], fill=(70, 70, 76, 180), width=1)
 
-    body_rect = [cx - 38, cy - 22, cx + 38, cy + 10]
-    draw.rounded_rectangle(body_rect, radius=12, fill=color_body)
-    draw.rounded_rectangle(body_rect, radius=12, outline=(20, 20, 20, 255), width=3)
+    # Casco — camadas pra dar volume
+    body_rect = [cx - 40, cy - 24, cx + 40, cy + 8]
+    draw.rounded_rectangle(body_rect, radius=14, fill=color_dark)
+    inner = [cx - 36, cy - 20, cx + 36, cy + 4]
+    draw.rounded_rectangle(inner, radius=12, fill=color_body)
+    highlight = [cx - 28, cy - 18, cx + 10, cy - 6]
+    draw.rounded_rectangle(highlight, radius=8, fill=_tint(color_body, 1.18, 1.18, 1.18, 90))
+    draw.rounded_rectangle(body_rect, radius=14, outline=outline, width=2)
 
-    turret_rect = [cx - 22, cy - 40, cx + 22, cy - 4]
-    draw.ellipse(turret_rect, fill=color_body)
-    draw.ellipse(turret_rect, outline=(20, 20, 20, 255), width=3)
+    # Torre
+    turret_rect = [cx - 24, cy - 44, cx + 24, cy - 6]
+    draw.ellipse(turret_rect, fill=color_dark)
+    draw.ellipse([cx - 20, cy - 40, cx + 20, cy - 10], fill=color_body)
+    draw.ellipse([cx - 12, cy - 36, cx - 2, cy - 24], fill=(255, 255, 255, 55))
+    draw.ellipse(turret_rect, outline=outline, width=2)
 
-    barrel_len = 54
-    bx0, by0 = cx, cy - 22
+    # Cano (duas camadas + boca)
+    barrel_len = 56
+    bx0, by0 = cx, cy - 24
     bx1 = bx0 + (-barrel_len if flip else barrel_len)
-    by1 = by0 - 26
-    draw.line([bx0, by0, bx1, by1], fill=(40, 40, 40, 255), width=11)
-    draw.line([bx0, by0, bx1, by1], fill=(70, 70, 70, 255), width=6)
-    draw.ellipse([bx1 - 5, by1 - 5, bx1 + 5, by1 + 5], fill=(25, 25, 25, 255))
-    draw.ellipse([cx - 14, cy - 34, cx - 2, cy - 22], fill=(255, 255, 255, 60))
+    by1 = by0 - 28
+    draw.line([bx0, by0, bx1, by1], fill=(32, 32, 36, 255), width=13)
+    draw.line([bx0, by0, bx1, by1], fill=(88, 90, 96, 255), width=7)
+    draw.line([bx0, by0, bx1, by1], fill=(120, 122, 128, 255), width=3)
+    draw.ellipse([bx1 - 6, by1 - 6, bx1 + 6, by1 + 6], fill=(22, 22, 26, 255))
+    draw.ellipse([bx1 - 3, by1 - 3, bx1 + 3, by1 + 3], fill=(50, 50, 55, 255))
 
     return img
+
+
+def _tint(rgba: tuple[int, int, int, int], rr: float, gg: float, bb: float, alpha: int) -> tuple[int, int, int, int]:
+    r, g, b, _a = rgba
+    return (
+        min(255, int(r * rr)),
+        min(255, int(g * gg)),
+        min(255, int(b * bb)),
+        alpha,
+    )
 
 
 def make_projectile() -> Image.Image:
@@ -238,21 +264,27 @@ def make_background_night() -> Image.Image:
 # Paletas por slot de canhão (equipe A: esquerda, B: direita).
 # Cores alinhadas com MatchRoster::ColorForSlot (src/MatchRoster.cpp), pra que o
 # canhão em campo combine com a cor usada em nome/barra de vida/HUD do slot.
+# cannon_left/right = skin padrão branca (loja + IA local).
+# cannon_1..10 = variantes coloridas (loja + cores de equipe em partidas sem skin).
+CANNON_WHITE_BODY = (248, 250, 252, 255)
+CANNON_WHITE_DARK = (198, 206, 218, 255)
+
 CANNON_PALETTES: tuple[tuple[tuple[int, int, int, int], tuple[int, int, int, int], bool, str], ...] = (
-    ((60, 120, 220, 255), (35, 75, 145, 255), False, "cannon_left.png"),
-    ((220, 70, 60, 255), (150, 40, 35, 255), True, "cannon_right.png"),
+    (CANNON_WHITE_BODY, CANNON_WHITE_DARK, False, "cannon_left.png"),
+    (CANNON_WHITE_BODY, CANNON_WHITE_DARK, True, "cannon_right.png"),
     # Equipe A (slots 0-4) — tons frios, canhão virado pra direita.
     ((55, 115, 220, 255), (35, 75, 145, 255), False, "cannon_1.png"),
     ((35, 175, 195, 255), (20, 120, 140, 255), False, "cannon_2.png"),
     ((80, 200, 120, 255), (45, 140, 80, 255), False, "cannon_3.png"),
     ((155, 75, 195, 255), (105, 45, 140, 255), False, "cannon_4.png"),
     ((120, 140, 220, 255), (75, 90, 160, 255), False, "cannon_5.png"),
-    # Equipe B (slots 0-4) — tons quentes, canhão virado pra esquerda.
-    ((215, 65, 55, 255), (150, 35, 30, 255), True, "cannon_6.png"),
-    ((235, 135, 45, 255), (180, 95, 30, 255), True, "cannon_7.png"),
-    ((195, 55, 135, 255), (140, 30, 90, 255), True, "cannon_8.png"),
-    ((220, 180, 60, 255), (170, 130, 25, 255), True, "cannon_9.png"),
-    ((180, 100, 70, 255), (125, 65, 40, 255), True, "cannon_10.png"),
+    # Equipe B — mesmas cores quentes, todas viradas pra direita (flip no render).
+    ((215, 65, 55, 255), (150, 35, 30, 255), False, "cannon_6.png"),
+    ((235, 135, 45, 255), (180, 95, 30, 255), False, "cannon_7.png"),
+    ((195, 55, 135, 255), (140, 30, 90, 255), False, "cannon_8.png"),
+    ((220, 180, 60, 255), (170, 130, 25, 255), False, "cannon_9.png"),
+    ((180, 100, 70, 255), (125, 65, 40, 255), False, "cannon_10.png"),
+    ((45, 48, 55, 255), (22, 24, 28, 255), False, "cannon_11.png"),
 )
 
 

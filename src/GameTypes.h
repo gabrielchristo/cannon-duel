@@ -56,6 +56,7 @@ enum class GameMode { PvP, PvAI, Online };
 enum class GameVersion { Classic, Plus };
 enum class GameState {
     MainMenu, FormatSelect, About, Instructions, OnlineLobby, OnlineTeamRoom,
+    Shop,
     Aiming, ProjectileFlying, RemoteShotReplay, RemoteProjectileLive,
     TurnTransition, RoundOver
 };

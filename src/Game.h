@@ -16,6 +16,7 @@
 #include "PowerupSystem.h"
 #include "ScreenEffects.h"
 #include "Localization.h"
+#include "ShopCatalog.h"
 #include "Platform.h"
 #include "ScrollList.h"
 #include "VirtualScreen.h"
@@ -23,6 +24,9 @@
 #include "net/PlayerIdentity.h"
 #include "net/OnlineLobby.h"
 #include "net/NetMatch.h"
+#include "net/PlayerWallet.h"
+#include "ShopCatalog.h"
+#include "CoinPopup.h"
 
 class Game {
 public:
@@ -52,6 +56,23 @@ private:
     void DrawOnlineLobby();
     void UpdateOnlineTeamRoom();
     void DrawOnlineTeamRoom();
+    void UpdateShop();
+    void DrawShop();
+    void DrawShopItemCard(const ShopItem* item, Rectangle card, Vector2 mouse) const;
+
+    // --- loja / moedas ---
+    PlayerWallet wallet;
+    CoinPopupSystem coinPopups;
+    ShopCategory shopCategory = ShopCategory::CannonColor;
+    ScrollListState shopScroll_;
+    bool walletRefreshedOnce_ = false;
+    void AwardCoinsWithPopup(int playerNum, int amount);
+    void ApplyEquippedCosmetics();
+    void ApplyCannonCosmetics(Cannon& cannon, const std::string& colorId,
+                              const std::string& skinId, const std::string& effectId);
+    void ApplyOnlineCannonCosmetics();
+    void OnRoundEndedAwardCoins();
+    bool IsLocalHumanShooter() const;
 
     // --- multiplayer online ---
     PlayerIdentity playerIdentity;
@@ -112,7 +133,9 @@ private:
     void UpdateMenuConfirmDialog();
     void DrawResetAngleButton() const;
     bool HandleResetAngleButtonClick();
-    void DrawOnlineCannonLabels() const;
+    void DrawCannonNameLabels() const;
+    std::string ResolveCannonDisplayName(int slot) const;
+    std::string ResolveCannonNameEffectId(int slot) const;
     void ReturnToOnlineLobbyAfterMatch();
     void ReturnToTeamRoomForRematch();
     void UpdateOnlineRoundOver();
@@ -192,6 +215,10 @@ private:
     Texture2D texCannonRight{};
     std::array<Texture2D, MatchRoster::kMaxPerTeam> texCannonTeamA{};
     std::array<Texture2D, MatchRoster::kMaxPerTeam> texCannonTeamB{};
+    std::array<Texture2D, 11> texCannonColors{};
+    std::array<Texture2D, 4> texCannonOverlays{};
+    Texture2D* ResolveCannonTexture(int rosterSlot);
+    Texture2D* ResolveCannonOverlay(int rosterSlot);
     Texture2D texBackground{};
     Texture2D texBackgroundNight{};
     Texture2D texProjectile{};
@@ -248,6 +275,11 @@ private:
 
     MatchComposition matchComposition = { 1, 1 };
     std::array<std::string, MatchRoster::kMaxCannons> onlinePlayerNames{};
+    std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedCannonColors{};
+    std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedCannonSkins{};
+    std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedCannonEffects{};
+    std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedNameEffects{};
+    bool roundCoinsAwarded_ = false;
 
     ScrollListState onlineLobbyScroll_;
     ScrollListState onlineTeamInviteScroll_;

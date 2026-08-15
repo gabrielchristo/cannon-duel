@@ -91,6 +91,10 @@ struct MatchStart {
     bool isPlus = false;
     MatchComposition composition;
     std::string playerNames[MatchRoster::kMaxCannons];
+    std::string equippedCannonColors[MatchRoster::kMaxCannons];
+    std::string equippedCannonSkins[MatchRoster::kMaxCannons];
+    std::string equippedCannonEffects[MatchRoster::kMaxCannons];
+    std::string equippedNameEffects[MatchRoster::kMaxCannons];
 };
 
 class OnlineLobby {
@@ -229,6 +233,7 @@ private:
     float PollIntervalSec() const;
     int MyPlayerNumberInRoom(const TeamRoomView& room) const;
     void BuildMatchStartFromRow(const nlohmann::json& mrow, const TeamRoomView& room);
+    void FillMatchStartCosmetics(const nlohmann::json& mrow, int totalPlayers);
     void InsertRoomCaptains(const std::string& roomId, const std::string& captainA,
                             const std::string& captainB);
 };

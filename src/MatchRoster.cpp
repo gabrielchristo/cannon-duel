@@ -251,7 +251,6 @@ void MatchRoster::PlaceCannons(Terrain& terrain) {
             const float groundY = terrain.HeightAt(x);
             Cannon& c = cannons_[static_cast<size_t>(slot)];
             c.Init(x, groundY, side);
-            c.tintColor = WHITE;
         }
     }
 }

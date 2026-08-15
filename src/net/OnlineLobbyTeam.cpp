@@ -1,5 +1,6 @@
 #include "OnlineLobby.h"
 #include "../DebugLog.h"
+#include "../ShopCatalog.h"
 #include "JsonHelpers.h"
 #include "NetValidation.h"
 
@@ -356,6 +357,18 @@ void OnlineLobby::BuildMatchStartFromRow(const json& mrow, const TeamRoomView& r
     for (auto& name : readyMatch.playerNames) {
         name.clear();
     }
+    for (auto& color : readyMatch.equippedCannonColors) {
+        color = kDefaultCannonColorId;
+    }
+    for (auto& skin : readyMatch.equippedCannonSkins) {
+        skin = kDefaultCannonSkinId;
+    }
+    for (auto& effect : readyMatch.equippedCannonEffects) {
+        effect = kDefaultCannonEffectId;
+    }
+    for (auto& effect : readyMatch.equippedNameEffects) {
+        effect = kDefaultNameEffectId;
+    }
 
     int idx = 0;
     for (const TeamRoomMember& m : room.teamA) {
@@ -398,6 +411,54 @@ void OnlineLobby::BuildMatchStartFromRow(const json& mrow, const TeamRoomView& r
     } else {
         readyMatch.opponentId = room.teamA.empty() ? "" : room.teamA[0].playerId;
         readyMatch.opponentName = room.teamA.empty() ? "???" : room.teamA[0].displayName;
+    }
+
+    FillMatchStartCosmetics(mrow, readyMatch.composition.TotalPlayers());
+}
+
+void OnlineLobby::FillMatchStartCosmetics(const json& mrow, int totalPlayers) {
+    if (!identity || totalPlayers <= 0) return;
+
+    std::string pidList;
+    for (int p = 0; p < totalPlayers && p < MatchRoster::kMaxCannons; ++p) {
+        const std::string key = "player" + std::to_string(p + 1) + "_id";
+        const std::string pid = json_helpers::Str(mrow, key.c_str());
+        if (pid.empty()) continue;
+        if (!pidList.empty()) pidList += ",";
+        pidList += pid;
+    }
+    if (pidList.empty()) return;
+
+    json prows = client.Select("players",
+        "select=id,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect&id=in.("
+        + pidList + ")");
+    if (!prows.is_array()) return;
+
+    struct SlotCosmetics {
+        std::string color;
+        std::string skin;
+        std::string effect;
+        std::string nameEffect;
+    };
+    std::unordered_map<std::string, SlotCosmetics> cosmetics;
+    for (const auto& row : prows) {
+        const std::string id = json_helpers::Str(row, "id");
+        cosmetics[id] = {
+            json_helpers::Str(row, "equipped_cannon_color", kDefaultCannonColorId),
+            json_helpers::Str(row, "equipped_cannon_skin", kDefaultCannonSkinId),
+            json_helpers::Str(row, "equipped_cannon_effect", kDefaultCannonEffectId),
+            json_helpers::Str(row, "equipped_name_effect", kDefaultNameEffectId)
+        };
+    }
+
+    for (int p = 0; p < totalPlayers && p < MatchRoster::kMaxCannons; ++p) {
+        const std::string key = "player" + std::to_string(p + 1) + "_id";
+        const std::string pid = json_helpers::Str(mrow, key.c_str());
+        if (pid.empty() || !cosmetics.count(pid)) continue;
+        readyMatch.equippedCannonColors[p] = cosmetics.at(pid).color;
+        readyMatch.equippedCannonSkins[p] = cosmetics.at(pid).skin;
+        readyMatch.equippedCannonEffects[p] = cosmetics.at(pid).effect;
+        readyMatch.equippedNameEffects[p] = cosmetics.at(pid).nameEffect;
     }
 }
 

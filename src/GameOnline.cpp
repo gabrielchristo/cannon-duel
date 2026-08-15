@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "DebugLog.h"
 #include "GameRand.h"
+#include "ShopCatalog.h"
 #include "VirtualScreen.h"
 #include "net/NetWorker.h"
 #include "net/SupabaseClient.h"
@@ -73,9 +74,25 @@ void Game::MaybeAdvancePastDeadOnlineTurn(float dt) {
 
 void Game::ApplyOnlineNamesFromMatchStart(const MatchStart& ms) {
     onlinePlayerNames.fill("");
+    onlineEquippedCannonColors.fill(kDefaultCannonColorId);
+    onlineEquippedCannonSkins.fill(kDefaultCannonSkinId);
+    onlineEquippedCannonEffects.fill(kDefaultCannonEffectId);
+    onlineEquippedNameEffects.fill(kDefaultNameEffectId);
     const int count = ms.composition.TotalPlayers();
     for (int i = 0; i < count && i < MatchRoster::kMaxCannons; ++i) {
         onlinePlayerNames[static_cast<size_t>(i)] = ms.playerNames[i];
+        if (!ms.equippedCannonColors[i].empty()) {
+            onlineEquippedCannonColors[static_cast<size_t>(i)] = ms.equippedCannonColors[i];
+        }
+        if (!ms.equippedCannonSkins[i].empty()) {
+            onlineEquippedCannonSkins[static_cast<size_t>(i)] = ms.equippedCannonSkins[i];
+        }
+        if (!ms.equippedCannonEffects[i].empty()) {
+            onlineEquippedCannonEffects[static_cast<size_t>(i)] = ms.equippedCannonEffects[i];
+        }
+        if (!ms.equippedNameEffects[i].empty()) {
+            onlineEquippedNameEffects[static_cast<size_t>(i)] = ms.equippedNameEffects[i];
+        }
     }
 }
 
@@ -562,6 +579,10 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
     onlineLobby.PauseRealtime();
 
     onlinePlayerNames.fill("");
+    onlineEquippedCannonColors.fill(kDefaultCannonColorId);
+    onlineEquippedCannonSkins.fill(kDefaultCannonSkinId);
+    onlineEquippedCannonEffects.fill(kDefaultCannonEffectId);
+    onlineEquippedNameEffects.fill(kDefaultNameEffectId);
     std::string pidList;
     for (int i = 0; i < comp.TotalPlayers() && i < MatchRoster::kMaxCannons; ++i) {
         const std::string key = "player" + std::to_string(i + 1) + "_id";
@@ -571,11 +592,27 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
         pidList += pid;
     }
     std::unordered_map<std::string, std::string> namesById;
+    struct OnlineCosmetics {
+        std::string color;
+        std::string skin;
+        std::string effect;
+        std::string nameEffect;
+    };
+    std::unordered_map<std::string, OnlineCosmetics> cosmeticsById;
     if (!pidList.empty()) {
-        json prows = client.Select("players", "select=id,display_name&id=in.(" + pidList + ")");
+        json prows = client.Select("players",
+            "select=id,display_name,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect&id=in.("
+            + pidList + ")");
         if (prows.is_array()) {
             for (const auto& p : prows) {
-                namesById[json_helpers::Str(p, "id")] = json_helpers::Str(p, "display_name", "???");
+                const std::string id = json_helpers::Str(p, "id");
+                namesById[id] = json_helpers::Str(p, "display_name", "???");
+                cosmeticsById[id] = {
+                    json_helpers::Str(p, "equipped_cannon_color", kDefaultCannonColorId),
+                    json_helpers::Str(p, "equipped_cannon_skin", kDefaultCannonSkinId),
+                    json_helpers::Str(p, "equipped_cannon_effect", kDefaultCannonEffectId),
+                    json_helpers::Str(p, "equipped_name_effect", kDefaultNameEffectId)
+                };
             }
         }
     }
@@ -586,6 +623,13 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
             auto it = namesById.find(pid);
             onlinePlayerNames[static_cast<size_t>(i)] =
                 (it != namesById.end()) ? it->second : "???";
+            auto cit = cosmeticsById.find(pid);
+            if (cit != cosmeticsById.end()) {
+                onlineEquippedCannonColors[static_cast<size_t>(i)] = cit->second.color;
+                onlineEquippedCannonSkins[static_cast<size_t>(i)] = cit->second.skin;
+                onlineEquippedCannonEffects[static_cast<size_t>(i)] = cit->second.effect;
+                onlineEquippedNameEffects[static_cast<size_t>(i)] = cit->second.nameEffect;
+            }
         } else {
             onlinePlayerNames[static_cast<size_t>(i)] =
                 (i == 0) ? match.player1Name : (i == comp.teamA) ? match.player2Name : "???";

@@ -1,8 +1,10 @@
 #include "Game.h"
 #include "AssetPath.h"
 #include "Config.h"
+#include "CosmeticShaders.h"
 #include "DebugLog.h"
 #include "GameRand.h"
+#include "ShopCatalog.h"
 #include "VirtualScreen.h"
 #include "net/NetWorker.h"
 #include "net/SupabaseClient.h"
@@ -58,6 +60,19 @@ Game::Game() {
         std::string path = "sprites/cannon_" + std::to_string(i + 1 + texCannonTeamA.size()) + ".png";
         texCannonTeamB[i] = LoadTexture(AssetPath(path.c_str()).c_str());
     }
+    for (size_t i = 0; i < texCannonColors.size(); ++i) {
+        std::string path = "sprites/cannon_" + std::to_string(i + 1) + ".png";
+        texCannonColors[i] = LoadTexture(AssetPath(path.c_str()).c_str());
+    }
+    static constexpr const char* kSkinOverlayFiles[] = {
+        "sprites/skin_kuromi.png",
+        "sprites/skin_gothic.png",
+        "sprites/skin_samurai.png",
+        "sprites/skin_pirate.png",
+    };
+    for (size_t i = 0; i < texCannonOverlays.size(); ++i) {
+        texCannonOverlays[i] = LoadTexture(AssetPath(kSkinOverlayFiles[i]).c_str());
+    }
 #if CANNON_DUEL_DEBUG_MODE
     texBackground       = LoadTexture(AssetPath("sprites/background.png").c_str());
     texBackgroundNight  = LoadTexture(AssetPath("sprites/background_night.png").c_str());
@@ -73,13 +88,18 @@ Game::Game() {
 
     effects.Init();
 
+    gCosmeticShaders.Init();
+
     playerIdentity.LoadOrCreate();
     SupabaseClient::ProbeCaBundle();
     onlineLobby.Init(&playerIdentity);
+    wallet.Init(&playerIdentity);
 }
 
 Game::~Game() {
     ShutdownOnlinePresence();
+
+    gCosmeticShaders.Shutdown();
 
     if (!netMatch.InMatch()) {
         GlobalNetWorker().Stop();
@@ -96,6 +116,8 @@ Game::~Game() {
     UnloadTexture(texCannonRight);
     for (Texture2D& tex : texCannonTeamA) UnloadTexture(tex);
     for (Texture2D& tex : texCannonTeamB) UnloadTexture(tex);
+    for (Texture2D& tex : texCannonColors) UnloadTexture(tex);
+    for (Texture2D& tex : texCannonOverlays) UnloadTexture(tex);
     UnloadTexture(texBackground);
     UnloadTexture(texBackgroundNight);
     UnloadTexture(texProjectile);
@@ -212,8 +234,151 @@ void Game::ResetRound(unsigned int seed) {
     opponentAimTargetAngle = 45.0f;
     opponentAimTargetPower = 0.0f;
     onlineWinByDisconnect = false;
+    roundCoinsAwarded_ = false;
 
     state = GameState::Aiming;
+
+    if (mode == GameMode::Online) {
+        ApplyOnlineCannonCosmetics();
+    } else {
+        ApplyEquippedCosmetics();
+    }
+}
+
+void Game::ApplyCannonCosmetics(Cannon& cannon, const std::string& colorId,
+                                const std::string& skinId, const std::string& effectId) {
+    cannon.colorIndex = 0;
+    cannon.skinOverlayIndex = 0;
+    cannon.cannonEffect = CannonEffectStyle::None;
+    cannon.effectAccent = WHITE;
+
+    const ShopItem* colorItem = FindShopItem(colorId);
+    if (colorItem && colorItem->category == ShopCategory::CannonColor && colorId != kDefaultCannonColorId) {
+        cannon.colorIndex = colorItem->colorIndex;
+    }
+
+    const ShopItem* skinItem = FindShopItem(skinId);
+    if (skinItem && skinItem->category == ShopCategory::CannonSkin && skinId != kDefaultCannonSkinId) {
+        cannon.skinOverlayIndex = skinItem->skinOverlayIndex;
+    }
+
+    const ShopItem* effectItem = FindShopItem(effectId);
+    if (effectItem && effectItem->category == ShopCategory::CannonEffect && effectId != kDefaultCannonEffectId) {
+        cannon.cannonEffect = effectItem->cannonEffect;
+        cannon.effectAccent = effectItem->accent;
+    }
+}
+
+Texture2D* Game::ResolveCannonTexture(int rosterSlot) {
+    Cannon& c = roster.At(rosterSlot);
+    if (c.colorIndex > 0 && c.colorIndex <= static_cast<int>(texCannonColors.size())) {
+        Texture2D& colorTex = texCannonColors[static_cast<size_t>(c.colorIndex - 1)];
+        if (colorTex.id != 0) return &colorTex;
+    }
+    if (!spritesReady) return nullptr;
+    return (c.side == CannonSide::Left) ? &texCannonLeft : &texCannonRight;
+}
+
+Texture2D* Game::ResolveCannonOverlay(int rosterSlot) {
+    Cannon& c = roster.At(rosterSlot);
+    if (c.skinOverlayIndex <= 0 || c.skinOverlayIndex > static_cast<int>(texCannonOverlays.size())) {
+        return nullptr;
+    }
+    Texture2D& overlay = texCannonOverlays[static_cast<size_t>(c.skinOverlayIndex - 1)];
+    return (overlay.id != 0) ? &overlay : nullptr;
+}
+
+void Game::ApplyEquippedCosmetics() {
+    if (mode == GameMode::Online) return;
+
+    const int count = roster.CannonCount();
+    for (int i = 0; i < count; ++i) {
+        const bool aiSlot = (mode == GameMode::PvAI) && roster.IsAISlot(i, mode);
+        if (aiSlot) {
+            ApplyCannonCosmetics(roster.At(i), kDefaultCannonColorId,
+                                 kDefaultCannonSkinId, kDefaultCannonEffectId);
+        } else {
+            ApplyCannonCosmetics(roster.At(i), wallet.EquippedCannonColor(),
+                                 wallet.EquippedCannonSkin(), wallet.EquippedCannonEffect());
+        }
+    }
+}
+
+void Game::ApplyOnlineCannonCosmetics() {
+    const int count = std::min(roster.CannonCount(), MatchRoster::kMaxCannons);
+    for (int i = 0; i < count; ++i) {
+        ApplyCannonCosmetics(roster.At(i),
+                             onlineEquippedCannonColors[static_cast<size_t>(i)],
+                             onlineEquippedCannonSkins[static_cast<size_t>(i)],
+                             onlineEquippedCannonEffects[static_cast<size_t>(i)]);
+    }
+}
+
+bool Game::IsLocalHumanShooter() const {
+    if (mode == GameMode::Online) {
+        return currentPlayer == netMatch.MyPlayerNumber();
+    }
+    if (mode == GameMode::PvAI) {
+        return !roster.IsAISlot(ActiveSlot(), mode);
+    }
+    return true;
+}
+
+void Game::AwardCoinsWithPopup(int playerNum, int amount) {
+    if (amount <= 0 || playerNum < 1 || playerNum > roster.CannonCount()) return;
+    wallet.AwardCoins(amount);
+    const Cannon& c = GetCannon(playerNum);
+    coinPopups.Spawn({ c.x, c.groundY - cfg::CANNON_BODY_RADIUS_PX - 70.0f }, amount);
+}
+
+void Game::OnRoundEndedAwardCoins() {
+    if (roundCoinsAwarded_ || roundOutcome == RoundOutcome::None || isSpectating) return;
+    roundCoinsAwarded_ = true;
+
+    if (roundOutcome == RoundOutcome::Draw || roundOutcome == RoundOutcome::DrawBuried) {
+        return;
+    }
+
+    int popupPlayer = 1;
+    bool won = false;
+
+    if (mode == GameMode::Online) {
+        popupPlayer = netMatch.MyPlayerNumber();
+        int winnerPlayer = 0;
+        switch (roundOutcome) {
+            case RoundOutcome::P1Wins:
+            case RoundOutcome::P1WinsBuried:
+            case RoundOutcome::TeamAWins:
+            case RoundOutcome::TeamAWinsBuried:
+                winnerPlayer = 1;
+                break;
+            case RoundOutcome::P2Wins:
+            case RoundOutcome::P2WinsBuried:
+            case RoundOutcome::TeamBWins:
+            case RoundOutcome::TeamBWinsBuried:
+                winnerPlayer = 2;
+                break;
+            default:
+                break;
+        }
+        won = OnlineDidIWin(winnerPlayer, netMatch.MyPlayerNumber(), matchComposition);
+    } else if (mode == GameMode::PvAI) {
+        switch (roundOutcome) {
+            case RoundOutcome::P1Wins:
+            case RoundOutcome::P1WinsBuried:
+            case RoundOutcome::TeamAWins:
+            case RoundOutcome::TeamAWinsBuried:
+                won = true;
+                break;
+            default:
+                won = false;
+                break;
+        }
+    } else {
+        won = true;
+    }
+
+    AwardCoinsWithPopup(popupPlayer, won ? 50 : 5);
 }
 
 void Game::StartMatch(GameMode m, MatchFormat format) {
@@ -389,7 +554,7 @@ void Game::Update(float dt) {
     // Botão "voltar ao menu" abre o diálogo de confirmação em vez de sair
     // direto — evita perder uma partida em andamento por clique acidental.
     if (state != GameState::MainMenu && state != GameState::About && state != GameState::Instructions &&
-        state != GameState::OnlineLobby && HandleMenuButtonClick()) {
+        state != GameState::OnlineLobby && state != GameState::Shop && HandleMenuButtonClick()) {
         showMenuConfirm = true;
         return;
     }
@@ -416,6 +581,7 @@ void Game::Update(float dt) {
     // próximo tiro fosse disparado.
     if (state != GameState::MainMenu) {
         particles.Update(dt);
+        coinPopups.Update(dt);
     }
 
     // Poeira ambiente: atualiza durante o jogo (não no menu, onde não é
@@ -447,6 +613,9 @@ void Game::Update(float dt) {
         case GameState::OnlineTeamRoom:
             UpdateOnlineTeamRoom();
             break;
+        case GameState::Shop:
+            UpdateShop();
+            break;
         case GameState::Aiming:
             UpdateAiming();
             break;
@@ -464,6 +633,7 @@ void Game::Update(float dt) {
             if (stateTimer <= 0.0f) state = GameState::Aiming;
             break;
         case GameState::RoundOver:
+            OnRoundEndedAwardCoins();
             if (mode == GameMode::Online && !isSpectating) {
                 UpdateOnlineRoundOver();
             } else {

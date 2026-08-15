@@ -97,6 +97,16 @@ void Game::Draw() {
         return;
     }
 
+    if (state == GameState::Shop) {
+        DrawShop();
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
+        if (devMode) DrawDevPanel();
+#endif
+        PresentScreenWithDebug();
+        return;
+    }
+
     // ---- background (sprite gerado: dia com sol/nuvens, ou noite com estrelas/lua) ----
     Texture2D& bgTex = nightMode ? texBackgroundNight : texBackground;
     if (spritesReady && bgTex.id != 0) {
@@ -127,20 +137,12 @@ void Game::Draw() {
         const int playerNum = i + 1;
         const bool isActive = (currentPlayer == playerNum && state != GameState::RoundOver &&
                                roster.At(i).IsAlive());
-        Texture2D* tex = nullptr;
-        if (spritesReady) {
-            if (IsTeamGame()) {
-                tex = roster.SpriteForTeamSlot(i, texCannonTeamA, texCannonTeamB);
-            } else {
-                tex = roster.SpriteForSlot(i, &texCannonLeft, &texCannonRight);
-            }
-        }
-        roster.At(i).Draw(isActive, tex);
+        Texture2D* tex = ResolveCannonTexture(i);
+        Texture2D* overlay = ResolveCannonOverlay(i);
+        roster.At(i).Draw(isActive, tex, overlay);
     }
 
-    if (mode == GameMode::Online) {
-        DrawOnlineCannonLabels();
-    }
+    coinPopups.Draw();
 
     if (version == GameVersion::Plus) {
         powerups.Draw(terrain);
@@ -272,6 +274,14 @@ void Game::Draw() {
     }
 
     EndMode2D();
+
+    if (mode == GameMode::Online
+#if CANNON_DUEL_DEBUG_MODE
+        || mode == GameMode::PvAI || mode == GameMode::PvP
+#endif
+    ) {
+        DrawCannonNameLabels();
+    }
 
     DrawHUD();
 

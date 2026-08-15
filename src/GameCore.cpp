@@ -55,14 +55,8 @@ Game::Game() {
     for (size_t i = 0; i < texCannonColors.size(); ++i) {
         texCannonColors[i] = LoadTexture(AssetPath(kCannonColorFiles[i]).c_str());
     }
-    static constexpr const char* kSkinOverlayFiles[] = {
-        "sprites/skin_kuromi.png",
-        "sprites/skin_gothic.png",
-        "sprites/skin_samurai.png",
-        "sprites/skin_pirate.png",
-    };
     for (size_t i = 0; i < texCannonOverlays.size(); ++i) {
-        texCannonOverlays[i] = LoadTexture(AssetPath(kSkinOverlayFiles[i]).c_str());
+        texCannonOverlays[i] = LoadTexture(AssetPath(kCannonSkinFiles[i]).c_str());
     }
 #if CANNON_DUEL_DEBUG_MODE
     texBackground       = LoadTexture(AssetPath("sprites/background.png").c_str());

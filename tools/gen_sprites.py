@@ -276,6 +276,7 @@ CANNON_PALETTES: tuple[tuple[tuple[int, int, int, int], tuple[int, int, int, int
     ((235, 135, 45, 255), (180, 95, 30, 255), False, "cannon_orange.png"),
     ((220, 180, 60, 255), (170, 130, 25, 255), False, "cannon_gold.png"),
     ((45, 48, 55, 255), (22, 24, 28, 255), False, "cannon_black.png"),
+    ((196, 142, 88, 255), (140, 92, 50, 255), False, "cannon_tan.png"),
 )
 
 

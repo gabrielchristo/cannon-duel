@@ -215,7 +215,7 @@ private:
     Texture2D texCannonLeft{};
     Texture2D texCannonRight{};
     std::array<Texture2D, kCannonColorFileCount> texCannonColors{};
-    std::array<Texture2D, 4> texCannonOverlays{};
+    std::array<Texture2D, kCannonSkinFileCount> texCannonOverlays{};
     Texture2D* ResolveCannonTexture(int rosterSlot);
     Texture2D* ResolveCannonOverlay(int rosterSlot);
     Texture2D texBackground{};

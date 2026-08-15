@@ -135,12 +135,16 @@ enum class TK {
     ShopColorOrange,
     ShopColorGold,
     ShopColorBlack,
+    ShopColorTan,
 
     ShopItemDefaultSkin,
     ShopSkinKuromi,
     ShopSkinGothic,
     ShopSkinSamurai,
     ShopSkinPirate,
+    ShopSkinMyMelody,
+    ShopSkinCinnamoroll,
+    ShopSkinNegaoDoZap,
 
     ShopItemDefaultEffect,
     ShopEffectAuraSoft,
@@ -365,12 +369,16 @@ inline const char* T(TK key, Lang lang) {
         case TK::ShopColorOrange: return pt ? "Laranja" : "Orange";
         case TK::ShopColorGold: return pt ? "Dourado" : "Gold";
         case TK::ShopColorBlack: return pt ? "Preto" : "Black";
+        case TK::ShopColorTan: return pt ? "Marrom Claro" : "Light Brown";
 
         case TK::ShopItemDefaultSkin: return pt ? "Sem Skin" : "No Skin";
         case TK::ShopSkinKuromi: return pt ? "Skin Kuromi" : "Kuromi Skin";
         case TK::ShopSkinGothic: return pt ? "Skin Gotica" : "Gothic Skin";
         case TK::ShopSkinSamurai: return pt ? "Skin Samurai" : "Samurai Skin";
         case TK::ShopSkinPirate: return pt ? "Skin Pirata" : "Pirate Skin";
+        case TK::ShopSkinMyMelody: return pt ? "Skin My Melody" : "My Melody Skin";
+        case TK::ShopSkinCinnamoroll: return pt ? "Skin Cinnamoroll" : "Cinnamoroll Skin";
+        case TK::ShopSkinNegaoDoZap: return pt ? "Skin Negao do Zap" : "Negao do Zap Skin";
 
         case TK::ShopItemDefaultEffect: return pt ? "Sem Efeito" : "No Effect";
         case TK::ShopEffectAuraSoft: return pt ? "Aura + Ego" : "Aura + Ego";

@@ -20,8 +20,8 @@ struct ShopItem {
     TK nameKey;
     Color primary = WHITE;
     Color accent = WHITE;
-    int colorIndex = 0;        // 1–8 → kCannonColorFiles
-    int skinOverlayIndex = 0;  // 1–4 → sprites/skin_*.png
+    int colorIndex = 0;        // 1+ → kCannonColorFiles
+    int skinOverlayIndex = 0;  // 1+ → kCannonSkinFiles
     CannonEffectStyle cannonEffect = CannonEffectStyle::None;
     NameEffectStyle nameEffect = NameEffectStyle::Plain;
 };
@@ -42,8 +42,20 @@ inline constexpr const char* kCannonColorFiles[] = {
     "sprites/cannon_orange.png",
     "sprites/cannon_gold.png",
     "sprites/cannon_black.png",
+    "sprites/cannon_tan.png",
 };
 inline constexpr int kCannonColorFileCount = sizeof(kCannonColorFiles) / sizeof(kCannonColorFiles[0]);
+
+inline constexpr const char* kCannonSkinFiles[] = {
+    "sprites/skin_kuromi.png",
+    "sprites/skin_gothic.png",
+    "sprites/skin_samurai.png",
+    "sprites/skin_pirate.png",
+    "sprites/skin_mymelody.png",
+    "sprites/skin_cinnamoroll.png",
+    "sprites/skin_negaodozap.png",
+};
+inline constexpr int kCannonSkinFileCount = sizeof(kCannonSkinFiles) / sizeof(kCannonSkinFiles[0]);
 
 inline constexpr ShopItem kShopCatalog[] = {
     // --- Cor ---
@@ -65,6 +77,8 @@ inline constexpr ShopItem kShopCatalog[] = {
       TK::ShopColorGold, WHITE, Color{220, 180, 60, 255}, 7 },
     { "color_black", ShopCategory::CannonColor, kCannonColorPrice,
       TK::ShopColorBlack, WHITE, Color{45, 48, 55, 255}, 8 },
+    { "color_tan", ShopCategory::CannonColor, kCannonColorPrice,
+      TK::ShopColorTan, WHITE, Color{196, 142, 88, 255}, 9 },
 
     // --- Skin gráfica (overlay sobre a cor equipada) ---
     { kDefaultCannonSkinId, ShopCategory::CannonSkin, 0,
@@ -77,6 +91,12 @@ inline constexpr ShopItem kShopCatalog[] = {
       TK::ShopSkinSamurai, Color{120, 30, 30, 255}, Color{220, 180, 70, 255}, 0, 3 },
     { "skin_pirate", ShopCategory::CannonSkin, 80,
       TK::ShopSkinPirate, Color{120, 30, 35, 255}, Color{230, 190, 60, 255}, 0, 4 },
+    { "skin_mymelody", ShopCategory::CannonSkin, 60,
+      TK::ShopSkinMyMelody, Color{255, 140, 180, 255}, Color{255, 230, 120, 255}, 0, 5 },
+    { "skin_cinnamoroll", ShopCategory::CannonSkin, 60,
+      TK::ShopSkinCinnamoroll, Color{245, 248, 255, 255}, Color{120, 190, 230, 255}, 0, 6 },
+    { "skin_negaodozap", ShopCategory::CannonSkin, 70,
+      TK::ShopSkinNegaoDoZap, Color{40, 36, 40, 255}, Color{78, 198, 188, 255}, 0, 7 },
 
     // --- Efeito de canhão (simples → premium) ---
     { kDefaultCannonEffectId, ShopCategory::CannonEffect, 0,

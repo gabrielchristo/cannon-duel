@@ -28,6 +28,11 @@ modo.
 
 O APK final fica sempre em `android/build/CannonDuel.apk`.
 
+Debug e release são assinados com a **mesma chave** (`android/cannon-duel.keystore`),
+pra poder instalar um por cima do outro sem desinstalar. A chave e
+`android/keystore.properties` estão no `.gitignore` — faça backup; se perder
+ou gerar outra, o Android recusa o update.
+
 ## Instalando no celular
 
 Com o celular conectado por USB e depuração USB ativada:

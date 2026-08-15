@@ -10,7 +10,7 @@ Categorias (`ShopCategory`): Cor, Skin, Efeito de canhão, Efeito de nome, Muni�
 
 ## Economia
 
-Carteira em `PlayerWallet` (cache local + `players` / `player_items` no Supabase). Saldo inicial: 500 moedas.
+Carteira em `PlayerWallet` (cache local + `players` / `player_items` no Supabase). Saldo inicial: 300 moedas.
 
 | Evento | Moedas | Onde |
 |--------|--------|------|
@@ -48,7 +48,7 @@ Popup flutuante `+N` em acerto/power-up dura ~3,1s (`CoinPopup`). A tela de fim 
 | Efeito de nome | `equipped_name_effect` | `name_default` |
 | Munição | `equipped_ammo` | `ammo_default` (migration 016) |
 
-Migrations da loja: `013_shop`, `014_shop_categories`, `015_starting_coins`, `016_equipped_ammo`.
+Migrations da loja: `013_shop`, `014_shop_categories`, `015_starting_coins`, `016_equipped_ammo`, `017_starting_coins`.
 
 ## Regras visuais
 

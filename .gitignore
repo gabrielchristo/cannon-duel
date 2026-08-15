@@ -49,6 +49,10 @@ Thumbs.db
 *.keystore
 *.jks
 
+# Chave de assinatura Android (debug e release usam a mesma — não commitar)
+android/cannon-duel.keystore
+android/keystore.properties
+
 # Executável do jogo no desktop (nome do alvo do CMake)
 /CannonDuel
 /cannon_duel.zip

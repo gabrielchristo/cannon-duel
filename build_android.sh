@@ -179,18 +179,35 @@ android_build_apk() {
     local aligned_apk="$BUILD_DIR/CannonDuel.aligned.apk"
     "$BUILD_TOOLS/zipalign" -f 4 "$unaligned_apk" "$aligned_apk"
 
-    local keystore="$BUILD_DIR/${BUILD_TYPE}.keystore"
-    if [ ! -f "$keystore" ]; then
-        echo "    (gerando keystore de $BUILD_TYPE pela primeira vez)"
-        keytool -genkeypair -v \
-            -keystore "$keystore" -storepass android -keypass android \
-            -alias "${BUILD_TYPE}key" -keyalg RSA -keysize 2048 -validity 10000 \
-            -dname "CN=CannonDuel $BUILD_TYPE, OU=Dev, O=GabrielChristo, C=BR"
+    local keystore="$ANDROID_DIR/cannon-duel.keystore"
+    local keystore_props="$ANDROID_DIR/keystore.properties"
+    if [ ! -f "$keystore" ] || [ ! -f "$keystore_props" ]; then
+        echo "ERRO: falta a chave de assinatura (android/cannon-duel.keystore + android/keystore.properties)." >&2
+        echo "      Debug e release usam a mesma chave; sem ela o Android exige desinstalar o app." >&2
+        echo "      Restaure o backup da chave — não gere outra se o app já estiver instalado." >&2
+        exit 1
+    fi
+
+    local store_password="" key_alias="" key_password=""
+    local k v
+    while IFS='=' read -r k v; do
+        case "$k" in
+            storePassword) store_password="$v" ;;
+            keyAlias)      key_alias="$v" ;;
+            keyPassword)   key_password="$v" ;;
+        esac
+    done < "$keystore_props"
+    if [ -z "$store_password" ] || [ -z "$key_alias" ] || [ -z "$key_password" ]; then
+        echo "ERRO: android/keystore.properties incompleto (storePassword, keyAlias, keyPassword)." >&2
+        exit 1
     fi
 
     local final_apk="$BUILD_DIR/CannonDuel.apk"
     "$BUILD_TOOLS/apksigner" sign \
-        --ks "$keystore" --ks-pass pass:android --key-pass pass:android \
+        --ks "$keystore" \
+        --ks-key-alias "$key_alias" \
+        --ks-pass "pass:$store_password" \
+        --key-pass "pass:$key_password" \
         --out "$final_apk" "$aligned_apk"
 
     echo ""

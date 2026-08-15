@@ -27,7 +27,7 @@ private:
     PlayerIdentity* identity_ = nullptr;
     SupabaseClient client_;
 
-    static constexpr int kStartingCoins = 500;
+    static constexpr int kStartingCoins = 300;
     int coins_ = kStartingCoins;
     std::set<std::string> ownedItems_;
     std::string equippedCannonColor_;

@@ -233,8 +233,8 @@ login/conta — só um identificador leve gerado localmente). Veja
 
 1. Preencher `src/net/SupabaseConfig.h` com a URL e a chave do seu próprio
    projeto Supabase.
-2. Aplicar `supabase/schema.sql` + migrations `001`–`016` no SQL Editor do
-   painel Supabase (loja: 013–016; `equipped_ammo` é a 016).
+2. Aplicar `supabase/schema.sql` + migrations `001`–`017` no SQL Editor do
+   painel Supabase (loja: 013–017; `equipped_ammo` é a 016).
 3. Habilitar Realtime nas tabelas (migration 005 + 011).
 
 Ver [`docs/networking.md`](docs/networking.md).

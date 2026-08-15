@@ -261,30 +261,21 @@ def make_background_night() -> Image.Image:
     return img
 
 
-# Paletas por slot de canhão (equipe A: esquerda, B: direita).
-# Cores alinhadas com MatchRoster::ColorForSlot (src/MatchRoster.cpp), pra que o
-# canhão em campo combine com a cor usada em nome/barra de vida/HUD do slot.
-# cannon_left/right = skin padrão branca (loja + IA local).
-# cannon_1..10 = variantes coloridas (loja + cores de equipe em partidas sem skin).
+# cannon_left/right = casco padrão branco. Demais = cores da loja (cannon_{cor}.png).
 CANNON_WHITE_BODY = (248, 250, 252, 255)
 CANNON_WHITE_DARK = (198, 206, 218, 255)
 
 CANNON_PALETTES: tuple[tuple[tuple[int, int, int, int], tuple[int, int, int, int], bool, str], ...] = (
     (CANNON_WHITE_BODY, CANNON_WHITE_DARK, False, "cannon_left.png"),
     (CANNON_WHITE_BODY, CANNON_WHITE_DARK, True, "cannon_right.png"),
-    # Equipe A (slots 0-4) — tons frios, canhão virado pra direita.
-    ((55, 115, 220, 255), (35, 75, 145, 255), False, "cannon_1.png"),
-    ((35, 175, 195, 255), (20, 120, 140, 255), False, "cannon_2.png"),
-    ((80, 200, 120, 255), (45, 140, 80, 255), False, "cannon_3.png"),
-    ((155, 75, 195, 255), (105, 45, 140, 255), False, "cannon_4.png"),
-    ((120, 140, 220, 255), (75, 90, 160, 255), False, "cannon_5.png"),
-    # Equipe B — mesmas cores quentes, todas viradas pra direita (flip no render).
-    ((215, 65, 55, 255), (150, 35, 30, 255), False, "cannon_6.png"),
-    ((235, 135, 45, 255), (180, 95, 30, 255), False, "cannon_7.png"),
-    ((195, 55, 135, 255), (140, 30, 90, 255), False, "cannon_8.png"),
-    ((220, 180, 60, 255), (170, 130, 25, 255), False, "cannon_9.png"),
-    ((180, 100, 70, 255), (125, 65, 40, 255), False, "cannon_10.png"),
-    ((45, 48, 55, 255), (22, 24, 28, 255), False, "cannon_11.png"),
+    ((55, 115, 220, 255), (35, 75, 145, 255), False, "cannon_blue.png"),
+    ((35, 175, 195, 255), (20, 120, 140, 255), False, "cannon_cyan.png"),
+    ((80, 200, 120, 255), (45, 140, 80, 255), False, "cannon_green.png"),
+    ((155, 75, 195, 255), (105, 45, 140, 255), False, "cannon_purple.png"),
+    ((215, 65, 55, 255), (150, 35, 30, 255), False, "cannon_red.png"),
+    ((235, 135, 45, 255), (180, 95, 30, 255), False, "cannon_orange.png"),
+    ((220, 180, 60, 255), (170, 130, 25, 255), False, "cannon_gold.png"),
+    ((45, 48, 55, 255), (22, 24, 28, 255), False, "cannon_black.png"),
 )
 
 

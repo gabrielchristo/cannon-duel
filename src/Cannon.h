@@ -24,7 +24,7 @@ public:
     Vector2 DirectionAtAngle(float angleDeg) const;
 
     // --- cosméticos da loja ---
-    int colorIndex = 0;           // 0 = branco; 1–10 = cannon_N.png
+    int colorIndex = 0;           // 0 = branco; 1–8 = cannon_{cor}.png
     int skinOverlayIndex = 0;     // 0 = nenhum; 1+ = skin_*.png
     CannonEffectStyle cannonEffect = CannonEffectStyle::None;
     Color effectAccent = WHITE;

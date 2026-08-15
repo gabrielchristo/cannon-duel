@@ -1,9 +1,9 @@
 #define DISCARD_A 0.03
 
 vec4 shade(vec2 uv, vec2 p, float t, float mask) {
-    float outer = max(0.0, dilateRing(uv, 12.0) - mask);
-    float rim = max(0.0, dilateRing(uv, 2.4) - mask);
-    float edge = mask * (1.0 - erodeRing(uv, 1.8));
+    float outer = max(0.0, dilateRing(uv, 10.0) - mask);
+    float rim = max(0.0, dilateRing(uv, 1.8) - mask);
+    float edge = mask * (1.0 - erodeRing(uv, 1.3));
     if (outer < 0.02 && edge < 0.02) {
         return vec4(0.0);
     }

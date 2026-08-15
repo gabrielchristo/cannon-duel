@@ -214,9 +214,7 @@ private:
 
     Texture2D texCannonLeft{};
     Texture2D texCannonRight{};
-    std::array<Texture2D, MatchRoster::kMaxPerTeam> texCannonTeamA{};
-    std::array<Texture2D, MatchRoster::kMaxPerTeam> texCannonTeamB{};
-    std::array<Texture2D, 11> texCannonColors{};
+    std::array<Texture2D, kCannonColorFileCount> texCannonColors{};
     std::array<Texture2D, 4> texCannonOverlays{};
     Texture2D* ResolveCannonTexture(int rosterSlot);
     Texture2D* ResolveCannonOverlay(int rosterSlot);

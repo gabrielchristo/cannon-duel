@@ -5,5 +5,5 @@ vec4 shade(vec2 uv, vec2 p, float t, float mask) {
     vec2 fromC = spriteUV(uv) - vec2(0.5);
     float radial = length(fromC);
     vec2 flow = p - fromC * (0.8 + t * 0.15) * (1.2 - radial);
-    return cannonShell(theme, 8.0, flow, uv, t, mask);
+    return cannonShell(theme, 6.5, flow, uv, t, mask);
 }

@@ -52,17 +52,8 @@ Game::Game() {
 
     texCannonLeft   = LoadTexture(AssetPath("sprites/cannon_left.png").c_str());
     texCannonRight  = LoadTexture(AssetPath("sprites/cannon_right.png").c_str());
-    for (size_t i = 0; i < texCannonTeamA.size(); ++i) {
-        std::string path = "sprites/cannon_" + std::to_string(i + 1) + ".png";
-        texCannonTeamA[i] = LoadTexture(AssetPath(path.c_str()).c_str());
-    }
-    for (size_t i = 0; i < texCannonTeamB.size(); ++i) {
-        std::string path = "sprites/cannon_" + std::to_string(i + 1 + texCannonTeamA.size()) + ".png";
-        texCannonTeamB[i] = LoadTexture(AssetPath(path.c_str()).c_str());
-    }
     for (size_t i = 0; i < texCannonColors.size(); ++i) {
-        std::string path = "sprites/cannon_" + std::to_string(i + 1) + ".png";
-        texCannonColors[i] = LoadTexture(AssetPath(path.c_str()).c_str());
+        texCannonColors[i] = LoadTexture(AssetPath(kCannonColorFiles[i]).c_str());
     }
     static constexpr const char* kSkinOverlayFiles[] = {
         "sprites/skin_kuromi.png",
@@ -114,8 +105,6 @@ Game::~Game() {
     }
     UnloadTexture(texCannonLeft);
     UnloadTexture(texCannonRight);
-    for (Texture2D& tex : texCannonTeamA) UnloadTexture(tex);
-    for (Texture2D& tex : texCannonTeamB) UnloadTexture(tex);
     for (Texture2D& tex : texCannonColors) UnloadTexture(tex);
     for (Texture2D& tex : texCannonOverlays) UnloadTexture(tex);
     UnloadTexture(texBackground);

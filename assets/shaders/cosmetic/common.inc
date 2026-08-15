@@ -160,8 +160,8 @@ vec4 nameLetter(vec3 theme, vec2 flow, float sweep, float osc, float holoAmt,
 
 vec4 cannonShell(vec3 theme, float shellPx, vec2 flowUv, vec2 uv, float t, float mask) {
     float outer = max(0.0, dilateRing(uv, shellPx) - mask);
-    float rim = max(0.0, dilateRing(uv, 2.2) - mask);
-    float edge = mask * (1.0 - erodeRing(uv, 1.6));
+    float rim = max(0.0, dilateRing(uv, 1.7) - mask);
+    float edge = mask * (1.0 - erodeRing(uv, 1.2));
     if (outer < 0.02 && edge < 0.02) {
         return vec4(0.0);
     }
@@ -175,6 +175,6 @@ vec4 cannonShell(vec3 theme, float shellPx, vec2 flowUv, vec2 uv, float t, float
     vec3 col = mix(theme, holo, 0.22);
     col = mix(col, vec3(1.0), band * 0.35 + field * 0.08);
     float pulse = 0.7 + 0.15 * sin(t * 5.0 + ang * 3.0);
-    float alpha = max(edge * 0.45, max(rim * 0.5 * pulse, outer * (0.28 + 0.22 * field)));
+    float alpha = max(edge * 0.36, max(rim * 0.4 * pulse, outer * (0.22 + 0.18 * field)));
     return vec4(col, clamp(alpha, 0.0, 1.0));
 }

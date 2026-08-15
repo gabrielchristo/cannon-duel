@@ -493,8 +493,8 @@ Color CannonThemeColor(CannonEffectStyle style, Color accent) {
 void CosmeticShaders::DrawCannonOutline(const Texture2D& sprite, Rectangle src, Rectangle dst, Vector2 origin,
                                         CannonEffectStyle style, Color accent) {
     if (sprite.id == 0 || style == CannonEffectStyle::None) return;
-    const Color col = Fade(CannonThemeColor(style, accent), 0.35f);
-    const float px = 1.0f;
+    const Color col = Fade(CannonThemeColor(style, accent), 0.26f);
+    const float px = 0.7f;
     static constexpr float kOx[] = { 1.0f, -1.0f, 0.0f, 0.0f };
     static constexpr float kOy[] = { 0.0f, 0.0f, 1.0f, -1.0f };
     for (int i = 0; i < 4; ++i) {
@@ -537,7 +537,7 @@ void CosmeticShaders::DrawCannonCoating(const Texture2D& sprite, Rectangle src, 
     const Program& program = cannonPrograms_[static_cast<size_t>(index)];
     if (!program.ready) return;
 
-    const float grow = 1.22f;
+    const float grow = 1.16f;
     const Rectangle energyDst = { dst.x, dst.y, dst.width * grow, dst.height * grow };
     const Vector2 energyOrigin = { origin.x * grow, origin.y * grow };
     ApplyUniforms(program, primary, accent,

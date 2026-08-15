@@ -20,7 +20,7 @@ struct ShopItem {
     TK nameKey;
     Color primary = WHITE;
     Color accent = WHITE;
-    int colorIndex = 0;        // 1–11 → sprites/cannon_N.png
+    int colorIndex = 0;        // 1–8 → kCannonColorFiles
     int skinOverlayIndex = 0;  // 1–4 → sprites/skin_*.png
     CannonEffectStyle cannonEffect = CannonEffectStyle::None;
     NameEffectStyle nameEffect = NameEffectStyle::Plain;
@@ -32,6 +32,18 @@ inline constexpr const char* kDefaultCannonEffectId = "effect_default";
 inline constexpr const char* kDefaultNameEffectId = "name_default";
 
 inline constexpr int kCannonColorPrice = 25;
+
+inline constexpr const char* kCannonColorFiles[] = {
+    "sprites/cannon_blue.png",
+    "sprites/cannon_cyan.png",
+    "sprites/cannon_green.png",
+    "sprites/cannon_purple.png",
+    "sprites/cannon_red.png",
+    "sprites/cannon_orange.png",
+    "sprites/cannon_gold.png",
+    "sprites/cannon_black.png",
+};
+inline constexpr int kCannonColorFileCount = sizeof(kCannonColorFiles) / sizeof(kCannonColorFiles[0]);
 
 inline constexpr ShopItem kShopCatalog[] = {
     // --- Cor ---
@@ -46,13 +58,13 @@ inline constexpr ShopItem kShopCatalog[] = {
     { "color_purple", ShopCategory::CannonColor, kCannonColorPrice,
       TK::ShopColorPurple, WHITE, Color{155, 75, 195, 255}, 4 },
     { "color_red", ShopCategory::CannonColor, kCannonColorPrice,
-      TK::ShopColorRed, WHITE, Color{215, 65, 55, 255}, 6 },
+      TK::ShopColorRed, WHITE, Color{215, 65, 55, 255}, 5 },
     { "color_orange", ShopCategory::CannonColor, kCannonColorPrice,
-      TK::ShopColorOrange, WHITE, Color{235, 135, 45, 255}, 7 },
+      TK::ShopColorOrange, WHITE, Color{235, 135, 45, 255}, 6 },
     { "color_gold", ShopCategory::CannonColor, kCannonColorPrice,
-      TK::ShopColorGold, WHITE, Color{220, 180, 60, 255}, 9 },
+      TK::ShopColorGold, WHITE, Color{220, 180, 60, 255}, 7 },
     { "color_black", ShopCategory::CannonColor, kCannonColorPrice,
-      TK::ShopColorBlack, WHITE, Color{45, 48, 55, 255}, 11 },
+      TK::ShopColorBlack, WHITE, Color{45, 48, 55, 255}, 8 },
 
     // --- Skin gráfica (overlay sobre a cor equipada) ---
     { kDefaultCannonSkinId, ShopCategory::CannonSkin, 0,

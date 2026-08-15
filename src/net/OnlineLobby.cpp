@@ -2,6 +2,7 @@
 #include "../DebugLog.h"
 #include "JsonHelpers.h"
 #include "NetValidation.h"
+#include "NetWorker.h"
 #include <nlohmann/json.hpp>
 #include <raylib.h>
 #include <algorithm>
@@ -119,11 +120,37 @@ void OnlineLobby::UpsertPresence() {
     UpsertPresenceWithStatus("idle");
 }
 
+void OnlineLobby::PostPresenceUpsert(const char* status, const std::string& matchId) {
+    if (!identity) return;
+    const std::string playerId = identity->Id();
+    const std::string displayName = identity->DisplayName();
+    const std::string statusStr = status ? status : "idle";
+    const std::string matchCopy = matchId;
+    GlobalNetWorker().PostCoalesced("presence", [=](SupabaseClient& client) {
+        json me = client.Select("players", "select=wins,losses&id=eq." + playerId);
+        int myWins = 0, myLosses = 0;
+        if (me.is_array() && !me.empty()) {
+            myWins = json_helpers::Int(me[0], "wins", 0);
+            myLosses = json_helpers::Int(me[0], "losses", 0);
+        }
+        json body = {
+            { "player_id", playerId },
+            { "display_name", displayName },
+            { "wins", myWins },
+            { "losses", myLosses },
+            { "status", statusStr },
+            { "last_seen", UtcNowIso8601() },
+            { "match_id", matchCopy.empty() ? json(nullptr) : json(matchCopy) }
+        };
+        client.Upsert("lobby_presence", body, "player_id");
+    });
+}
+
 void OnlineLobby::HeartbeatInMatch(float dt) {
     matchHeartbeatTimer += dt;
     if (matchHeartbeatTimer < MATCH_HEARTBEAT_SEC) return;
     matchHeartbeatTimer = 0.0f;
-    UpsertPresenceWithStatus("in_match", currentMatchId_);
+    PostPresenceUpsert("in_match", currentMatchId_);
 }
 
 void OnlineLobby::MarkInMatch(const std::string& matchId) {

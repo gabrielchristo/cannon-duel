@@ -699,4 +699,8 @@ void Game::Update(float dt) {
             }
             break;
     }
+
+    if (mode == GameMode::Online && netMatch.InMatch()) {
+        netMatch.FlushOutgoing();
+    }
 }

@@ -215,6 +215,7 @@ private:
     void EnsureRealtime();
     void EnsureTeamRealtime();
     void UpsertPresenceWithStatus(const char* status, const std::string& matchId = "");
+    void PostPresenceUpsert(const char* status, const std::string& matchId);
     void UpsertPresence();
     void RefreshPlayerList();
     void EnrichPlayersFromTeamRooms();

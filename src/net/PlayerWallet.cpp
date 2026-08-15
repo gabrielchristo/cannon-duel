@@ -1,6 +1,7 @@
 #include "PlayerWallet.h"
 #include "JsonHelpers.h"
 #include "NetValidation.h"
+#include "NetWorker.h"
 #include "../DebugLog.h"
 #include "../ShopCatalog.h"
 
@@ -144,19 +145,19 @@ void PlayerWallet::RefreshFromServer() {
 }
 
 void PlayerWallet::AwardCoins(int amount) {
-    if (!identity_ || amount == 0) return;
-    EnsurePlayerRow();
-    const int current = FetchServerCoins();
-    const int updated = current + amount;
+    if (amount == 0) return;
+    coins_ += amount;
+    if (coins_ < 0) coins_ = 0;
+#if !CANNON_DUEL_WEB_BUILD
+    SaveDisplayCache();
+#endif
+    if (!identity_ || !net_validation::IsValidPlayerUuid(identity_->Id())) return;
 
-    json body = { { "coins", updated } };
-    client_.Update("players", "id=eq." + identity_->Id(), body);
-    if (client_.LastRequestOk()) {
-        coins_ = updated;
-        SaveDisplayCache();
-    } else {
-        DebugLogf(LOG_WARNING, "WALLET: falha ao creditar %d moedas", amount);
-    }
+    const std::string id = identity_->Id();
+    const int snapshot = coins_;
+    GlobalNetWorker().PostCoalesced("wallet_coins", [id, snapshot](SupabaseClient& client) {
+        client.Update("players", "id=eq." + id, json{ { "coins", snapshot } });
+    });
 }
 
 bool PlayerWallet::TryPurchase(const std::string& itemId) {

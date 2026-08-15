@@ -25,6 +25,7 @@ public:
     void DrawCannonEnergyField(Vector2 center, float radius, Color primary, Color accent,
                                CannonEffectStyle style = CannonEffectStyle::None);
     void DrawEmberFire(int x, int y, int width, int fontSize);
+    void DrawShadowSmoke(int x, int y, int width, int fontSize);
 
     static int NameEffectShaderIndex(NameEffectStyle style);
     static int CannonEffectShaderIndex(CannonEffectStyle style);

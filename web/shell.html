@@ -142,6 +142,13 @@
       }
     }
 
+    function devicePixelRatioClamped() {
+      var d = window.devicePixelRatio || 1;
+      if (d < 1) d = 1;
+      if (d > 3) d = 3;
+      return d;
+    }
+
     function resizeCanvasToWindow() {
       applyViewportLayout();
       var canvas = (typeof Module !== 'undefined' && Module.canvas)
@@ -149,12 +156,17 @@
         : document.getElementById('canvas');
       if (!canvas) return;
       var size = viewportSize();
-      if (canvas.width !== size.w || canvas.height !== size.h) {
-        canvas.width = size.w;
-        canvas.height = size.h;
+      var dpr = devicePixelRatioClamped();
+      var fbW = Math.max(1, Math.round(size.w * dpr));
+      var fbH = Math.max(1, Math.round(size.h * dpr));
+      canvas.style.width = size.w + 'px';
+      canvas.style.height = size.h + 'px';
+      if (canvas.width !== fbW || canvas.height !== fbH) {
+        canvas.width = fbW;
+        canvas.height = fbH;
       }
       if (typeof Module !== 'undefined' && Module.setCanvasSize) {
-        Module.setCanvasSize(size.w, size.h, false);
+        Module.setCanvasSize(fbW, fbH, false);
       }
     }
 

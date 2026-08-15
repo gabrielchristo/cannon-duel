@@ -118,7 +118,7 @@ Shaders em `assets/shaders/cosmetic/name_*.fs`. Ornamentos CPU em `CosmeticShade
 |----|-----------|--------|-------|--------|--------|
 | `name_default` | Nome Padrão | `Plain` | 0 | — | Texto da cor do jogador, sem efeito |
 | `name_ember` | Nome em Brasa | `Flame` | 20 | `name_ember.fs` | Letras em brasa (laranja→amarelo); línguas de fogo no halo (`DrawEmberFire`) |
-| `name_shadow` | Nome Sombrio | `DarkSmoke` | 30 | `name_shadow.fs` | Letras prata; fumaça cinza subindo à esquerda |
+| `name_shadow` | Nome Sombrio | `DarkSmoke` | 30 | `name_shadow.fs` | Letras prata pulsando; fumaça cinza subindo e à esquerda (`DrawShadowSmoke`) |
 | `name_amethyst` | Nome Ametista | `PurpleGlow` | 45 | `name_amethyst.fs` | Roxo/magenta facetado que pulsa; motes em órbita |
 | `name_ocean` | Nome Oceano | `OceanWave` | 60 | `name_ocean.fs` | Azul→ciano em ondas; cristas claras; motes em seno horizontal |
 | `name_sakura` | Nome Sakura | `Sakura` | 70 | `name_sakura.fs` | Rosa oscilando; pétalas caindo em elipse |

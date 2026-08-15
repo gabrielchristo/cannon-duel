@@ -71,6 +71,7 @@ bool NetMatch::IsMyTurn() const {
 
 float NetMatch::PollIntervalSec() const {
     if (realtime_.IsConnected()) return POLL_INTERVAL_REALTIME_SEC;
+    if (awaitingOpponentTurn_.load()) return POLL_INTERVAL_AWAITING_SEC;
     return POLL_INTERVAL_FALLBACK_SEC;
 }
 
@@ -636,6 +637,11 @@ void NetMatch::BeginSpectating(const std::string& id, int currentTurnPlayer, int
               id.c_str(), lastTurnNumber, currentTurnPlayer);
 }
 
+void NetMatch::FlushOutgoing() {
+    if (!active_.load() || matchId.empty()) return;
+    realtime_.Drain();
+}
+
 void NetMatch::Pump(float dt) {
     if (!active_.load() || matchId.empty()) return;
 
@@ -703,7 +709,10 @@ void NetMatch::SchedulePoll() {
 
     const std::string matchIdCopy = matchId;
     const int nextTurn = lastSeenTurnNumber + 1;
-    const bool checkPresence = (presenceGraceRemaining_ <= 0.0f);
+    // Presença é HTTP extra. Com Realtime o CDC de matches já cobre
+    // abandono; sem Realtime, não misturar no poll urgente do turno.
+    const bool checkPresence = (presenceGraceRemaining_ <= 0.0f)
+        && !(awaitingOpponentTurn_.load() && !realtime_.IsConnected());
 
     GlobalNetWorker().Post([this, matchIdCopy, nextTurn, checkPresence](SupabaseClient& client) {
         json matchRows = client.Select("matches",

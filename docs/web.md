@@ -78,6 +78,8 @@ qualquer outro caminho.
   por turnos.
 - `fetch()`/WebSocket exigem `http://`/`https://`; abrir o `.html` como
   `file://` não funciona (rodar com `./run_web.sh release` ou `debug`).
+- Canvas HiDPI: backing store = CSS × `devicePixelRatio` (teto 3×). O
+  mundo lógico continua 1280×720; sem DPR o browser estica CSS px e borra.
 
 ## Pendências
 

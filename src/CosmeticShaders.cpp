@@ -231,9 +231,10 @@ bool CosmeticShaders::DrawNameEffect(const char* text, int x, int y, int fontSiz
     const int tw = MeasureText(text, fontSize);
     if (tw <= 0) return false;
 
-    const int padX = (style == NameEffectStyle::Flame) ? 10 : 8;
-    const int padTop = (style == NameEffectStyle::Flame) ? 10 : 8;
-    const int padBottom = (style == NameEffectStyle::Flame) ? 10 : 8;
+    const bool extraPad = (style == NameEffectStyle::Flame || style == NameEffectStyle::DarkSmoke);
+    const int padX = extraPad ? 12 : 8;
+    const int padTop = extraPad ? 12 : 8;
+    const int padBottom = extraPad ? 10 : 8;
     const int rw = tw + padX * 2;
     const int rh = fontSize + padTop + padBottom;
 
@@ -243,7 +244,8 @@ bool CosmeticShaders::DrawNameEffect(const char* text, int x, int y, int fontSiz
     const Program& program = namePrograms_[static_cast<size_t>(index)];
     if (!program.ready) return false;
 
-    ApplyUniforms(program, primary, accent, static_cast<float>(rw), static_cast<float>(rh), 1.0f, 0.62f);
+    const float timeScale = (style == NameEffectStyle::DarkSmoke) ? 1.45f : 0.62f;
+    ApplyUniforms(program, primary, accent, static_cast<float>(rw), static_cast<float>(rh), 1.0f, timeScale);
 
     BeginShaderMode(program.shader);
     DrawTexturePro(textMaskTex_,
@@ -270,7 +272,7 @@ Color LerpColor(Color a, Color b, float t) {
 
 float NameMotionSpeed(NameEffectStyle style) {
     switch (style) {
-        case NameEffectStyle::DarkSmoke: return 1.4f;
+        case NameEffectStyle::DarkSmoke: return 2.6f;
         case NameEffectStyle::Flame: return 2.6f;
         case NameEffectStyle::PurpleGlow: return 2.2f;
         case NameEffectStyle::OceanWave: return 2.5f;
@@ -312,15 +314,7 @@ void CosmeticShaders::DrawNameOrnaments(const char* text, int x, int y, int font
             DrawEmberFire(x, y, tw, fontSize);
             return;
         case NameEffectStyle::DarkSmoke:
-            for (int i = 0; i < 7; ++i) {
-                const float seed = static_cast<float>(i) * 1.7f;
-                const float life = std::fmod(t * 0.22f + seed * 0.19f, 1.0f);
-                const float px = static_cast<float>(x) + std::fmod(seed * 29.0f, static_cast<float>(tw))
-                    - life * 14.0f;
-                const float py = static_cast<float>(y + fontSize) - life * (fontSize + 16.0f);
-                DrawCircleV({ px, py }, 2.4f + life * 3.2f,
-                            Fade(Color{ 90, 92, 100, 255 }, (1.0f - life) * 0.35f));
-            }
+            DrawShadowSmoke(x, y, tw, fontSize);
             return;
         case NameEffectStyle::PurpleGlow:
             for (int i = 0; i < 8; ++i) {
@@ -442,6 +436,31 @@ void CosmeticShaders::DrawStyledName(const char* text, int x, int y, int fontSiz
     }
     if (!shaderDrew) {
         DrawStyledNameCpu(text, x, y, fontSize, style, primary, accent);
+    }
+}
+
+void CosmeticShaders::DrawShadowSmoke(int x, int y, int width, int fontSize) {
+    const float t = static_cast<float>(GetTime());
+    const float baseY = static_cast<float>(y + fontSize) - 1.0f;
+    const float span = std::max(8.0f, static_cast<float>(width));
+    for (int i = 0; i < 11; ++i) {
+        const float seed = static_cast<float>(i) * 1.83f;
+        const float life = std::fmod(t * 0.42f + seed * 0.23f, 1.0f);
+        const float slot = std::fmod(seed * 0.41f + t * 0.08f, 1.0f);
+        const float px = static_cast<float>(x) + slot * span
+            - life * (18.0f + std::sin(seed) * 6.0f)
+            + std::sin(t * 2.8f + seed) * 3.0f;
+        const float rise = life * (static_cast<float>(fontSize) + 22.0f);
+        const float py = baseY - rise;
+        const float fade = (1.0f - life) * (0.55f + 0.25f * std::sin(seed + t));
+        const float rx = 2.4f + life * 5.5f;
+        const float ry = 1.8f + life * 4.2f;
+        DrawEllipse(static_cast<int>(px), static_cast<int>(py),
+                    static_cast<int>(rx), static_cast<int>(ry),
+                    Fade(Color{ 28, 28, 34, 255 }, fade * 0.55f));
+        DrawEllipse(static_cast<int>(px - 1.5f), static_cast<int>(py - 2.0f),
+                    static_cast<int>(rx * 0.55f), static_cast<int>(ry * 0.5f),
+                    Fade(Color{ 120, 124, 136, 255 }, fade * 0.4f));
     }
 }
 

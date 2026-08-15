@@ -128,6 +128,7 @@ public:
 
     void PublishLiveAim(float dt, float angleDeg, float power01, const char* phase);
     LiveAimState GetOpponentLiveAim() const;
+    void FlushOutgoing();
 
     // Aviso imediato de coleta (visual); o efeito autoritativo vem no match_turns.
     void PublishPowerupPicked(int type, float x);
@@ -233,8 +234,9 @@ private:
 
     RealtimeClient realtime_;
 
-    static constexpr float POLL_INTERVAL_REALTIME_SEC = 5.0f;
+    static constexpr float POLL_INTERVAL_REALTIME_SEC = 15.0f;
     static constexpr float POLL_INTERVAL_FALLBACK_SEC = 1.2f;
+    static constexpr float POLL_INTERVAL_AWAITING_SEC = 0.4f;
     static constexpr float LIVE_AIM_PUBLISH_INTERVAL_SEC = 0.05f;
     static constexpr float LIVE_AIM_HTTP_INTERVAL_SEC = 0.35f;
     static constexpr float PROJ_PUBLISH_INTERVAL_SEC = 0.04f; // ~25 Hz

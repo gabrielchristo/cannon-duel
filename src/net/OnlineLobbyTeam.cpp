@@ -298,7 +298,7 @@ void OnlineLobby::UpdateTeamRoom(float dt) {
     if (teamPresenceTimer_ >= TEAM_PRESENCE_HEARTBEAT_SEC) {
         teamPresenceTimer_ = 0.0f;
         if (registeredPlayer && !activeTeamRoomId_.empty()) {
-            UpsertPresenceWithStatus("team_room", activeTeamRoomId_);
+            PostPresenceUpsert("team_room", activeTeamRoomId_);
         }
     }
 

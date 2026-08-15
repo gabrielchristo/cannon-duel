@@ -338,7 +338,7 @@ void RealtimeClient::ThreadMain(std::string topicSuffix, std::vector<PostgresSub
         const struct curl_ws_frame* meta = nullptr;
         rc = curl_ws_recv(curl, buf.data(), buf.size(), &nread, &meta);
         if (rc == CURLE_AGAIN) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
             continue;
         }
         if (rc != CURLE_OK) {

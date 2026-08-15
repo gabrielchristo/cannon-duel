@@ -579,10 +579,10 @@ void Game::DrawCannonNameLabels() const {
         const Color primary = item ? item->primary : WHITE;
         const Color accent = item ? item->accent : WHITE;
 
-        const int fs = 12;
+        const int fs = 16;
         int tw = MeasureText(name.c_str(), fs);
         int tx = static_cast<int>(cannon.x - tw / 2);
-        int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 62);
+        int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 68);
         gCosmeticShaders.DrawStyledName(name.c_str(), tx, ty, fs, style, primary, accent);
     };
 

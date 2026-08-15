@@ -94,7 +94,9 @@ Gravado em `match_turns` e broadcast `turn_result`:
 - `proj` — amostras `{ seq, t, x, y }` ~25 Hz.
 - `shot_end` — posição final de impacto.
 
-Fallback: poll HTTP de `match_turns` a cada 1.2s (sem Realtime) ou 5s (com Realtime).
+Fallback: poll HTTP de `match_turns` a cada 0,4s enquanto espera o turno do
+oponente (sem Realtime), 1,2s no restante, ou 15s com Realtime (CDC + broadcast
+levam o jogo; o poll só cobre abandono/resync).
 
 ### Presença e disconnect
 

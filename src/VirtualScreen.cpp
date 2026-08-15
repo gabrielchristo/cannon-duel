@@ -4,6 +4,7 @@
 #include "Platform.h"
 
 #include <algorithm>
+#include <cmath>
 
 #if CANNON_DUEL_WEB_BUILD
 #include <emscripten/emscripten.h>
@@ -67,19 +68,31 @@ void DrawVirtualScreenScaled(const RenderTexture2D& virtualScreen) {
 
 #if CANNON_DUEL_WEB_BUILD
 void SyncWebCanvasSize() {
-    const int w = EM_ASM_INT({
+    const int cssW = EM_ASM_INT({
         var vv = window.visualViewport;
         return Math.max(1, (vv ? vv.width : window.innerWidth) | 0);
     });
-    const int h = EM_ASM_INT({
+    const int cssH = EM_ASM_INT({
         var vv = window.visualViewport;
         return Math.max(1, (vv ? vv.height : window.innerHeight) | 0);
     });
-    if (w <= 0 || h <= 0) return;
+    if (cssW <= 0 || cssH <= 0) return;
 
-    emscripten_set_canvas_element_size("#canvas", static_cast<double>(w), static_cast<double>(h));
-    if (GetScreenWidth() != w || GetScreenHeight() != h) {
-        SetWindowSize(w, h);
+    // CSS px ≠ px físicos em telas HiDPI. Sem devicePixelRatio o canvas
+    // fica em meia resolução e o browser estica — daí o blur na web.
+    const double dpr = EM_ASM_DOUBLE({
+        var d = window.devicePixelRatio || 1;
+        if (d < 1) d = 1;
+        if (d > 3) d = 3;
+        return d;
+    });
+    const int fbW = std::max(1, static_cast<int>(std::lround(static_cast<double>(cssW) * dpr)));
+    const int fbH = std::max(1, static_cast<int>(std::lround(static_cast<double>(cssH) * dpr)));
+
+    emscripten_set_canvas_element_size("#canvas", fbW, fbH);
+    emscripten_set_element_css_size("#canvas", static_cast<double>(cssW), static_cast<double>(cssH));
+    if (GetScreenWidth() != fbW || GetScreenHeight() != fbH) {
+        SetWindowSize(fbW, fbH);
     }
 }
 #endif

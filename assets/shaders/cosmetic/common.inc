@@ -134,7 +134,7 @@ vec4 glyphOnce(vec3 live, float mask, float outline, float outlineAmt) {
 }
 
 vec4 nameSoftAura(vec3 theme, vec2 uv, float mask, float t) {
-    float halo = max(0.0, dilateRing(uv, 3.6) - neighborMax(uv, 3.2));
+    float halo = max(0.0, dilateRing(uv, 3.0) - neighborMax(uv, 2.2));
     if (halo < 0.02) {
         return vec4(0.0);
     }
@@ -144,7 +144,7 @@ vec4 nameSoftAura(vec3 theme, vec2 uv, float mask, float t) {
 
 vec4 nameLetter(vec3 theme, vec2 flow, float sweep, float osc, float holoAmt,
                 float t, float mask, vec2 uv) {
-    float outline = max(0.0, neighborMax(uv, 3.2) - mask);
+    float outline = max(0.0, neighborMax(uv, 2.2) - mask);
     float field = fluidField(flow, t, 0.85);
     float band = pow(abs(sin(sweep * 3.14159)), 8.0);
     vec3 holo = holographicSheen(sweep, t);

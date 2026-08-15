@@ -65,13 +65,13 @@ void Game::UpdateAiming() {
 
             for (size_t i = 0; i < powerups.Active().size(); ++i) {
                 const Powerup& pu = powerups.Active()[i];
-                float priority = 0.25f;
+                float priority = 0.12f;
 
                 if (healthRatio < 0.45f &&
                     (pu.type == PowerupType::Heal || pu.type == PowerupType::Shield)) {
-                    priority = 0.85f;
+                    priority = 0.40f;
                 } else if (pu.type == PowerupType::DoubleDamage || pu.type == PowerupType::Guided) {
-                    priority = 0.4f;
+                    priority = 0.18f;
                 }
 
                 if (priority > bestPriority) {
@@ -82,6 +82,11 @@ void Game::UpdateAiming() {
 
             if (chosenIdx >= 0 && RandF(0.0f, 1.0f) < bestPriority) {
                 targetX = powerups.Active()[static_cast<size_t>(chosenIdx)].x;
+                if (RandF(0.0f, 1.0f) < cfg::POWERUP_AI_MISS_CHANCE) {
+                    const float side = (RandF(0.0f, 1.0f) < 0.5f) ? -1.0f : 1.0f;
+                    targetX += side * RandF(cfg::POWERUP_AI_MISS_OFFSET_MIN_PX,
+                                            cfg::POWERUP_AI_MISS_OFFSET_MAX_PX);
+                }
                 targetY = terrain.HeightAt(targetX);
             }
         }

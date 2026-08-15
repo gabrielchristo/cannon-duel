@@ -1,7 +1,7 @@
 #define DISCARD_A 0.05
 
 vec4 shade(vec2 uv, vec2 p, float t, float mask) {
-    float outline = max(0.0, neighborMax(uv, 3.2) - mask);
+    float outline = max(0.0, neighborMax(uv, 2.2) - mask);
     if (mask < 0.08 && outline < 0.02) {
         return vec4(0.0);
     }

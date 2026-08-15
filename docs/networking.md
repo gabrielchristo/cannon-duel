@@ -95,8 +95,8 @@ Gravado em `match_turns` e broadcast `turn_result`:
 - `shot_end` — posição final de impacto.
 
 Fallback: poll HTTP de `match_turns` a cada 0,4s enquanto espera o turno do
-oponente (sem Realtime), 1,2s no restante, ou 15s com Realtime (CDC + broadcast
-levam o jogo; o poll só cobre abandono/resync).
+oponente (sem Realtime), 1,2s no restante, ou 15s com Realtime. O Realtime
+reconecta sozinho; o poll em loop é última opção.
 
 ### Presença e disconnect
 
@@ -117,6 +117,9 @@ levam o jogo; o poll só cobre abandono/resync).
 - **postgres_changes:** INSERT/UPDATE em tabelas subscritas.
 - **broadcast:** eventos custom (`aim`, `proj`, `turn_result`, `powerup_picked`, …).
 - Topics: `lobby:<uuid>`, `match:<match_uuid>`, `team:<uuid>`.
+- Reconnect automático (backoff 0,5s→8s). `Stop()` cancela. Outbox antigo
+  é descartado (`join_ref` muda). Após `phx_join` OK, um poll HTTP único
+  fecha o buraco; o poll em loop continua só como fallback.
 
 Tabelas com `REPLICA IDENTITY FULL` + publicação `supabase_realtime` (migration 005, 011).
 

@@ -95,6 +95,8 @@ void RealtimeClient::Start(const std::string& topicSuffix, const std::vector<Pos
     if (topicSuffix.empty()) return;
     stop_.store(false);
     connected_.store(false);
+    ResetBackoff();
+    joinedPulse_.store(false);
     topic_ = "realtime:" + topicSuffix;
     joinRef_.clear();
     thread_ = std::thread([this, topicSuffix, subs] { ThreadMain(topicSuffix, subs); });
@@ -155,6 +157,7 @@ void RealtimeClient::HandleServerMessage(const std::string& raw) {
         const auto& payload = msg["payload"];
         if (payload.is_object() && payload.value("status", "") == "ok") {
             DebugLogf(LOG_INFO, "REALTIME: canal joined OK (%s)", topic_.c_str());
+            NoteChannelJoined();
         } else {
             DebugLogf(LOG_WARNING, "REALTIME: phx_reply: %s", raw.c_str());
         }
@@ -213,11 +216,27 @@ void RealtimeClient::HandleServerMessage(const std::string& raw) {
 
 void RealtimeClient::ThreadMain(std::string topicSuffix, std::vector<PostgresSub> subs) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
+    while (!stop_.load()) {
+        RunSocketSession(topicSuffix, subs);
+        OnSocketDropped();
+        if (stop_.load()) break;
+        const int waitMs = TakeBackoffMs();
+        DebugLogf(LOG_INFO, "REALTIME: reconectando em %d ms (realtime:%s)",
+                  waitMs, topicSuffix.c_str());
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(waitMs);
+        while (!stop_.load() && std::chrono::steady_clock::now() < deadline) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
+    }
+    DebugLogf(LOG_INFO, "REALTIME: thread encerrada (realtime:%s)", topicSuffix.c_str());
+}
 
+bool RealtimeClient::RunSocketSession(const std::string& topicSuffix,
+                                      const std::vector<PostgresSub>& subs) {
     CURL* curl = curl_easy_init();
     if (!curl) {
         DebugLogf(LOG_WARNING, "REALTIME: curl_easy_init falhou");
-        return;
+        return false;
     }
 
     const std::string url = MakeWsUrl();
@@ -245,7 +264,7 @@ void RealtimeClient::ThreadMain(std::string topicSuffix, std::vector<PostgresSub
                   static_cast<int>(rc), curl_easy_strerror(rc));
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
-        return;
+        return false;
     }
 
     connected_.store(true);
@@ -290,10 +309,9 @@ void RealtimeClient::ThreadMain(std::string topicSuffix, std::vector<PostgresSub
     };
 
     if (!WsSendText(curl, joinMsg.dump())) {
-        connected_.store(false);
         curl_slist_free_all(headers);
         curl_easy_cleanup(curl);
-        return;
+        return false;
     }
     DebugLogf(LOG_INFO, "REALTIME: join enviado %s (%zu subs)", topicLocal.c_str(), subs.size());
 
@@ -302,24 +320,21 @@ void RealtimeClient::ThreadMain(std::string topicSuffix, std::vector<PostgresSub
     auto lastHeartbeat = std::chrono::steady_clock::now();
 
     while (!stop_.load()) {
-        // Flush outbox (broadcasts / etc.)
+        std::vector<std::string> toSend;
         {
-            std::vector<std::string> toSend;
-            {
-                std::lock_guard lock(mu_);
-                toSend.swap(outbox_);
-                for (auto& kv : outboxCoalesced_) toSend.push_back(std::move(kv.second));
-                outboxCoalesced_.clear();
-            }
-            bool sendOk = true;
-            for (const auto& raw : toSend) {
-                if (!WsSendText(curl, raw)) {
-                    sendOk = false;
-                    break;
-                }
-            }
-            if (!sendOk) break;
+            std::lock_guard lock(mu_);
+            toSend.swap(outbox_);
+            for (auto& kv : outboxCoalesced_) toSend.push_back(std::move(kv.second));
+            outboxCoalesced_.clear();
         }
+        bool sendOk = true;
+        for (const auto& raw : toSend) {
+            if (!WsSendText(curl, raw)) {
+                sendOk = false;
+                break;
+            }
+        }
+        if (!sendOk) break;
 
         auto now = std::chrono::steady_clock::now();
         if (std::chrono::duration_cast<std::chrono::seconds>(now - lastHeartbeat).count() >= 25) {
@@ -368,8 +383,7 @@ void RealtimeClient::ThreadMain(std::string topicSuffix, std::vector<PostgresSub
         }
     }
 
-    connected_.store(false);
     curl_slist_free_all(headers);
     curl_easy_cleanup(curl);
-    DebugLogf(LOG_INFO, "REALTIME: thread encerrada (%s)", topic_.c_str());
+    return true;
 }

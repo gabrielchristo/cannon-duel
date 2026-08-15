@@ -647,6 +647,12 @@ void NetMatch::Pump(float dt) {
 
     realtime_.Drain();
 
+    if (realtime_.ConsumeJoined()) {
+        DebugLogf(LOG_INFO, "NET: Realtime joined — resync HTTP unico");
+        pollTimer = 0.0f;
+        SchedulePoll();
+    }
+
     {
         std::lock_guard lock(mu_);
         syncedCurrentTurnPlayer = cachedCurrentTurnPlayer_;

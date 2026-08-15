@@ -99,6 +99,7 @@ void RealtimeClient::HandleServerMessage(const std::string& raw) {
         const auto& payload = msg["payload"];
         if (payload.is_object() && payload.value("status", "") == "ok") {
             DebugLogf(LOG_INFO, "REALTIME: canal joined OK (%s)", topic_.c_str());
+            NoteChannelJoined();
         } else {
             DebugLogf(LOG_WARNING, "REALTIME: phx_reply: %s", raw.c_str());
         }
@@ -221,28 +222,41 @@ EM_BOOL RealtimeClient::OnWebMessage(int /*eventType*/, const EmscriptenWebSocke
 
 EM_BOOL RealtimeClient::OnWebClose(int /*eventType*/, const EmscriptenWebSocketCloseEvent* /*e*/, void* userData) {
     auto* self = static_cast<RealtimeClient*>(userData);
-    self->connected_.store(false);
+    const bool wanted = !self->stop_.load();
+    if (self->wsHandle_ > 0) {
+        const int h = self->wsHandle_;
+        self->wsHandle_ = 0;
+        emscripten_websocket_delete(h);
+    }
+    self->OnSocketDropped();
     DebugLogf(LOG_INFO, "REALTIME: WebSocket fechado (%s)", self->topic_.c_str());
+    if (wanted) self->ScheduleReconnect();
     return EM_TRUE;
 }
 
 EM_BOOL RealtimeClient::OnWebError(int /*eventType*/, const EmscriptenWebSocketErrorEvent* /*e*/, void* userData) {
     auto* self = static_cast<RealtimeClient*>(userData);
     DebugLogf(LOG_WARNING, "REALTIME: erro no WebSocket (%s)", self->topic_.c_str());
+    const bool wanted = !self->stop_.load();
+    self->OnSocketDropped();
+    if (wanted) self->ScheduleReconnect();
     return EM_TRUE;
 }
 
-void RealtimeClient::Start(const std::string& topicSuffix, const std::vector<PostgresSub>& subs) {
-    Stop();
-    if (topicSuffix.empty()) return;
-    stop_.store(false);
-    connected_.store(false);
-    topic_ = "realtime:" + topicSuffix;
-    joinRef_.clear();
-    pendingJoinSubs_ = subs;
+void RealtimeClient::ScheduleReconnect() {
+    if (stop_.load() || reconnectWanted_) return;
+    reconnectWanted_ = true;
+    const int waitMs = TakeBackoffMs();
+    reconnectAtMs_ = emscripten_get_now() + static_cast<double>(waitMs);
+    DebugLogf(LOG_INFO, "REALTIME: reconectando em %d ms (%s)", waitMs, topic_.c_str());
+}
 
+void RealtimeClient::OpenWebSocket() {
+    if (wsHandle_ > 0) {
+        emscripten_websocket_delete(wsHandle_);
+        wsHandle_ = 0;
+    }
     const std::string url = MakeWsUrl();
-
     EmscriptenWebSocketCreateAttributes attr;
     emscripten_websocket_init_create_attributes(&attr);
     attr.url = url.c_str();
@@ -252,6 +266,7 @@ void RealtimeClient::Start(const std::string& topicSuffix, const std::vector<Pos
     if (wsHandle_ <= 0) {
         DebugLogf(LOG_WARNING, "REALTIME: emscripten_websocket_new falhou");
         wsHandle_ = 0;
+        ScheduleReconnect();
         return;
     }
 
@@ -261,8 +276,31 @@ void RealtimeClient::Start(const std::string& topicSuffix, const std::vector<Pos
     emscripten_websocket_set_onerror_callback(wsHandle_, this, RealtimeClient::OnWebError);
 }
 
+void RealtimeClient::TryReconnectWeb() {
+    if (stop_.load() || connected_.load() || !reconnectWanted_) return;
+    if (emscripten_get_now() < reconnectAtMs_) return;
+    reconnectWanted_ = false;
+    if (topic_.empty() || pendingJoinSubs_.empty()) return;
+    OpenWebSocket();
+}
+
+void RealtimeClient::Start(const std::string& topicSuffix, const std::vector<PostgresSub>& subs) {
+    Stop();
+    if (topicSuffix.empty()) return;
+    stop_.store(false);
+    connected_.store(false);
+    ResetBackoff();
+    joinedPulse_.store(false);
+    reconnectWanted_ = false;
+    topic_ = "realtime:" + topicSuffix;
+    joinRef_.clear();
+    pendingJoinSubs_ = subs;
+    OpenWebSocket();
+}
+
 void RealtimeClient::Stop() {
     stop_.store(true);
+    reconnectWanted_ = false;
     if (wsHandle_ > 0) {
         emscripten_websocket_close(wsHandle_, 1000, "bye");
         emscripten_websocket_delete(wsHandle_);
@@ -280,6 +318,7 @@ void RealtimeClient::Stop() {
 }
 
 void RealtimeClient::Drain() {
+    TryReconnectWeb();
     if (connected_.load() && wsHandle_ > 0) {
         double now = emscripten_get_now();
         if (now - lastHeartbeatMs_ >= 25000.0) {

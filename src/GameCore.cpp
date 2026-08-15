@@ -295,8 +295,7 @@ void Game::ApplyEquippedCosmetics() {
 
     const int count = roster.CannonCount();
     for (int i = 0; i < count; ++i) {
-        const bool aiSlot = (mode == GameMode::PvAI) && roster.IsAISlot(i, mode);
-        if (aiSlot) {
+        if (roster.IsAISlot(i, mode)) {
             ApplyCannonCosmetics(roster.At(i), kDefaultCannonColorId,
                                  kDefaultCannonSkinId, kDefaultCannonEffectId, kDefaultAmmoId);
         } else {
@@ -340,19 +339,16 @@ void Game::AwardCoinsWithPopup(int playerNum, int amount) {
     AwardCoinsWithPopupAt({ c.x, c.groundY - cfg::CANNON_BODY_RADIUS_PX - 70.0f }, amount);
 }
 
-void Game::OnRoundEndedAwardCoins() {
-    if (roundCoinsAwarded_ || roundOutcome == RoundOutcome::None || isSpectating) return;
-    roundCoinsAwarded_ = true;
-
-    if (roundOutcome == RoundOutcome::Draw || roundOutcome == RoundOutcome::DrawBuried) {
-        return;
+int Game::RoundEndCoinAmount() const {
+    if (isSpectating) return 0;
+    if (roundOutcome == RoundOutcome::None
+        || roundOutcome == RoundOutcome::Draw
+        || roundOutcome == RoundOutcome::DrawBuried) {
+        return 0;
     }
 
-    int popupPlayer = 1;
     bool won = false;
-
     if (mode == GameMode::Online) {
-        popupPlayer = netMatch.MyPlayerNumber();
         int winnerPlayer = 0;
         switch (roundOutcome) {
             case RoundOutcome::P1Wins:
@@ -386,8 +382,18 @@ void Game::OnRoundEndedAwardCoins() {
     } else {
         won = true;
     }
+    return won ? cfg::COINS_ROUND_WIN : cfg::COINS_ROUND_LOSS;
+}
 
-    AwardCoinsWithPopup(popupPlayer, won ? 50 : 5);
+void Game::OnRoundEndedAwardCoins() {
+    if (roundCoinsAwarded_ || roundOutcome == RoundOutcome::None || isSpectating) return;
+    roundCoinsAwarded_ = true;
+
+    const int amount = RoundEndCoinAmount();
+    if (amount <= 0) return;
+
+    const int popupPlayer = (mode == GameMode::Online) ? netMatch.MyPlayerNumber() : 1;
+    AwardCoinsWithPopup(popupPlayer, amount);
 }
 
 void Game::StartMatch(GameMode m, MatchFormat format) {

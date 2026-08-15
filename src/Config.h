@@ -111,6 +111,10 @@ constexpr int   DUST_MOTE_COUNT           = 45;
 constexpr float DUST_BASE_DRIFT_SPEED_PX  = 6.0f;   // deriva mínima mesmo sem vento
 constexpr float DUST_WIND_SPEED_SCALE_PX  = 90.0f;  // px/s por unidade de aceleração de vento
 
+// ---- Moedas ----
+constexpr int COINS_ROUND_WIN  = 50;
+constexpr int COINS_ROUND_LOSS = 5;
+
 // ---- Física ----
 constexpr float GRAVITY_MPS2         = 9.8f;
 constexpr int   VELOCITY_ITERATIONS  = 4; // (v3 usa subStepCount)

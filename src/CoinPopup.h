@@ -19,7 +19,7 @@ private:
         float age = 0.0f;
     };
 
-    static constexpr float kLifetime = 1.1f;
+    static constexpr float kLifetime = 3.1f;
     static constexpr float kFastPhaseStart = 0.75f; // fração da vida onde acelera/some
 
     std::vector<Popup> popups_;

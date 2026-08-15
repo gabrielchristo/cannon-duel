@@ -263,11 +263,7 @@ void Game::Draw() {
 
     EndMode2D();
 
-    if (mode == GameMode::Online
-#if CANNON_DUEL_DEBUG_MODE
-        || mode == GameMode::PvAI || mode == GameMode::PvP
-#endif
-    ) {
+    if (mode == GameMode::Online || mode == GameMode::PvAI || mode == GameMode::PvP) {
         DrawCannonNameLabels();
     }
 
@@ -283,6 +279,15 @@ void Game::Draw() {
         int fs = 48;
         int tw = MeasureText(msg, fs);
         DrawText(msg, cfg::SCREEN_WIDTH / 2 - tw / 2, cfg::SCREEN_HEIGHT / 2 - 60, fs, WHITE);
+        const int coins = RoundEndCoinAmount();
+        if (coins > 0) {
+            char coinBuf[64];
+            snprintf(coinBuf, sizeof(coinBuf), T(TK::RoundCoinsEarned, language), coins);
+            const int coinFs = 22;
+            const int cw = MeasureText(coinBuf, coinFs);
+            DrawText(coinBuf, cfg::SCREEN_WIDTH / 2 - cw / 2, cfg::SCREEN_HEIGHT / 2 - 4, coinFs,
+                     Color{ 255, 210, 60, 255 });
+        }
         if (mode == GameMode::Online && !isSpectating) {
             DrawOnlineRoundOverOptions();
         } else {
@@ -290,7 +295,7 @@ void Game::Draw() {
                 ? T(TK::RoundOverSpectatorHint, language)
                 : T(TK::RoundOverHint, language);
             int hw = MeasureText(hint, 20);
-            DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 10, 20, LIGHTGRAY);
+            DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 28, 20, LIGHTGRAY);
         }
     }
 

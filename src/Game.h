@@ -76,6 +76,7 @@ private:
                               const std::string& ammoId);
     void ApplyOnlineCannonCosmetics();
     void OnRoundEndedAwardCoins();
+    int RoundEndCoinAmount() const;
     bool IsLocalHumanShooter() const;
 
     // --- multiplayer online ---

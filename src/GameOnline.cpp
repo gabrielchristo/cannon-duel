@@ -733,11 +733,11 @@ void Game::ReturnToTeamRoomForRematch() {
 namespace {
 
 Rectangle OnlineRematchBtnRect() {
-    return { cfg::SCREEN_WIDTH / 2.0f - 210.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f };
+    return { cfg::SCREEN_WIDTH / 2.0f - 210.0f, cfg::SCREEN_HEIGHT / 2.0f + 40.0f, 200.0f, 48.0f };
 }
 
 Rectangle OnlineLobbyBtnRect() {
-    return { cfg::SCREEN_WIDTH / 2.0f + 10.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f };
+    return { cfg::SCREEN_WIDTH / 2.0f + 10.0f, cfg::SCREEN_HEIGHT / 2.0f + 40.0f, 200.0f, 48.0f };
 }
 
 } // namespace
@@ -753,7 +753,7 @@ void Game::UpdateOnlineRoundOver() {
     }
 
     const Rectangle lobbyRect = onlineWinByDisconnect
-        ? Rectangle{ cfg::SCREEN_WIDTH / 2.0f - 100.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f }
+        ? Rectangle{ cfg::SCREEN_WIDTH / 2.0f - 100.0f, cfg::SCREEN_HEIGHT / 2.0f + 40.0f, 200.0f, 48.0f }
         : OnlineLobbyBtnRect();
     if (CheckCollisionPointRec(mouse, lobbyRect)) {
         ReturnToOnlineLobbyAfterMatch();
@@ -787,7 +787,7 @@ void Game::DrawOnlineRoundOverOptions() const {
                  static_cast<int>(rect.y + rect.height / 2 - fs / 2), fs, Color{140, 140, 140, 255});
     }
     const Rectangle lobbyRect = onlineWinByDisconnect
-        ? Rectangle{ cfg::SCREEN_WIDTH / 2.0f - 100.0f, cfg::SCREEN_HEIGHT / 2.0f + 24.0f, 200.0f, 48.0f }
+        ? Rectangle{ cfg::SCREEN_WIDTH / 2.0f - 100.0f, cfg::SCREEN_HEIGHT / 2.0f + 40.0f, 200.0f, 48.0f }
         : OnlineLobbyBtnRect();
     drawBtn(lobbyRect, T(TK::RoundOverBackToLobby, language),
             Color{90, 75, 55, 255}, Color{120, 100, 75, 255});

@@ -23,6 +23,7 @@ enum class TK {
     ConfirmNo,
 
     RoundOverHint,
+    RoundCoinsEarned,
     RoundOverRematch,
     RoundOverBackToLobby,
     RoundDraw,
@@ -207,6 +208,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::ConfirmNo: return pt ? "CONTINUAR" : "CONTINUE";
 
         case TK::RoundOverHint: return pt ? "clique para voltar ao menu" : "click to return to the menu";
+        case TK::RoundCoinsEarned: return pt ? "Voce ganhou %d moedas" : "You earned %d coins";
         case TK::RoundOverRematch: return pt ? "JOGAR NOVAMENTE" : "PLAY AGAIN";
         case TK::RoundOverBackToLobby: return pt ? "VOLTAR AO LOBBY" : "BACK TO LOBBY";
         case TK::RoundOverSpectatorHint: return pt ? "clique para voltar ao lobby" : "click to return to the lobby";

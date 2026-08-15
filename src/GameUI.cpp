@@ -546,11 +546,10 @@ std::string Game::ResolveCannonDisplayName(int slot) const {
         return onlinePlayerNames[static_cast<size_t>(slot)];
     }
 
-#if CANNON_DUEL_DEBUG_MODE
+    if (roster.IsAISlot(slot, mode)) {
+        return (language == Lang::PT_BR) ? "IA" : "AI";
+    }
     if (mode == GameMode::PvAI) {
-        if (roster.IsAISlot(slot, mode)) {
-            return (language == Lang::PT_BR) ? "IA" : "AI";
-        }
         return playerIdentity.DisplayName();
     }
     if (mode == GameMode::PvP) {
@@ -559,7 +558,6 @@ std::string Game::ResolveCannonDisplayName(int slot) const {
         std::snprintf(buf, sizeof(buf), fmt, slot + 1);
         return buf;
     }
-#endif
     return "";
 }
 
@@ -567,14 +565,9 @@ std::string Game::ResolveCannonNameEffectId(int slot) const {
     if (mode == GameMode::Online) {
         return onlineEquippedNameEffects[static_cast<size_t>(slot)];
     }
-#if CANNON_DUEL_DEBUG_MODE
-    if (mode == GameMode::PvAI && !roster.IsAISlot(slot, mode)) {
+    if (!roster.IsAISlot(slot, mode)) {
         return wallet.EquippedNameEffect();
     }
-    if (mode == GameMode::PvP && slot == 0) {
-        return wallet.EquippedNameEffect();
-    }
-#endif
     return kDefaultNameEffectId;
 }
 

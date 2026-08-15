@@ -245,13 +245,16 @@ void Game::UpdateProjectileFlight(float dt) {
         particles.EmitTrail(pos, vel, Color{180, 120, 230, 255});
 
         if (version == GameVersion::Plus) {
-            powerups.CheckProjectileCollisionRoster(prevProjectilePos, pos, currentPlayer,
-                                                    roster, terrain, language,
-                                                    [this](int type, float x) {
-                                                        if (mode == GameMode::Online && netMatch.InMatch()) {
-                                                            netMatch.PublishPowerupPicked(type, x);
-                                                        }
-                                                    });
+            const bool picked = powerups.CheckProjectileCollisionRoster(
+                prevProjectilePos, pos, currentPlayer, roster, terrain, language,
+                [this](int type, float x) {
+                    if (mode == GameMode::Online && netMatch.InMatch()) {
+                        netMatch.PublishPowerupPicked(type, x);
+                    }
+                });
+            if (picked && IsLocalHumanShooter()) {
+                AwardCoinsWithPopupAt(pos, 10);
+            }
         }
         prevProjectilePos = pos;
 
@@ -279,13 +282,16 @@ void Game::UpdateProjectileFlight(float dt) {
     particles.EmitTrail(pos, projectile.VelocityPx(), trailColor);
 
     if (version == GameVersion::Plus) {
-        powerups.CheckProjectileCollisionRoster(prevProjectilePos, pos, currentPlayer,
-                                              roster, terrain, language,
-                                              [this](int type, float x) {
-                                                  if (mode == GameMode::Online && netMatch.InMatch()) {
-                                                      netMatch.PublishPowerupPicked(type, x);
-                                                  }
-                                              });
+        const bool picked = powerups.CheckProjectileCollisionRoster(
+            prevProjectilePos, pos, currentPlayer, roster, terrain, language,
+            [this](int type, float x) {
+                if (mode == GameMode::Online && netMatch.InMatch()) {
+                    netMatch.PublishPowerupPicked(type, x);
+                }
+            });
+        if (picked && IsLocalHumanShooter()) {
+            AwardCoinsWithPopupAt(pos, 10);
+        }
     }
     prevProjectilePos = pos;
 
@@ -330,7 +336,7 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         pickedPowerup = powerups.TryPickupAtImpact(impactPos, shooter, terrain, language, onOnlinePickup);
     }
     if (pickedPowerup && IsLocalHumanShooter()) {
-        AwardCoinsWithPopup(currentPlayer, 10);
+        AwardCoinsWithPopupAt(impactPos, 10);
     }
 
     float damageMult = 1.0f;
@@ -386,7 +392,9 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         for (int i = 0; i < roster.CannonCount(); ++i) {
             if (dmgApplied[i] <= 0.0f) continue;
             if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
-            AwardCoinsWithPopup(currentPlayer, 15);
+            const Cannon& victim = roster.At(i);
+            AwardCoinsWithPopupAt(
+                { victim.x, victim.groundY - cfg::CANNON_BODY_RADIUS_PX - 40.0f }, 15);
         }
     }
 

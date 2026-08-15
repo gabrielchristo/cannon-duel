@@ -133,14 +133,14 @@ void DrawCannonCosmeticEffect(Vector2 base, float bodyR, Color primary, Color ac
                 { 228, 28, 36, 255 }, { 250, 140, 20, 255 }, { 250, 220, 30, 255 },
                 { 40, 170, 70, 255 }, { 50, 100, 220, 255 }, { 150, 40, 170, 255 }
             };
-            for (int i = 0; i < 12; ++i) {
-                const float seed = static_cast<float>(i) * 0.52f;
-                const float life = fmodf(t * 0.45f + seed * 0.14f, 1.0f);
-                const float ang = seed + t * 1.15f;
-                const float rad = bodyR * (0.7f + 0.55f * std::sin(life * PI));
+            for (int i = 0; i < 16; ++i) {
+                const float seed = static_cast<float>(i) * 0.47f;
+                const float life = fmodf(t * 0.5f + seed * 0.12f, 1.0f);
+                const float ang = seed + t * 1.05f + std::sin(t * 2.1f + seed) * 0.35f;
+                const float rad = bodyR * (0.85f + 0.7f * std::sin(life * PI));
                 const float px = base.x + std::cos(ang) * rad;
-                const float py = base.y + std::sin(ang) * rad * 0.78f;
-                mote(px, py, 1.8f, kPride[i % 6], std::sin(life * PI) * 0.65f);
+                const float py = base.y + std::sin(ang) * rad * 0.76f;
+                mote(px, py, 1.7f + (1.0f - life) * 1.3f, kPride[i % 6], std::sin(life * PI) * 0.7f);
             }
             break;
         }
@@ -223,13 +223,17 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* baseSprite, Texture2D* overlayS
     }
 
     if (baseSprite && baseSprite->id != 0) {
-        DrawCannonSprite(base, baseSprite, WHITE, flipH);
         if (cannonEffect != CannonEffectStyle::None) {
             Rectangle src{}, dst{};
             Vector2 origin{};
             CannonSpriteLayout(base, *baseSprite, flipH, &src, &dst, &origin);
+            gCosmeticShaders.DrawCannonOutline(*baseSprite, src, dst, origin,
+                                               cannonEffect, effectAccent);
             gCosmeticShaders.DrawCannonCoating(*baseSprite, src, dst, origin,
                                                cannonEffect, effectAccent, effectAccent);
+            DrawCannonSprite(base, baseSprite, WHITE, flipH);
+        } else {
+            DrawCannonSprite(base, baseSprite, WHITE, flipH);
         }
     } else {
         Color bodyColor = (side == CannonSide::Left) ? Color{248, 250, 252, 255} : Color{230, 232, 238, 255};

@@ -34,7 +34,9 @@ void PlayerWallet::Init(PlayerIdentity* identity) {
     ownedItems_.insert(kDefaultCannonSkinId);
     ownedItems_.insert(kDefaultCannonEffectId);
     ownedItems_.insert(kDefaultNameEffectId);
+    coins_ = kStartingCoins;
     LoadDisplayCache();
+    if (coins_ <= 0) coins_ = kStartingCoins;
 }
 
 void PlayerWallet::LoadDisplayCache() {
@@ -46,7 +48,7 @@ void PlayerWallet::LoadDisplayCache() {
     std::istringstream in(raw);
     std::string line;
     if (std::getline(in, line)) {
-        try { coins_ = std::stoi(line); } catch (...) { coins_ = 0; }
+        try { coins_ = std::stoi(line); } catch (...) { coins_ = kStartingCoins; }
     }
     if (std::getline(in, line) && !line.empty()) equippedCannonColor_ = line;
     if (std::getline(in, line) && !line.empty()) equippedCannonSkin_ = line;
@@ -90,7 +92,7 @@ int PlayerWallet::FetchServerCoins() {
     if (!identity_) return coins_;
     json rows = client_.Select("players", "select=coins&id=eq." + identity_->Id());
     if (client_.LastRequestOk() && rows.is_array() && !rows.empty()) {
-        return json_helpers::Int(rows[0], "coins", 0);
+        return json_helpers::Int(rows[0], "coins", kStartingCoins);
     }
     return coins_;
 }
@@ -104,6 +106,11 @@ void PlayerWallet::RefreshFromServer() {
         + identity_->Id());
     if (client_.LastRequestOk() && rows.is_array() && !rows.empty()) {
         coins_ = json_helpers::Int(rows[0], "coins", coins_);
+        if (coins_ <= 0) {
+            json grant = { { "coins", kStartingCoins } };
+            client_.Update("players", "id=eq." + identity_->Id(), grant);
+            if (client_.LastRequestOk()) coins_ = kStartingCoins;
+        }
         equippedCannonColor_ = json_helpers::Str(rows[0], "equipped_cannon_color", equippedCannonColor_);
         equippedCannonSkin_ = json_helpers::Str(rows[0], "equipped_cannon_skin", equippedCannonSkin_);
         equippedCannonEffect_ = json_helpers::Str(rows[0], "equipped_cannon_effect", equippedCannonEffect_);

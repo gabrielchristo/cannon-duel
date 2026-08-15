@@ -68,6 +68,7 @@ __pycache__/
 # Identidade local (UUID do jogador — não commitar)
 # ---------------------------------------------------------------------------
 player_identity.txt
+wallet_cache.txt
 
 # ---------------------------------------------------------------------------
 # Guias offline de desenvolvimento (não commitar)

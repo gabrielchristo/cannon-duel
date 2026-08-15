@@ -324,11 +324,16 @@ bool Game::IsLocalHumanShooter() const {
     return true;
 }
 
+void Game::AwardCoinsWithPopupAt(Vector2 pos, int amount) {
+    if (amount <= 0) return;
+    wallet.AwardCoins(amount);
+    coinPopups.Spawn(pos, amount);
+}
+
 void Game::AwardCoinsWithPopup(int playerNum, int amount) {
     if (amount <= 0 || playerNum < 1 || playerNum > roster.CannonCount()) return;
-    wallet.AwardCoins(amount);
     const Cannon& c = GetCannon(playerNum);
-    coinPopups.Spawn({ c.x, c.groundY - cfg::CANNON_BODY_RADIUS_PX - 70.0f }, amount);
+    AwardCoinsWithPopupAt({ c.x, c.groundY - cfg::CANNON_BODY_RADIUS_PX - 70.0f }, amount);
 }
 
 void Game::OnRoundEndedAwardCoins() {

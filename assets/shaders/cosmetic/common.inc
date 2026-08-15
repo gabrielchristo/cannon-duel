@@ -133,23 +133,35 @@ vec4 glyphOnce(vec3 live, float mask, float outline, float outlineAmt) {
     return vec4(col, clamp(alpha, 0.0, 1.0));
 }
 
+vec4 nameSoftAura(vec3 theme, vec2 uv, float mask, float t) {
+    float halo = max(0.0, dilateRing(uv, 3.6) - neighborMax(uv, 3.2));
+    if (halo < 0.02) {
+        return vec4(0.0);
+    }
+    float a = halo * (0.09 + 0.03 * sin(t * 2.2));
+    return vec4(theme, clamp(a, 0.0, 0.14));
+}
+
 vec4 nameLetter(vec3 theme, vec2 flow, float sweep, float osc, float holoAmt,
                 float t, float mask, vec2 uv) {
-    float outline = max(0.0, neighborMax(uv, 2.6) - mask);
+    float outline = max(0.0, neighborMax(uv, 3.2) - mask);
     float field = fluidField(flow, t, 0.85);
     float band = pow(abs(sin(sweep * 3.14159)), 8.0);
     vec3 holo = holographicSheen(sweep, t);
     vec3 pair = mix(colorPrimary.rgb, colorAccent.rgb, osc);
-    vec3 live = mix(mix(theme, pair, 0.62), holo, holoAmt);
-    live = mix(live, theme, field * 0.12);
-    live = mix(live, vec3(1.0), band * 0.18);
-    return glyphOnce(live, mask, outline, 0.7);
+    vec3 live = mix(theme, pair, 0.35);
+    live = mix(live, holo, holoAmt * 0.35);
+    live = mix(live, theme, field * 0.08);
+    live = mix(live, vec3(1.0), band * 0.12);
+    vec4 glyph = glyphOnce(live, mask, outline, 1.0);
+    vec4 aura = nameSoftAura(live, uv, mask, t);
+    return vec4(mix(aura.rgb, glyph.rgb, glyph.a), clamp(max(glyph.a, aura.a), 0.0, 1.0));
 }
 
 vec4 cannonShell(vec3 theme, float shellPx, vec2 flowUv, vec2 uv, float t, float mask) {
     float outer = max(0.0, dilateRing(uv, shellPx) - mask);
-    float rim = max(0.0, dilateRing(uv, 5.5) - mask);
-    float edge = mask * (1.0 - erodeRing(uv, 4.0));
+    float rim = max(0.0, dilateRing(uv, 2.2) - mask);
+    float edge = mask * (1.0 - erodeRing(uv, 1.6));
     if (outer < 0.02 && edge < 0.02) {
         return vec4(0.0);
     }
@@ -160,9 +172,9 @@ vec4 cannonShell(vec3 theme, float shellPx, vec2 flowUv, vec2 uv, float t, float
     float sweep = ang / 6.2831853 + t * 0.42;
     float band = pow(0.5 + 0.5 * sin(sweep * 12.566 + t * 2.4), 3.0);
     vec3 holo = holographicSheen(sweep * 2.0, t);
-    vec3 col = mix(theme, holo, 0.28);
-    col = mix(col, vec3(1.0), band * 0.55 + field * 0.12);
-    float pulse = 0.78 + 0.22 * sin(t * 5.0 + ang * 3.0);
-    float alpha = max(edge * 0.88, max(rim * 0.98 * pulse, outer * (0.55 + 0.35 * field)));
+    vec3 col = mix(theme, holo, 0.22);
+    col = mix(col, vec3(1.0), band * 0.35 + field * 0.08);
+    float pulse = 0.7 + 0.15 * sin(t * 5.0 + ang * 3.0);
+    float alpha = max(edge * 0.45, max(rim * 0.5 * pulse, outer * (0.28 + 0.22 * field)));
     return vec4(col, clamp(alpha, 0.0, 1.0));
 }

@@ -19,6 +19,9 @@ public:
     void DrawCannonCoating(const Texture2D& sprite, Rectangle src, Rectangle dst, Vector2 origin,
                            CannonEffectStyle style, Color primary, Color accent);
 
+    void DrawCannonOutline(const Texture2D& sprite, Rectangle src, Rectangle dst, Vector2 origin,
+                           CannonEffectStyle style, Color accent);
+
     void DrawCannonEnergyField(Vector2 center, float radius, Color primary, Color accent,
                                CannonEffectStyle style = CannonEffectStyle::None);
     void DrawEmberFire(int x, int y, int width, int fontSize);

@@ -88,11 +88,10 @@ void DrawCannonPreview(Vector2 center, Texture2D& baseTex, Texture2D* overlayTex
     const float effectR = 28.0f;
     if (effect != CannonEffectStyle::None) {
         gCosmeticShaders.DrawCannonEnergyField(center, effectR, effectPrimary, effectAccent, effect);
-    }
-    DrawTexturePro(baseTex, src, dst, origin, 0.0f, WHITE);
-    if (effect != CannonEffectStyle::None) {
+        gCosmeticShaders.DrawCannonOutline(baseTex, src, dst, origin, effect, effectAccent);
         gCosmeticShaders.DrawCannonCoating(baseTex, src, dst, origin, effect, effectPrimary, effectAccent);
     }
+    DrawTexturePro(baseTex, src, dst, origin, 0.0f, WHITE);
     if (overlayTex && overlayTex->id != 0) {
         DrawTexturePro(*overlayTex, src, dst, origin, 0.0f, WHITE);
     }

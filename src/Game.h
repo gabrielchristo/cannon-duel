@@ -67,6 +67,7 @@ private:
     ScrollListState shopScroll_;
     bool walletRefreshedOnce_ = false;
     void AwardCoinsWithPopup(int playerNum, int amount);
+    void AwardCoinsWithPopupAt(Vector2 pos, int amount);
     void ApplyEquippedCosmetics();
     void ApplyCannonCosmetics(Cannon& cannon, const std::string& colorId,
                               const std::string& skinId, const std::string& effectId);

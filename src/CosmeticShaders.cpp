@@ -75,12 +75,9 @@ bool CosmeticShaders::CompileProgram(Program* out, const std::string& common, co
     out->locAccent = GetShaderLocation(out->shader, "colorAccent");
     out->locResolution = GetShaderLocation(out->shader, "resolution");
     out->locUvScale = GetShaderLocation(out->shader, "uvScale");
-    out->ready = out->locTime >= 0 && out->locPrimary >= 0 && out->locAccent >= 0
-        && out->locResolution >= 0 && out->locUvScale >= 0;
-    if (!out->ready) {
-        UnloadProgram(out);
-        return false;
-    }
+    // Uniforms não usados no .fs são otimizados pelo driver (loc = -1).
+    // O shader continua válido — ApplyUniforms ignora locations negativos.
+    out->ready = true;
     return true;
 }
 
@@ -170,7 +167,9 @@ int CosmeticShaders::CannonEffectShaderIndex(CannonEffectStyle style) {
 void CosmeticShaders::ApplyUniforms(const Program& program, Color primary, Color accent,
                                     float w, float h, float uvScale, float timeScale) {
     const float t = static_cast<float>(GetTime()) * timeScale;
-    SetShaderValue(program.shader, program.locTime, &t, SHADER_UNIFORM_FLOAT);
+    if (program.locTime >= 0) {
+        SetShaderValue(program.shader, program.locTime, &t, SHADER_UNIFORM_FLOAT);
+    }
 
     const float primaryNorm[4] = {
         primary.r / 255.0f, primary.g / 255.0f, primary.b / 255.0f, primary.a / 255.0f
@@ -178,12 +177,20 @@ void CosmeticShaders::ApplyUniforms(const Program& program, Color primary, Color
     const float accentNorm[4] = {
         accent.r / 255.0f, accent.g / 255.0f, accent.b / 255.0f, accent.a / 255.0f
     };
-    SetShaderValue(program.shader, program.locPrimary, primaryNorm, SHADER_UNIFORM_VEC4);
-    SetShaderValue(program.shader, program.locAccent, accentNorm, SHADER_UNIFORM_VEC4);
+    if (program.locPrimary >= 0) {
+        SetShaderValue(program.shader, program.locPrimary, primaryNorm, SHADER_UNIFORM_VEC4);
+    }
+    if (program.locAccent >= 0) {
+        SetShaderValue(program.shader, program.locAccent, accentNorm, SHADER_UNIFORM_VEC4);
+    }
 
     const float res[2] = { w, h };
-    SetShaderValue(program.shader, program.locResolution, res, SHADER_UNIFORM_VEC2);
-    SetShaderValue(program.shader, program.locUvScale, &uvScale, SHADER_UNIFORM_FLOAT);
+    if (program.locResolution >= 0) {
+        SetShaderValue(program.shader, program.locResolution, res, SHADER_UNIFORM_VEC2);
+    }
+    if (program.locUvScale >= 0) {
+        SetShaderValue(program.shader, program.locUvScale, &uvScale, SHADER_UNIFORM_FLOAT);
+    }
 }
 
 bool CosmeticShaders::EnsureTextMask(const char* text, int fontSize, int rw, int rh, int padX, int padY) {
@@ -220,9 +227,9 @@ bool CosmeticShaders::DrawNameEffect(const char* text, int x, int y, int fontSiz
     const int tw = MeasureText(text, fontSize);
     if (tw <= 0) return false;
 
-    const int padX = (style == NameEffectStyle::Flame) ? 12 : 6;
-    const int padTop = (style == NameEffectStyle::Flame) ? 12 : 6;
-    const int padBottom = (style == NameEffectStyle::Flame) ? 12 : 6;
+    const int padX = (style == NameEffectStyle::Flame) ? 10 : 8;
+    const int padTop = (style == NameEffectStyle::Flame) ? 10 : 8;
+    const int padBottom = (style == NameEffectStyle::Flame) ? 10 : 8;
     const int rw = tw + padX * 2;
     const int rh = fontSize + padTop + padBottom;
 
@@ -236,7 +243,7 @@ bool CosmeticShaders::DrawNameEffect(const char* text, int x, int y, int fontSiz
 
     BeginShaderMode(program.shader);
     DrawTexturePro(textMaskTex_,
-                   { 0, 0, static_cast<float>(textMaskTex_.width), -static_cast<float>(textMaskTex_.height) },
+                   { 0, 0, static_cast<float>(textMaskTex_.width), static_cast<float>(textMaskTex_.height) },
                    { static_cast<float>(x - padX), static_cast<float>(y - padTop),
                      static_cast<float>(rw), static_cast<float>(rh) },
                    { 0, 0 }, 0.0f, WHITE);
@@ -456,14 +463,70 @@ void CosmeticShaders::DrawEmberFire(int x, int y, int width, int fontSize) {
     }
 }
 
+namespace {
+
+Color CannonThemeColor(CannonEffectStyle style, Color accent) {
+    switch (style) {
+        case CannonEffectStyle::AuraSoft: return Color{ 70, 170, 255, 255 };
+        case CannonEffectStyle::AuraFire: return Color{ 255, 80, 16, 255 };
+        case CannonEffectStyle::ImbueHoly: return Color{ 255, 210, 40, 255 };
+        case CannonEffectStyle::DebuffGlow: return Color{ 30, 230, 70, 255 };
+        case CannonEffectStyle::ArcaneSpark: return Color{ 170, 70, 255, 255 };
+        case CannonEffectStyle::LiquidInferno: return Color{ 255, 50, 8, 255 };
+        case CannonEffectStyle::LiquidFrost: return Color{ 50, 190, 255, 255 };
+        case CannonEffectStyle::LiquidVoid: return Color{ 150, 40, 255, 255 };
+        case CannonEffectStyle::AuraCunt: {
+            static const Color kPride[] = {
+                { 228, 28, 36, 255 }, { 250, 140, 20, 255 }, { 250, 220, 30, 255 },
+                { 40, 170, 70, 255 }, { 50, 100, 220, 255 }, { 150, 40, 170, 255 }
+            };
+            const float t = static_cast<float>(GetTime()) * 3.2f;
+            const int i = static_cast<int>(std::floor(std::fmod(t, 6.0f)));
+            return kPride[(i % 6 + 6) % 6];
+        }
+        default: return accent;
+    }
+}
+
+} // namespace
+
+void CosmeticShaders::DrawCannonOutline(const Texture2D& sprite, Rectangle src, Rectangle dst, Vector2 origin,
+                                        CannonEffectStyle style, Color accent) {
+    if (sprite.id == 0 || style == CannonEffectStyle::None) return;
+    const Color col = Fade(CannonThemeColor(style, accent), 0.35f);
+    const float px = 1.0f;
+    static constexpr float kOx[] = { 1.0f, -1.0f, 0.0f, 0.0f };
+    static constexpr float kOy[] = { 0.0f, 0.0f, 1.0f, -1.0f };
+    for (int i = 0; i < 4; ++i) {
+        const Rectangle ring = { dst.x + kOx[i] * px, dst.y + kOy[i] * px, dst.width, dst.height };
+        DrawTexturePro(sprite, src, ring, origin, 0.0f, col);
+    }
+}
+
 void CosmeticShaders::DrawCannonEnergyField(Vector2 center, float radius, Color primary, Color accent,
                                            CannonEffectStyle style) {
-    // Identidade fica nas partículas de DrawCannonCosmeticEffect — sem campo genérico.
-    (void)center;
-    (void)radius;
-    (void)primary;
-    (void)accent;
-    (void)style;
+    if (style != CannonEffectStyle::AuraCunt) {
+        (void)primary;
+        (void)accent;
+        return;
+    }
+    static const Color kPride[] = {
+        { 228, 28, 36, 255 }, { 250, 140, 20, 255 }, { 250, 220, 30, 255 },
+        { 40, 170, 70, 255 }, { 50, 100, 220, 255 }, { 150, 40, 170, 255 }
+    };
+    const float t = static_cast<float>(GetTime());
+    for (int i = 0; i < 18; ++i) {
+        const float seed = static_cast<float>(i) * 0.41f;
+        const float life = std::fmod(t * 0.55f + seed, 1.0f);
+        const float ang = seed * 6.28318f + t * 0.85f + std::sin(t * 1.7f + seed) * 0.4f;
+        const float rad = radius * (1.05f + 0.55f * std::sin(life * PI + seed));
+        const float px = center.x + std::cos(ang) * rad;
+        const float py = center.y + std::sin(ang) * rad * 0.78f;
+        const float w = 3.6f + 2.8f * (1.0f - life);
+        const float h = 2.2f + 1.6f * std::sin(life * PI);
+        DrawEllipse(static_cast<int>(px), static_cast<int>(py), static_cast<int>(w),
+                    static_cast<int>(h), Fade(kPride[i % 6], 0.28f + 0.22f * std::sin(life * PI)));
+    }
 }
 
 void CosmeticShaders::DrawCannonCoating(const Texture2D& sprite, Rectangle src, Rectangle dst, Vector2 origin,
@@ -474,7 +537,7 @@ void CosmeticShaders::DrawCannonCoating(const Texture2D& sprite, Rectangle src, 
     const Program& program = cannonPrograms_[static_cast<size_t>(index)];
     if (!program.ready) return;
 
-    const float grow = 1.55f;
+    const float grow = 1.22f;
     const Rectangle energyDst = { dst.x, dst.y, dst.width * grow, dst.height * grow };
     const Vector2 energyOrigin = { origin.x * grow, origin.y * grow };
     ApplyUniforms(program, primary, accent,

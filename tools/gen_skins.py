@@ -8,7 +8,6 @@ Uso:
 from __future__ import annotations
 
 import argparse
-import math
 import sys
 from pathlib import Path
 
@@ -227,20 +226,40 @@ def make_skin_pirate(size: int = 128) -> Image.Image:
     return img
 
 
-def generate_skins(output_dir: Path) -> None:
+def make_skin_default(size: int = 128) -> Image.Image:
+    """Sem overlay — placeholder transparente do item `skin_default`."""
+    return Image.new("RGBA", (size, size), (0, 0, 0, 0))
+
+
+# Todas as skins da loja (`ShopCatalog.h`). Ordem = overlay index 1..N.
+SKIN_GENERATORS = (
+    ("skin_kuromi.png", make_skin_kuromi),
+    ("skin_gothic.png", make_skin_gothic),
+    ("skin_samurai.png", make_skin_samurai),
+    ("skin_pirate.png", make_skin_pirate),
+)
+
+
+def generate_skins(output_dir: Path, only: str | None = None) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    save_overlay(make_skin_kuromi(), output_dir, "skin_kuromi.png")
-    save_overlay(make_skin_gothic(), output_dir, "skin_gothic.png")
-    save_overlay(make_skin_samurai(), output_dir, "skin_samurai.png")
-    save_overlay(make_skin_pirate(), output_dir, "skin_pirate.png")
+    for filename, builder in SKIN_GENERATORS:
+        if only and only not in (filename, filename.removesuffix(".png")):
+            continue
+        save_overlay(builder(), output_dir, filename)
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Gera overlays de skin de canhão.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUT)
+    parser.add_argument("--only", help="Gera só uma skin (ex: kuromi ou skin_kuromi.png)")
+    parser.add_argument("--list", action="store_true", help="Lista as skins do jogo")
     args = parser.parse_args()
+    if args.list:
+        for filename, builder in SKIN_GENERATORS:
+            print(f"  {filename}  ({builder.__name__})")
+        return 0
     print(f"Gerando skins em {args.output_dir.resolve()} …")
-    generate_skins(args.output_dir.resolve())
+    generate_skins(args.output_dir.resolve(), args.only)
     print("Concluído.")
     return 0
 

@@ -1,5 +1,7 @@
 #pragma once
 #include "Config.h"
+#include "ScrollList.h"
+#include <algorithm>
 #include <raylib.h>
 
 // Layout único do menu principal — título, toolbar (idioma + Classic/Plus) e botões.
@@ -59,6 +61,31 @@ inline float MainMenuButtonsBottomY() {
     return MainMenuButtonsTopY()
         + kMainMenuBtnCount * kBtnH
         + (kMainMenuBtnCount - 1) * kBtnGap;
+}
+
+inline constexpr int kInfoTitleFont = 48;
+inline constexpr int kInfoBodyFont = 26;
+inline constexpr float kInfoLineH = 38.0f;
+inline constexpr float kInfoTitleY = 36.0f;
+inline constexpr float kInfoViewportTop = 108.0f;
+
+inline Rectangle InfoPageBackBtn() {
+    return { cfg::SCREEN_WIDTH / 2.0f - 100.0f, cfg::SCREEN_HEIGHT - 80.0f, 200.0f, 52.0f };
+}
+
+inline ScrollListLayout InfoPageLayout(int lineCount) {
+    const Rectangle back = InfoPageBackBtn();
+    ScrollListLayout layout;
+    layout.viewport = {
+        32.0f,
+        kInfoViewportTop,
+        static_cast<float>(cfg::SCREEN_WIDTH) - 64.0f,
+        back.y - 16.0f - kInfoViewportTop
+    };
+    layout.rowHeight = kInfoLineH;
+    layout.itemCount = std::max(0, lineCount);
+    layout.scrollBarW = 0.0f;
+    return layout;
 }
 
 } // namespace menu_layout

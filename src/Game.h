@@ -65,6 +65,8 @@ private:
     CoinPopupSystem coinPopups;
     ShopCategory shopCategory = ShopCategory::CannonColor;
     ScrollListState shopScroll_;
+    ScrollListState aboutScroll_;
+    ScrollListState instructionsScroll_;
     bool walletRefreshedOnce_ = false;
     void AwardCoinsWithPopup(int playerNum, int amount);
     void AwardCoinsWithPopupAt(Vector2 pos, int amount);

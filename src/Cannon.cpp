@@ -158,6 +158,73 @@ void DrawCannonCosmeticEffect(Vector2 base, float bodyR, Color primary, Color ac
             }
             break;
         }
+        case CannonEffectStyle::SixSeven: {
+            const Color skin{ 255, 214, 176, 255 };
+            const Color line{ 40, 26, 18, 255 };
+            for (int s = 0; s < 2; ++s) {
+                const float side = (s == 0) ? -1.0f : 1.0f;
+                const float phase = std::sin(t * 10.5f + static_cast<float>(s) * PI) * bodyR * 0.38f;
+                const Vector2 palm{
+                    base.x + side * bodyR * 1.02f,
+                    base.y - bodyR * 0.2f + phase
+                };
+                const float hs = bodyR * 0.42f;
+                DrawEllipse(static_cast<int>(palm.x), static_cast<int>(palm.y),
+                            static_cast<int>(hs * 0.78f), static_cast<int>(hs * 0.92f), line);
+                DrawEllipse(static_cast<int>(palm.x), static_cast<int>(palm.y),
+                            static_cast<int>(hs * 0.62f), static_cast<int>(hs * 0.74f), skin);
+                for (int f = 0; f < 4; ++f) {
+                    const float ox = (static_cast<float>(f) - 1.5f) * hs * 0.36f;
+                    const float fy = palm.y - hs * 1.05f;
+                    DrawEllipse(static_cast<int>(palm.x + ox), static_cast<int>(fy),
+                                static_cast<int>(hs * 0.20f), static_cast<int>(hs * 0.46f), line);
+                    DrawEllipse(static_cast<int>(palm.x + ox), static_cast<int>(fy),
+                                static_cast<int>(hs * 0.14f), static_cast<int>(hs * 0.36f), skin);
+                }
+                DrawEllipse(static_cast<int>(palm.x + side * hs * 0.62f),
+                            static_cast<int>(palm.y - hs * 0.08f),
+                            static_cast<int>(hs * 0.24f), static_cast<int>(hs * 0.18f), skin);
+            }
+            break;
+        }
+        case CannonEffectStyle::Kyuubi: {
+            const Color cloak{ 190, 18, 6, 255 };
+            const Color flame{ 255, 78, 14, 255 };
+            const Color core{ 255, 210, 70, 255 };
+            for (int i = 0; i < 9; ++i) {
+                const float u = (static_cast<float>(i) / 8.0f - 0.5f) * 2.0f;
+                const float sway = std::sin(t * 2.6f + static_cast<float>(i) * 0.7f);
+                for (int seg = 0; seg < 8; ++seg) {
+                    const float along = (static_cast<float>(seg) + 1.0f) / 8.0f;
+                    const float px = base.x + u * bodyR * (0.4f + along * 1.2f)
+                        + sway * along * bodyR * 0.3f;
+                    const float py = base.y + bodyR * 0.2f - along * bodyR * 2.5f;
+                    const float rad = 3.0f - along * 1.9f;
+                    const float alpha = 0.5f * (1.0f - along * 0.25f);
+                    mote(px, py, rad, cloak, alpha);
+                    mote(px, py, rad * 0.55f, flame, alpha * 0.9f);
+                    if (seg > 4) mote(px, py, rad * 0.28f, core, alpha * 0.7f);
+                }
+            }
+            for (int i = 0; i < 28; ++i) {
+                const float seed = i * 1.73f;
+                const float life = fmodf(t * 0.78f + seed * 0.17f, 1.0f);
+                const float px = base.x + std::sin(seed * 2.8f + t * 1.6f) * bodyR * (0.7f + life * 0.5f);
+                const float py = base.y + bodyR * 0.35f - life * bodyR * 2.8f;
+                mote(px, py, 2.4f * (1.0f - life * 0.4f), flame, (1.0f - life) * 0.58f);
+                mote(px + std::cos(seed) * 2.0f, py - 3.0f, 1.1f, core, (1.0f - life) * 0.4f);
+            }
+            for (int i = 0; i < 12; ++i) {
+                const float seed = i * 2.11f;
+                const float life = fmodf(t * 0.45f + seed * 0.21f, 1.0f);
+                const float ang = seed + t * 0.9f;
+                const float rad = bodyR * (0.9f + life * 0.85f);
+                mote(base.x + std::cos(ang) * rad,
+                     base.y + std::sin(ang) * rad * 0.7f,
+                     1.8f + (1.0f - life) * 1.4f, cloak, std::sin(life * PI) * 0.42f);
+            }
+            break;
+        }
         default:
             break;
     }
@@ -221,6 +288,9 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* baseSprite, Texture2D* overlayS
     if (cannonEffect != CannonEffectStyle::None) {
         gCosmeticShaders.DrawCannonEnergyField(base, r, effectAccent, effectAccent, cannonEffect);
     }
+    if (cannonEffect == CannonEffectStyle::Kyuubi) {
+        DrawCannonCosmeticEffect(base, r, effectAccent, effectAccent, cannonEffect);
+    }
 
     if (baseSprite && baseSprite->id != 0) {
         if (cannonEffect != CannonEffectStyle::None) {
@@ -247,7 +317,9 @@ void Cannon::Draw(bool isCurrentTurn, Texture2D* baseSprite, Texture2D* overlayS
         DrawCannonSprite(base, overlaySprite, WHITE, flipH);
     }
 
-    DrawCannonCosmeticEffect(base, r, effectAccent, effectAccent, cannonEffect);
+    if (cannonEffect != CannonEffectStyle::Kyuubi) {
+        DrawCannonCosmeticEffect(base, r, effectAccent, effectAccent, cannonEffect);
+    }
 
     Vector2 muzzleReal = MuzzlePosition();
     DrawLineEx(base, muzzleReal, 3.0f, Fade(BLACK, 0.55f));

@@ -47,8 +47,13 @@ void Game::UpdateMainMenu() {
             onlineLobby.EnterLobby();
             state = GameState::OnlineLobby;
         }
-        else if (CheckCollisionPointRec(m, btnAbout)) state = GameState::About;
-        else if (CheckCollisionPointRec(m, btnInstructions)) state = GameState::Instructions;
+        else if (CheckCollisionPointRec(m, btnAbout)) {
+            aboutScroll_.scrollY = 0.0f;
+            state = GameState::About;
+        } else if (CheckCollisionPointRec(m, btnInstructions)) {
+            instructionsScroll_.scrollY = 0.0f;
+            state = GameState::Instructions;
+        }
         else if (CheckCollisionPointRec(m, btnShop)) {
             wallet.RefreshFromServer();
             shopScroll_.scrollY = 0.0f;
@@ -59,7 +64,12 @@ void Game::UpdateMainMenu() {
 
 void Game::UpdateAbout() {
     Vector2 m = ::GetVirtualMouse();
-    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 100.0f, 200, 52 };
+    int lineCount = 0;
+    TextSplit(T(TK::AboutBody, language), '\n', &lineCount);
+    ScrollListLayout layout = menu_layout::InfoPageLayout(lineCount + 2);
+    UpdateInvisibleScroll(aboutScroll_, layout, m);
+
+    Rectangle backBtn = menu_layout::InfoPageBackBtn();
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, backBtn)) {
         state = GameState::MainMenu;
     }
@@ -67,7 +77,12 @@ void Game::UpdateAbout() {
 
 void Game::UpdateInstructions() {
     Vector2 m = ::GetVirtualMouse();
-    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
+    int lineCount = 0;
+    TextSplit(T(TK::InstructionsBody, language), '\n', &lineCount);
+    ScrollListLayout layout = menu_layout::InfoPageLayout(lineCount);
+    UpdateInvisibleScroll(instructionsScroll_, layout, m);
+
+    Rectangle backBtn = menu_layout::InfoPageBackBtn();
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && CheckCollisionPointRec(m, backBtn)) {
         state = GameState::MainMenu;
     }

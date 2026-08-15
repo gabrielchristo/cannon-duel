@@ -407,6 +407,52 @@ def make_skin_negaodozap(size: int = 128) -> Image.Image:
     return img
 
 
+def make_skin_ninja(size: int = 128) -> Image.Image:
+    """Mascara, faixa e roupa preta — leitura ninja."""
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    black = (18, 16, 20, 255)
+    cloth = (32, 30, 36, 255)
+    ink = (8, 6, 10, 255)
+    steel = (210, 212, 220, 255)
+    red = (180, 28, 32, 255)
+
+    # Mascara na torre
+    draw.ellipse([CX - 20, TURRET_TOP - 2, CX + 20, TURRET_TOP + 34], fill=black, outline=ink, width=3)
+    draw.rectangle([CX - 16, TURRET_TOP + 10, CX + 16, TURRET_TOP + 18], fill=cloth)
+    draw.ellipse([CX - 8, TURRET_TOP + 12, CX - 3, TURRET_TOP + 18], fill=(20, 20, 24, 255))
+    draw.ellipse([CX + 3, TURRET_TOP + 12, CX + 8, TURRET_TOP + 18], fill=(20, 20, 24, 255))
+
+    # Faixa / hitai-ate
+    draw.rectangle([CX - 22, TURRET_TOP + 2, CX + 22, TURRET_TOP + 12], fill=black, outline=ink, width=2)
+    draw.rounded_rectangle([CX - 9, TURRET_TOP + 1, CX + 9, TURRET_TOP + 13], radius=2, fill=steel, outline=ink, width=2)
+    draw.polygon([(CX - 3, TURRET_TOP + 4), (CX, TURRET_TOP + 10), (CX + 3, TURRET_TOP + 4)], fill=red)
+
+    # Caudas da faixa
+    draw.polygon(
+        [(CX - 20, TURRET_TOP + 8), (CX - 38, TURRET_TOP + 2), (CX - 32, TURRET_TOP + 16)],
+        fill=black, outline=ink,
+    )
+    draw.polygon(
+        [(CX - 22, TURRET_TOP + 12), (CX - 40, TURRET_TOP + 20), (CX - 24, TURRET_TOP + 18)],
+        fill=cloth,
+    )
+
+    # Faixa preta no casco
+    draw.rectangle([CX - 34, CY - 10, CX + 34, CY + 2], fill=black, outline=ink, width=2)
+    draw.rectangle([CX - 28, CY - 6, CX + 28, CY - 2], fill=cloth)
+
+    # Shuriken no flanco
+    sx, sy = CX + 32, CY - 8
+    draw.polygon(
+        [(sx, sy - 12), (sx + 3, sy - 3), (sx + 12, sy), (sx + 3, sy + 3),
+         (sx, sy + 12), (sx - 3, sy + 3), (sx - 12, sy), (sx - 3, sy - 3)],
+        fill=steel, outline=ink,
+    )
+    draw.ellipse([sx - 3, sy - 3, sx + 3, sy + 3], fill=black)
+    return img
+
+
 def make_skin_default(size: int = 128) -> Image.Image:
     """Sem overlay — placeholder transparente do item `skin_default`."""
     return Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -421,6 +467,7 @@ SKIN_GENERATORS = (
     ("skin_mymelody.png", make_skin_mymelody),
     ("skin_cinnamoroll.png", make_skin_cinnamoroll),
     ("skin_negaodozap.png", make_skin_negaodozap),
+    ("skin_ninja.png", make_skin_ninja),
 )
 
 

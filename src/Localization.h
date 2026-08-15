@@ -145,6 +145,7 @@ enum class TK {
     ShopSkinMyMelody,
     ShopSkinCinnamoroll,
     ShopSkinNegaoDoZap,
+    ShopSkinNinja,
 
     ShopItemDefaultEffect,
     ShopEffectAuraSoft,
@@ -156,6 +157,8 @@ enum class TK {
     ShopEffectLiquidFrost,
     ShopEffectLiquidVoid,
     ShopEffectAuraCunt,
+    ShopEffectSixSeven,
+    ShopEffectKyuubi,
 
     ShopItemDefaultName,
     ShopItemEmberName,
@@ -379,6 +382,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::ShopSkinMyMelody: return pt ? "Skin My Melody" : "My Melody Skin";
         case TK::ShopSkinCinnamoroll: return pt ? "Skin Cinnamoroll" : "Cinnamoroll Skin";
         case TK::ShopSkinNegaoDoZap: return pt ? "Skin Negao do Zap" : "Negao do Zap Skin";
+        case TK::ShopSkinNinja: return pt ? "Skin Ninja" : "Ninja Skin";
 
         case TK::ShopItemDefaultEffect: return pt ? "Sem Efeito" : "No Effect";
         case TK::ShopEffectAuraSoft: return pt ? "Aura + Ego" : "Aura + Ego";
@@ -390,6 +394,8 @@ inline const char* T(TK key, Lang lang) {
         case TK::ShopEffectLiquidFrost: return pt ? "Gelo Liquido" : "Liquid Frost";
         case TK::ShopEffectLiquidVoid: return pt ? "Vazio Liquido" : "Liquid Void";
         case TK::ShopEffectAuraCunt: return pt ? "Aura Cunt" : "Cunt Aura";
+        case TK::ShopEffectSixSeven: return pt ? "67" : "Six Seven";
+        case TK::ShopEffectKyuubi: return pt ? "Kyuubi" : "Kyuubi";
 
         case TK::ShopItemDefaultName: return pt ? "Nome Padrao" : "Standard Name";
         case TK::ShopItemEmberName: return pt ? "Nome em Brasa" : "Ember Name";

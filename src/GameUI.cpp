@@ -234,71 +234,85 @@ void Game::DrawFormatSelect() {
              static_cast<int>(btnBack.y + btnBack.height / 2 - 10), 20, Color{40, 25, 10, 255});
 }
 
-void Game::DrawInstructions() {
-    ClearBackground(Color{ 235, 214, 190, 255 });
+namespace {
 
-    const char* title = T(TK::InstructionsTitle, language);
-    int fs = 40;
-    int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 40, fs, Color{40, 30, 20, 255});
-
-    int lineCount = 0;
-    const char** lines = TextSplit(T(TK::InstructionsBody, language), '\n', &lineCount);
-
-    int y = 108;
-    int fs2 = 17;
-    for (int i = 0; i < lineCount; ++i) {
-        if (lines[i][0] != '\0') {
-            int lw = MeasureText(lines[i], fs2);
-            DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, y, fs2, Color{60, 45, 30, 255});
-        }
-        y += 24;
-    }
-
-    Vector2 m = ::GetVirtualMouse();
-    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
-    bool hover = CheckCollisionPointRec(m, backBtn);
+void DrawInfoBackButton(Lang language, TK backKey, Vector2 mouse) {
+    Rectangle backBtn = menu_layout::InfoPageBackBtn();
+    bool hover = CheckCollisionPointRec(mouse, backBtn);
     DrawRectangleRec(backBtn, hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
     DrawRectangleLinesEx(backBtn, 2, Color{60, 40, 20, 255});
-    const char* backLabel = T(TK::InstructionsBack, language);
+    const char* backLabel = T(backKey, language);
     int blw = MeasureText(backLabel, 22);
     DrawText(backLabel, static_cast<int>(backBtn.x + backBtn.width / 2 - blw / 2),
              static_cast<int>(backBtn.y + backBtn.height / 2 - 11), 22, Color{40, 25, 10, 255});
 }
 
+void DrawInfoTitle(const char* title) {
+    const int fs = menu_layout::kInfoTitleFont;
+    int tw = MeasureText(title, fs);
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2,
+             static_cast<int>(menu_layout::kInfoTitleY), fs, Color{40, 30, 20, 255});
+}
+
+} // namespace
+
+void Game::DrawInstructions() {
+    ClearBackground(Color{ 235, 214, 190, 255 });
+    DrawInfoTitle(T(TK::InstructionsTitle, language));
+
+    int lineCount = 0;
+    const char** lines = TextSplit(T(TK::InstructionsBody, language), '\n', &lineCount);
+    ScrollListLayout layout = menu_layout::InfoPageLayout(lineCount);
+    const int fs2 = menu_layout::kInfoBodyFont;
+
+    BeginScissorMode(static_cast<int>(layout.viewport.x),
+                     static_cast<int>(layout.viewport.y),
+                     static_cast<int>(layout.viewport.width),
+                     static_cast<int>(layout.viewport.height));
+    for (int i = 0; i < lineCount; ++i) {
+        Rectangle row = ScrollListRowRect(layout, instructionsScroll_, i);
+        if (!ScrollListRowVisible(layout, row) || lines[i][0] == '\0') continue;
+        int lw = MeasureText(lines[i], fs2);
+        DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, static_cast<int>(row.y), fs2,
+                 Color{60, 45, 30, 255});
+    }
+    EndScissorMode();
+
+    DrawInfoBackButton(language, TK::InstructionsBack, ::GetVirtualMouse());
+}
+
 void Game::DrawAbout() {
     ClearBackground(Color{ 235, 214, 190, 255 });
-
-    const char* title = T(TK::AboutTitle, language);
-    int fs = 44;
-    int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 80, fs, Color{40, 30, 20, 255});
+    DrawInfoTitle(T(TK::AboutTitle, language));
 
     int lineCount = 0;
     const char** lines = TextSplit(T(TK::AboutBody, language), '\n', &lineCount);
+    ScrollListLayout layout = menu_layout::InfoPageLayout(lineCount + 2);
+    const int fs2 = menu_layout::kInfoBodyFont;
 
-    int y = 160;
-    int fs2 = 20;
+    BeginScissorMode(static_cast<int>(layout.viewport.x),
+                     static_cast<int>(layout.viewport.y),
+                     static_cast<int>(layout.viewport.width),
+                     static_cast<int>(layout.viewport.height));
     for (int i = 0; i < lineCount; ++i) {
+        Rectangle row = ScrollListRowRect(layout, aboutScroll_, i);
+        if (!ScrollListRowVisible(layout, row) || lines[i][0] == '\0') continue;
         int lw = MeasureText(lines[i], fs2);
-        DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, y, fs2, Color{60, 45, 30, 255});
-        y += 30;
+        DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, static_cast<int>(row.y), fs2,
+                 Color{60, 45, 30, 255});
     }
 
     const char* credit = T(TK::AboutCredit, language);
-    int fsC = 26;
-    int cw = MeasureText(credit, fsC);
-    DrawText(credit, cfg::SCREEN_WIDTH / 2 - cw / 2, y + 20, fsC, Color{200, 120, 40, 255});
+    Rectangle creditRow = ScrollListRowRect(layout, aboutScroll_, lineCount + 1);
+    if (ScrollListRowVisible(layout, creditRow)) {
+        const int fsC = 30;
+        int cw = MeasureText(credit, fsC);
+        DrawText(credit, cfg::SCREEN_WIDTH / 2 - cw / 2, static_cast<int>(creditRow.y), fsC,
+                 Color{200, 120, 40, 255});
+    }
+    EndScissorMode();
 
-    Vector2 m = ::GetVirtualMouse();
-    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 100.0f, 200, 52 };
-    bool hover = CheckCollisionPointRec(m, backBtn);
-    DrawRectangleRec(backBtn, hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
-    DrawRectangleLinesEx(backBtn, 2, Color{60, 40, 20, 255});
-    const char* backLabel = T(TK::AboutBack, language);
-    int blw = MeasureText(backLabel, 22);
-    DrawText(backLabel, static_cast<int>(backBtn.x + backBtn.width / 2 - blw / 2),
-             static_cast<int>(backBtn.y + backBtn.height / 2 - 11), 22, Color{40, 25, 10, 255});
+    DrawInfoBackButton(language, TK::AboutBack, ::GetVirtualMouse());
 }
 
 void Game::UpdateMenuConfirmDialog() {

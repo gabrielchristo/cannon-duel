@@ -84,6 +84,32 @@ inline void UpdateScrollList(ScrollListState& state, const ScrollListLayout& lay
     }
 }
 
+// Roda + arraste no viewport, sem depender da barra.
+inline void UpdateInvisibleScroll(ScrollListState& state, const ScrollListLayout& layout, Vector2 mouse) {
+    const float maxScroll = ScrollListMaxScroll(layout);
+    state.scrollY = std::clamp(state.scrollY, 0.0f, maxScroll);
+
+    const bool overViewport = CheckCollisionPointRec(mouse, layout.viewport);
+    if (overViewport) {
+        const float wheel = GetMouseWheelMove();
+        if (wheel != 0.0f) {
+            state.scrollY = std::clamp(state.scrollY - wheel * layout.rowHeight, 0.0f, maxScroll);
+        }
+    }
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && overViewport && maxScroll > 0.0f) {
+        state.dragging = true;
+        state.dragStartY = mouse.y;
+        state.dragStartScroll = state.scrollY;
+    }
+    if (state.dragging && IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
+        const float deltaY = mouse.y - state.dragStartY;
+        state.scrollY = std::clamp(state.dragStartScroll - deltaY, 0.0f, maxScroll);
+    }
+    if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
+        state.dragging = false;
+    }
+}
+
 inline void DrawScrollListBar(const ScrollListState& state, const ScrollListLayout& layout) {
     const float maxScroll = ScrollListMaxScroll(layout);
     if (maxScroll <= 0.0f || layout.itemCount <= 0) return;

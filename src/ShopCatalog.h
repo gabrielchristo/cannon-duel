@@ -9,7 +9,7 @@ enum class ShopCategory { CannonColor, CannonSkin, CannonEffect, NameEffect };
 // Efeitos de canhão — partículas + shader líquido nos tiers premium.
 enum class CannonEffectStyle {
     None, AuraSoft, AuraFire, ImbueHoly, DebuffGlow, ArcaneSpark,
-    LiquidInferno, LiquidFrost, LiquidVoid, AuraCunt
+    LiquidInferno, LiquidFrost, LiquidVoid, AuraCunt, SixSeven, Kyuubi
 };
 enum class NameEffectStyle { Plain, Flame, DarkSmoke, PurpleGlow, Cunt, OceanWave, Sakura };
 
@@ -54,6 +54,7 @@ inline constexpr const char* kCannonSkinFiles[] = {
     "sprites/skin_mymelody.png",
     "sprites/skin_cinnamoroll.png",
     "sprites/skin_negaodozap.png",
+    "sprites/skin_ninja.png",
 };
 inline constexpr int kCannonSkinFileCount = sizeof(kCannonSkinFiles) / sizeof(kCannonSkinFiles[0]);
 
@@ -97,6 +98,8 @@ inline constexpr ShopItem kShopCatalog[] = {
       TK::ShopSkinCinnamoroll, Color{245, 248, 255, 255}, Color{120, 190, 230, 255}, 0, 6 },
     { "skin_negaodozap", ShopCategory::CannonSkin, 70,
       TK::ShopSkinNegaoDoZap, Color{40, 36, 40, 255}, Color{78, 198, 188, 255}, 0, 7 },
+    { "skin_ninja", ShopCategory::CannonSkin, 70,
+      TK::ShopSkinNinja, Color{20, 18, 22, 255}, Color{200, 200, 210, 255}, 0, 8 },
 
     // --- Efeito de canhão (simples → premium) ---
     { kDefaultCannonEffectId, ShopCategory::CannonEffect, 0,
@@ -109,6 +112,8 @@ inline constexpr ShopItem kShopCatalog[] = {
       TK::ShopEffectDebuffGlow, WHITE, Color{120, 255, 160, 255}, 0, 0, CannonEffectStyle::DebuffGlow },
     { "effect_imbue_holy", ShopCategory::CannonEffect, 60,
       TK::ShopEffectImbueHoly, WHITE, Color{255, 230, 140, 255}, 0, 0, CannonEffectStyle::ImbueHoly },
+    { "effect_67", ShopCategory::CannonEffect, 67,
+      TK::ShopEffectSixSeven, WHITE, Color{255, 220, 90, 255}, 0, 0, CannonEffectStyle::SixSeven },
     { "effect_arcane", ShopCategory::CannonEffect, 75,
       TK::ShopEffectArcane, WHITE, Color{170, 90, 255, 255}, 0, 0, CannonEffectStyle::ArcaneSpark },
     { "effect_aura_cunt", ShopCategory::CannonEffect, 80,
@@ -117,6 +122,8 @@ inline constexpr ShopItem kShopCatalog[] = {
       TK::ShopEffectLiquidFrost, WHITE, Color{140, 210, 255, 255}, 0, 0, CannonEffectStyle::LiquidFrost },
     { "effect_liquid_inferno", ShopCategory::CannonEffect, 90,
       TK::ShopEffectLiquidInferno, WHITE, Color{255, 90, 25, 255}, 0, 0, CannonEffectStyle::LiquidInferno },
+    { "effect_kyuubi", ShopCategory::CannonEffect, 95,
+      TK::ShopEffectKyuubi, WHITE, Color{255, 70, 16, 255}, 0, 0, CannonEffectStyle::Kyuubi },
     { "effect_liquid_void", ShopCategory::CannonEffect, 100,
       TK::ShopEffectLiquidVoid, WHITE, Color{90, 40, 160, 255}, 0, 0, CannonEffectStyle::LiquidVoid },
 

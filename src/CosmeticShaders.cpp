@@ -106,6 +106,8 @@ void CosmeticShaders::Init() {
         "shaders/cosmetic/cannon_frost.fs",
         "shaders/cosmetic/cannon_void.fs",
         "shaders/cosmetic/cannon_cunt.fs",
+        "shaders/cosmetic/cannon_67.fs",
+        "shaders/cosmetic/cannon_kyuubi.fs",
     };
 
     bool any = false;
@@ -160,6 +162,8 @@ int CosmeticShaders::CannonEffectShaderIndex(CannonEffectStyle style) {
         case CannonEffectStyle::LiquidFrost: return 6;
         case CannonEffectStyle::LiquidVoid: return 7;
         case CannonEffectStyle::AuraCunt: return 8;
+        case CannonEffectStyle::SixSeven: return 9;
+        case CannonEffectStyle::Kyuubi: return 10;
         default: return 0;
     }
 }
@@ -475,6 +479,8 @@ Color CannonThemeColor(CannonEffectStyle style, Color accent) {
         case CannonEffectStyle::LiquidInferno: return Color{ 255, 50, 8, 255 };
         case CannonEffectStyle::LiquidFrost: return Color{ 50, 190, 255, 255 };
         case CannonEffectStyle::LiquidVoid: return Color{ 150, 40, 255, 255 };
+        case CannonEffectStyle::SixSeven: return Color{ 255, 214, 70, 255 };
+        case CannonEffectStyle::Kyuubi: return Color{ 255, 48, 8, 255 };
         case CannonEffectStyle::AuraCunt: {
             static const Color kPride[] = {
                 { 228, 28, 36, 255 }, { 250, 140, 20, 255 }, { 250, 220, 30, 255 },

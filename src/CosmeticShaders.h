@@ -37,7 +37,7 @@ public:
 
 private:
     static constexpr int kNameProgramCount = 6;
-    static constexpr int kCannonProgramCount = 9;
+    static constexpr int kCannonProgramCount = 11;
 
     struct Program {
         Shader shader{};

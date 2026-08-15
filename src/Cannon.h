@@ -28,6 +28,7 @@ public:
     int skinOverlayIndex = 0;     // 0 = nenhum; 1+ = skin_*.png
     CannonEffectStyle cannonEffect = CannonEffectStyle::None;
     Color effectAccent = WHITE;
+    AmmoStyle ammoStyle = AmmoStyle::Default;
 
     void Draw(bool isCurrentTurn, Texture2D* baseSprite, Texture2D* overlaySprite) const;
 

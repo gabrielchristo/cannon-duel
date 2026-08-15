@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "AmmoVisuals.h"
 #include "AssetPath.h"
 #include "CannonUILayout.h"
 #include "Config.h"
@@ -155,15 +156,14 @@ void Game::Draw() {
     // clara da fumaça, escondendo o preto original do sprite.
     particles.Draw();
 
+    auto drawShot = [&](Vector2 p, Vector2 vel, const Cannon& shooter) {
+        const bool plus = (version == GameVersion::Plus);
+        DrawAmmoProjectile(p, vel, shooter.ammoStyle, ResolveAmmoTexture(shooter.ammoStyle),
+                           plus && shooter.pendingDoubleDamage, plus && shooter.pendingGuided);
+    };
+
     if (projectile.IsActive()) {
-        Vector2 p = projectile.PositionPx();
-        if (spritesReady && texProjectile.id != 0) {
-            float r = cfg::PROJECTILE_RADIUS_PX;
-            DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
-                           {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
-        } else {
-            DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
-        }
+        drawShot(projectile.PositionPx(), projectile.VelocityPx(), GetCannon(currentPlayer));
     }
 
     if (state == GameState::RemoteShotReplay) {
@@ -171,26 +171,14 @@ void Game::Draw() {
             DrawOpponentAim(opponentAimPlayer, opponentAimAngle, opponentAimPower);
         }
         if (remoteReplayAimTimer <= 0.0f) {
-            Vector2 p = remoteReplayPos;
-            if (spritesReady && texProjectile.id != 0) {
-                float r = cfg::PROJECTILE_RADIUS_PX;
-                DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
-                               {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
-            } else {
-                DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
-            }
+            const Cannon& shooter = GetCannon(pendingRemoteTurn.shooterPlayer);
+            drawShot(remoteReplayPos, { 0, 0 }, shooter);
         }
     }
 
     if (state == GameState::RemoteProjectileLive) {
-        Vector2 p = remoteLivePos;
-        if (spritesReady && texProjectile.id != 0) {
-            float r = cfg::PROJECTILE_RADIUS_PX;
-            DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
-                           {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
-        } else {
-            DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
-        }
+        const Cannon& shooter = GetCannon(currentPlayer);
+        drawShot(remoteLivePos, { 0, 0 }, shooter);
     }
 
     // mecanismo de mira: linha oscilando (fase ângulo) ou barra de força (fase potência)

@@ -119,6 +119,7 @@ enum class TK {
     ShopTabSkins,
     ShopTabEffects,
     ShopTabNames,
+    ShopTabAmmo,
     ShopNamePreviewSample,
     ShopBuyButton,
     ShopEquipButton,
@@ -167,6 +168,18 @@ enum class TK {
     ShopItemCuntName,
     ShopItemOceanName,
     ShopItemSakuraName,
+
+    ShopAmmoDefault,
+    ShopAmmoIce,
+    ShopAmmoRasengan,
+    ShopAmmoChidori,
+    ShopAmmoShuriken,
+    ShopAmmoKuromi,
+    ShopAmmoPride,
+    ShopAmmoSixSeven,
+    ShopAmmoTomato,
+    ShopAmmoDuck,
+    ShopAmmoNuclear,
 };
 
 inline const char* T(TK key, Lang lang) {
@@ -356,6 +369,7 @@ inline const char* T(TK key, Lang lang) {
         case TK::ShopTabSkins: return pt ? "SKINS" : "SKINS";
         case TK::ShopTabEffects: return pt ? "EFEITOS" : "EFFECTS";
         case TK::ShopTabNames: return pt ? "NOMES" : "NAMES";
+        case TK::ShopTabAmmo: return pt ? "MUNICAO" : "AMMO";
         case TK::ShopNamePreviewSample: return pt ? "SEU NOME" : "YOUR NAME";
         case TK::ShopBuyButton: return pt ? "COMPRAR" : "BUY";
         case TK::ShopEquipButton: return pt ? "EQUIPAR" : "EQUIP";
@@ -404,6 +418,18 @@ inline const char* T(TK key, Lang lang) {
         case TK::ShopItemCuntName: return pt ? "Nome Cunt" : "Cunt Name";
         case TK::ShopItemOceanName: return pt ? "Nome Oceano" : "Ocean Name";
         case TK::ShopItemSakuraName: return pt ? "Nome Sakura" : "Sakura Name";
+
+        case TK::ShopAmmoDefault: return pt ? "Bala Padrao" : "Standard Shot";
+        case TK::ShopAmmoIce: return pt ? "Estilhaco de Gelo" : "Ice Shard";
+        case TK::ShopAmmoRasengan: return pt ? "Rasengan" : "Rasengan";
+        case TK::ShopAmmoChidori: return pt ? "Chidori" : "Chidori";
+        case TK::ShopAmmoShuriken: return pt ? "Shuriken" : "Shuriken";
+        case TK::ShopAmmoKuromi: return pt ? "Estrela Kuromi" : "Kuromi Star";
+        case TK::ShopAmmoPride: return pt ? "Bola Cunt" : "Cunt Ball";
+        case TK::ShopAmmoSixSeven: return pt ? "Emoji 67" : "67 Emoji";
+        case TK::ShopAmmoTomato: return pt ? "Tomate" : "Tomato";
+        case TK::ShopAmmoDuck: return pt ? "Pato de Borracha" : "Rubber Duck";
+        case TK::ShopAmmoNuclear: return pt ? "Bomba Nuclear" : "Nuclear Bomb";
 
         default: return "";
     }

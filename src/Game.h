@@ -72,7 +72,8 @@ private:
     void AwardCoinsWithPopupAt(Vector2 pos, int amount);
     void ApplyEquippedCosmetics();
     void ApplyCannonCosmetics(Cannon& cannon, const std::string& colorId,
-                              const std::string& skinId, const std::string& effectId);
+                              const std::string& skinId, const std::string& effectId,
+                              const std::string& ammoId);
     void ApplyOnlineCannonCosmetics();
     void OnRoundEndedAwardCoins();
     bool IsLocalHumanShooter() const;
@@ -223,6 +224,8 @@ private:
     Texture2D texBackground{};
     Texture2D texBackgroundNight{};
     Texture2D texProjectile{};
+    std::array<Texture2D, kAmmoSpriteFileCount> texAmmo{};
+    const Texture2D* ResolveAmmoTexture(AmmoStyle style) const;
     bool spritesReady = false;
     bool nightMode = false;
 
@@ -280,6 +283,7 @@ private:
     std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedCannonSkins{};
     std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedCannonEffects{};
     std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedNameEffects{};
+    std::array<std::string, MatchRoster::kMaxCannons> onlineEquippedAmmo{};
     bool roundCoinsAwarded_ = false;
 
     ScrollListState onlineLobbyScroll_;

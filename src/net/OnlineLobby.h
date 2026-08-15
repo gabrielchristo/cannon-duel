@@ -95,6 +95,7 @@ struct MatchStart {
     std::string equippedCannonSkins[MatchRoster::kMaxCannons];
     std::string equippedCannonEffects[MatchRoster::kMaxCannons];
     std::string equippedNameEffects[MatchRoster::kMaxCannons];
+    std::string equippedAmmo[MatchRoster::kMaxCannons];
 };
 
 class OnlineLobby {

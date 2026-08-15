@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "AmmoVisuals.h"
 #include "AssetPath.h"
 #include "Config.h"
 #include "DebugLog.h"
@@ -247,7 +248,8 @@ void Game::UpdateProjectileFlight(float dt) {
         }
 
         Vector2 vel = { pos.x - prev.x, pos.y - prev.y };
-        particles.EmitTrail(pos, vel, Color{180, 120, 230, 255});
+        EmitAmmoTrail(particles, pos, vel, shooter.ammoStyle,
+                      false, true);
 
         if (version == GameVersion::Plus) {
             const bool picked = powerups.CheckProjectileCollisionRoster(
@@ -281,10 +283,9 @@ void Game::UpdateProjectileFlight(float dt) {
         netMatch.PublishProjectileSample(dt, pos.x, pos.y);
     }
 
-    Color trailColor = (version == GameVersion::Plus && shooter.pendingDoubleDamage)
-        ? Color{255, 130, 40, 255}
-        : Color{235, 230, 215, 255};
-    particles.EmitTrail(pos, projectile.VelocityPx(), trailColor);
+    EmitAmmoTrail(particles, pos, projectile.VelocityPx(), shooter.ammoStyle,
+                  version == GameVersion::Plus && shooter.pendingDoubleDamage,
+                  version == GameVersion::Plus && shooter.pendingGuided);
 
     if (version == GameVersion::Plus) {
         const bool picked = powerups.CheckProjectileCollisionRoster(
@@ -355,15 +356,20 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
 
     float craterRadius = cfg::CRATER_RADIUS_PX * radiusMult;
     float explosionRadius = cfg::EXPLOSION_RADIUS_PX * radiusMult;
-
-    if (mode == GameMode::Online) {
+    const bool nuclear = (shooter.ammoStyle == AmmoStyle::Nuclear);
+    if (nuclear) {
+        craterRadius = cfg::NUCLEAR_CRATER_RADIUS_PX;
+        explosionRadius = cfg::NUCLEAR_EXPLOSION_RADIUS_PX;
+    } else if (mode == GameMode::Online) {
         craterRadius *= cfg::OnlineCraterRadiusMult(matchComposition.TotalPlayers());
     }
 
-    particles.EmitExplosion(impactPos, 50);
+    EmitAmmoImpact(particles, impactPos, shooter.ammoStyle);
     terrain.Explode(impactPos.x, impactPos.y, craterRadius);
 
-    if (version == GameVersion::Plus) {
+    if (nuclear) {
+        effects.TriggerShake(cfg::NUCLEAR_SHAKE_MAGNITUDE_PX, cfg::NUCLEAR_SHAKE_DURATION_SEC);
+    } else if (version == GameVersion::Plus) {
         effects.TriggerShake(hitCannon ? cfg::SHAKE_MAGNITUDE_DIRECT_PX : cfg::SHAKE_MAGNITUDE_TERRAIN_PX,
                              hitCannon ? cfg::SHAKE_DURATION_DIRECT_SEC : cfg::SHAKE_DURATION_TERRAIN_SEC);
     }
@@ -397,9 +403,7 @@ void Game::ResolveImpact(Vector2 impactPos, bool hitCannon, Cannon* hitTarget) {
         for (int i = 0; i < roster.CannonCount(); ++i) {
             if (dmgApplied[i] <= 0.0f) continue;
             if (roster.AreAllies(shooterSlot, i) && !friendlyFire) continue;
-            const Cannon& victim = roster.At(i);
-            AwardCoinsWithPopupAt(
-                { victim.x, victim.groundY - cfg::CANNON_BODY_RADIUS_PX - 40.0f }, 15);
+            AwardCoinsWithPopup(currentPlayer, 15);
         }
     }
 

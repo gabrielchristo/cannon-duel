@@ -369,6 +369,9 @@ void OnlineLobby::BuildMatchStartFromRow(const json& mrow, const TeamRoomView& r
     for (auto& effect : readyMatch.equippedNameEffects) {
         effect = kDefaultNameEffectId;
     }
+    for (auto& ammo : readyMatch.equippedAmmo) {
+        ammo = kDefaultAmmoId;
+    }
 
     int idx = 0;
     for (const TeamRoomMember& m : room.teamA) {
@@ -430,7 +433,7 @@ void OnlineLobby::FillMatchStartCosmetics(const json& mrow, int totalPlayers) {
     if (pidList.empty()) return;
 
     json prows = client.Select("players",
-        "select=id,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect&id=in.("
+        "select=id,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect,equipped_ammo&id=in.("
         + pidList + ")");
     if (!prows.is_array()) return;
 
@@ -439,6 +442,7 @@ void OnlineLobby::FillMatchStartCosmetics(const json& mrow, int totalPlayers) {
         std::string skin;
         std::string effect;
         std::string nameEffect;
+        std::string ammo;
     };
     std::unordered_map<std::string, SlotCosmetics> cosmetics;
     for (const auto& row : prows) {
@@ -447,7 +451,8 @@ void OnlineLobby::FillMatchStartCosmetics(const json& mrow, int totalPlayers) {
             json_helpers::Str(row, "equipped_cannon_color", kDefaultCannonColorId),
             json_helpers::Str(row, "equipped_cannon_skin", kDefaultCannonSkinId),
             json_helpers::Str(row, "equipped_cannon_effect", kDefaultCannonEffectId),
-            json_helpers::Str(row, "equipped_name_effect", kDefaultNameEffectId)
+            json_helpers::Str(row, "equipped_name_effect", kDefaultNameEffectId),
+            json_helpers::Str(row, "equipped_ammo", kDefaultAmmoId)
         };
     }
 
@@ -459,6 +464,7 @@ void OnlineLobby::FillMatchStartCosmetics(const json& mrow, int totalPlayers) {
         readyMatch.equippedCannonSkins[p] = cosmetics.at(pid).skin;
         readyMatch.equippedCannonEffects[p] = cosmetics.at(pid).effect;
         readyMatch.equippedNameEffects[p] = cosmetics.at(pid).nameEffect;
+        readyMatch.equippedAmmo[p] = cosmetics.at(pid).ammo;
     }
 }
 

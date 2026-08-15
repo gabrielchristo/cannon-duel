@@ -45,6 +45,10 @@ constexpr float MIN_POWER            = 2.0f;    // m/s — bem baixo, pra dar ti
 constexpr float MAX_POWER            = 24.0f;   // m/s — teto da barra de força (power01=1)
 constexpr float EXPLOSION_DAMAGE_MAX = 60.0f;   // dano no impacto direto
 constexpr float EXPLOSION_RADIUS_PX  = 60.0f;   // raio de dano em área
+constexpr float NUCLEAR_CRATER_RADIUS_PX = 148.0f;
+constexpr float NUCLEAR_EXPLOSION_RADIUS_PX = 200.0f;
+constexpr float NUCLEAR_SHAKE_MAGNITUDE_PX = 28.0f;
+constexpr float NUCLEAR_SHAKE_DURATION_SEC = 0.85f;
 
 // ---- Mira (mecanismo original) ----
 // Fase 1: uma linha oscila continuamente entre 0° e 90° na direção do

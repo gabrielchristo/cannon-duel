@@ -16,6 +16,7 @@ public:
     const std::string& EquippedCannonSkin() const { return equippedCannonSkin_; }
     const std::string& EquippedCannonEffect() const { return equippedCannonEffect_; }
     const std::string& EquippedNameEffect() const { return equippedNameEffect_; }
+    const std::string& EquippedAmmo() const { return equippedAmmo_; }
 
     void RefreshFromServer();
     void AwardCoins(int amount);
@@ -33,6 +34,7 @@ private:
     std::string equippedCannonSkin_;
     std::string equippedCannonEffect_;
     std::string equippedNameEffect_;
+    std::string equippedAmmo_;
 
     static std::string CachePath();
     void LoadDisplayCache();

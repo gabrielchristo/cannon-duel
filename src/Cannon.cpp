@@ -250,6 +250,7 @@ void Cannon::Init(float px, float pGroundY, CannonSide pSide) {
     skinOverlayIndex = 0;
     cannonEffect = CannonEffectStyle::None;
     effectAccent = WHITE;
+    ammoStyle = AmmoStyle::Default;
 }
 
 void Cannon::SetAim(float pAngleDeg, float pPower01) {

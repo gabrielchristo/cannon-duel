@@ -21,6 +21,7 @@ void ParticleSystem::EmitExplosion(Vector2 pos, int count) {
 
         bool debris = (i % 3 == 0);
         p.color = debris ? Color{90, 60, 30, 255} : Color{255, (unsigned char)RandRange(120, 200), 40, 255};
+        p.gravityScale = 1.0f;
 
         particles.push_back(p);
     }
@@ -38,12 +39,25 @@ void ParticleSystem::EmitTrail(Vector2 pos, Vector2 velocityHint, Color color) {
     p.life = p.maxLife;
     p.size = RandRange(2.0f, 4.0f);
     p.color = color;
+    p.gravityScale = 1.0f;
+    particles.push_back(p);
+}
+
+void ParticleSystem::Emit(Vector2 pos, Vector2 vel, float life, float size, Color color, float gravityScale) {
+    Particle p;
+    p.pos = pos;
+    p.vel = vel;
+    p.maxLife = life;
+    p.life = life;
+    p.size = size;
+    p.color = color;
+    p.gravityScale = gravityScale;
     particles.push_back(p);
 }
 
 void ParticleSystem::Update(float dt) {
     for (auto& p : particles) {
-        p.vel.y += 320.0f * dt; // gravidade simples só para estética
+        p.vel.y += 320.0f * p.gravityScale * dt;
         p.pos.x += p.vel.x * dt;
         p.pos.y += p.vel.y * dt;
         p.life -= dt;

@@ -30,10 +30,12 @@ void PlayerWallet::Init(PlayerIdentity* identity) {
     equippedCannonSkin_ = kDefaultCannonSkinId;
     equippedCannonEffect_ = kDefaultCannonEffectId;
     equippedNameEffect_ = kDefaultNameEffectId;
+    equippedAmmo_ = kDefaultAmmoId;
     ownedItems_.insert(kDefaultCannonColorId);
     ownedItems_.insert(kDefaultCannonSkinId);
     ownedItems_.insert(kDefaultCannonEffectId);
     ownedItems_.insert(kDefaultNameEffectId);
+    ownedItems_.insert(kDefaultAmmoId);
     coins_ = kStartingCoins;
     LoadDisplayCache();
     if (coins_ <= 0) coins_ = kStartingCoins;
@@ -54,6 +56,10 @@ void PlayerWallet::LoadDisplayCache() {
     if (std::getline(in, line) && !line.empty()) equippedCannonSkin_ = line;
     if (std::getline(in, line) && !line.empty()) equippedCannonEffect_ = line;
     if (std::getline(in, line) && !line.empty()) equippedNameEffect_ = line;
+    if (std::getline(in, line) && !line.empty()) {
+        if (line.rfind("ammo_", 0) == 0) equippedAmmo_ = line;
+        else ownedItems_.insert(line);
+    }
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
         if (!line.empty()) ownedItems_.insert(line);
@@ -67,7 +73,8 @@ void PlayerWallet::SaveDisplayCache() const {
         + equippedCannonColor_ + "\n"
         + equippedCannonSkin_ + "\n"
         + equippedCannonEffect_ + "\n"
-        + equippedNameEffect_ + "\n";
+        + equippedNameEffect_ + "\n"
+        + equippedAmmo_ + "\n";
     for (const auto& item : ownedItems_) body += item + "\n";
     if (!SaveFileText(path.c_str(), body.data())) {
         std::ofstream out(path);
@@ -102,7 +109,7 @@ void PlayerWallet::RefreshFromServer() {
     EnsurePlayerRow();
 
     json rows = client_.Select("players",
-        "select=coins,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect&id=eq."
+        "select=coins,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect,equipped_ammo&id=eq."
         + identity_->Id());
     if (client_.LastRequestOk() && rows.is_array() && !rows.empty()) {
         coins_ = json_helpers::Int(rows[0], "coins", coins_);
@@ -115,6 +122,7 @@ void PlayerWallet::RefreshFromServer() {
         equippedCannonSkin_ = json_helpers::Str(rows[0], "equipped_cannon_skin", equippedCannonSkin_);
         equippedCannonEffect_ = json_helpers::Str(rows[0], "equipped_cannon_effect", equippedCannonEffect_);
         equippedNameEffect_ = json_helpers::Str(rows[0], "equipped_name_effect", equippedNameEffect_);
+        equippedAmmo_ = json_helpers::Str(rows[0], "equipped_ammo", equippedAmmo_);
     } else {
         DebugLogf(LOG_WARNING, "WALLET: falha ao buscar saldo no servidor — mantendo cache local");
     }
@@ -126,6 +134,7 @@ void PlayerWallet::RefreshFromServer() {
         ownedItems_.insert(kDefaultCannonSkinId);
         ownedItems_.insert(kDefaultCannonEffectId);
         ownedItems_.insert(kDefaultNameEffectId);
+        ownedItems_.insert(kDefaultAmmoId);
         for (const auto& row : items) {
             ownedItems_.insert(json_helpers::Str(row, "item_id", ""));
         }
@@ -204,6 +213,7 @@ bool PlayerWallet::Equip(const std::string& itemId) {
         case ShopCategory::CannonSkin: equippedCannonSkin_ = itemId; break;
         case ShopCategory::CannonEffect: equippedCannonEffect_ = itemId; break;
         case ShopCategory::NameEffect: equippedNameEffect_ = itemId; break;
+        case ShopCategory::Ammo: equippedAmmo_ = itemId; break;
     }
     SaveDisplayCache();
     return true;

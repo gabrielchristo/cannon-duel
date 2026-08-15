@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "AmmoVisuals.h"
 #include "AssetPath.h"
 #include "CannonUILayout.h"
 #include "Config.h"
@@ -78,6 +79,7 @@ void Game::ApplyOnlineNamesFromMatchStart(const MatchStart& ms) {
     onlineEquippedCannonSkins.fill(kDefaultCannonSkinId);
     onlineEquippedCannonEffects.fill(kDefaultCannonEffectId);
     onlineEquippedNameEffects.fill(kDefaultNameEffectId);
+    onlineEquippedAmmo.fill(kDefaultAmmoId);
     const int count = ms.composition.TotalPlayers();
     for (int i = 0; i < count && i < MatchRoster::kMaxCannons; ++i) {
         onlinePlayerNames[static_cast<size_t>(i)] = ms.playerNames[i];
@@ -92,6 +94,9 @@ void Game::ApplyOnlineNamesFromMatchStart(const MatchStart& ms) {
         }
         if (!ms.equippedNameEffects[i].empty()) {
             onlineEquippedNameEffects[static_cast<size_t>(i)] = ms.equippedNameEffects[i];
+        }
+        if (!ms.equippedAmmo[i].empty()) {
+            onlineEquippedAmmo[static_cast<size_t>(i)] = ms.equippedAmmo[i];
         }
     }
 }
@@ -355,7 +360,12 @@ void Game::UpdateRemoteProjectileLive(float dt) {
     }
 
     Vector2 vel = { remoteLivePos.x - prev.x, remoteLivePos.y - prev.y };
-    particles.EmitTrail(remoteLivePos, vel);
+    {
+        const Cannon& shooter = GetCannon(currentPlayer);
+        EmitAmmoTrail(particles, remoteLivePos, vel, shooter.ammoStyle,
+                      version == GameVersion::Plus && shooter.pendingDoubleDamage,
+                      version == GameVersion::Plus && shooter.pendingGuided);
+    }
 
     if (remoteLiveHasPendingResult) {
         const auto& r = pendingRemoteTurn;
@@ -403,7 +413,12 @@ void Game::UpdateRemoteShotReplay(float dt) {
     remoteReplayPos.y = start.y + (end.y - start.y) * t - std::sin(t * PI) * 80.0f;
 
     Vector2 vel = { remoteReplayPos.x - prev.x, remoteReplayPos.y - prev.y };
-    particles.EmitTrail(remoteReplayPos, vel);
+    {
+        const Cannon& shooter = GetCannon(remote.shooterPlayer);
+        EmitAmmoTrail(particles, remoteReplayPos, vel, shooter.ammoStyle,
+                      version == GameVersion::Plus && shooter.pendingDoubleDamage,
+                      version == GameVersion::Plus && shooter.pendingGuided);
+    }
 
     if (t >= 1.0f) {
         FinishRemoteTurn(remote);
@@ -436,12 +451,15 @@ void Game::FinishRemoteTurn(const RemoteTurnResult& remote) {
     }
 
     if (audioReady) PlaySound(sndExplosion);
-    particles.EmitExplosion(impactPos, 50);
+    EmitAmmoImpact(particles, impactPos, shooter.ammoStyle);
     terrain.Explode(impactPos.x, impactPos.y, remote.craterRadius);
+    if (shooter.ammoStyle == AmmoStyle::Nuclear) {
+        effects.TriggerShake(cfg::NUCLEAR_SHAKE_MAGNITUDE_PX, cfg::NUCLEAR_SHAKE_DURATION_SEC);
+    }
 
     ApplyRemoteTurnDamage(remote);
 
-    if (version == GameVersion::Plus) {
+    if (version == GameVersion::Plus && shooter.ammoStyle != AmmoStyle::Nuclear) {
         effects.TriggerShake(cfg::SHAKE_MAGNITUDE_TERRAIN_PX, cfg::SHAKE_DURATION_TERRAIN_SEC);
     }
 
@@ -583,6 +601,7 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
     onlineEquippedCannonSkins.fill(kDefaultCannonSkinId);
     onlineEquippedCannonEffects.fill(kDefaultCannonEffectId);
     onlineEquippedNameEffects.fill(kDefaultNameEffectId);
+    onlineEquippedAmmo.fill(kDefaultAmmoId);
     std::string pidList;
     for (int i = 0; i < comp.TotalPlayers() && i < MatchRoster::kMaxCannons; ++i) {
         const std::string key = "player" + std::to_string(i + 1) + "_id";
@@ -597,11 +616,12 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
         std::string skin;
         std::string effect;
         std::string nameEffect;
+        std::string ammo;
     };
     std::unordered_map<std::string, OnlineCosmetics> cosmeticsById;
     if (!pidList.empty()) {
         json prows = client.Select("players",
-            "select=id,display_name,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect&id=in.("
+            "select=id,display_name,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect,equipped_ammo&id=in.("
             + pidList + ")");
         if (prows.is_array()) {
             for (const auto& p : prows) {
@@ -611,7 +631,8 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
                     json_helpers::Str(p, "equipped_cannon_color", kDefaultCannonColorId),
                     json_helpers::Str(p, "equipped_cannon_skin", kDefaultCannonSkinId),
                     json_helpers::Str(p, "equipped_cannon_effect", kDefaultCannonEffectId),
-                    json_helpers::Str(p, "equipped_name_effect", kDefaultNameEffectId)
+                    json_helpers::Str(p, "equipped_name_effect", kDefaultNameEffectId),
+                    json_helpers::Str(p, "equipped_ammo", kDefaultAmmoId)
                 };
             }
         }
@@ -629,6 +650,7 @@ void Game::StartSpectating(const ActiveMatchCard& match) {
                 onlineEquippedCannonSkins[static_cast<size_t>(i)] = cit->second.skin;
                 onlineEquippedCannonEffects[static_cast<size_t>(i)] = cit->second.effect;
                 onlineEquippedNameEffects[static_cast<size_t>(i)] = cit->second.nameEffect;
+                onlineEquippedAmmo[static_cast<size_t>(i)] = cit->second.ammo;
             }
         } else {
             onlinePlayerNames[static_cast<size_t>(i)] =

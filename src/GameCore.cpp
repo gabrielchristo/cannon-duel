@@ -66,6 +66,9 @@ Game::Game() {
     texBackgroundNight  = LoadTexture(AssetPath("sprites/background_night_fhd.png").c_str());
 #endif
     texProjectile   = LoadTexture(AssetPath("sprites/projectile.png").c_str());
+    for (size_t i = 0; i < texAmmo.size(); ++i) {
+        texAmmo[i] = LoadTexture(AssetPath(kAmmoSpriteFiles[i]).c_str());
+    }
 
     spritesReady = (texCannonLeft.id != 0 && texCannonRight.id != 0);
 
@@ -104,6 +107,7 @@ Game::~Game() {
     UnloadTexture(texBackground);
     UnloadTexture(texBackgroundNight);
     UnloadTexture(texProjectile);
+    for (Texture2D& tex : texAmmo) UnloadTexture(tex);
     UnloadRenderTexture(virtualScreen);
     CloseWindow();
 }
@@ -229,11 +233,13 @@ void Game::ResetRound(unsigned int seed) {
 }
 
 void Game::ApplyCannonCosmetics(Cannon& cannon, const std::string& colorId,
-                                const std::string& skinId, const std::string& effectId) {
+                                const std::string& skinId, const std::string& effectId,
+                                const std::string& ammoId) {
     cannon.colorIndex = 0;
     cannon.skinOverlayIndex = 0;
     cannon.cannonEffect = CannonEffectStyle::None;
     cannon.effectAccent = WHITE;
+    cannon.ammoStyle = AmmoStyle::Default;
 
     const ShopItem* colorItem = FindShopItem(colorId);
     if (colorItem && colorItem->category == ShopCategory::CannonColor && colorId != kDefaultCannonColorId) {
@@ -250,6 +256,19 @@ void Game::ApplyCannonCosmetics(Cannon& cannon, const std::string& colorId,
         cannon.cannonEffect = effectItem->cannonEffect;
         cannon.effectAccent = effectItem->accent;
     }
+
+    const ShopItem* ammoItem = FindShopItem(ammoId);
+    if (ammoItem && ammoItem->category == ShopCategory::Ammo) {
+        cannon.ammoStyle = ammoItem->ammoStyle;
+    }
+}
+
+const Texture2D* Game::ResolveAmmoTexture(AmmoStyle style) const {
+    const int idx = AmmoSpriteIndex(style);
+    if (idx >= 0 && idx < static_cast<int>(texAmmo.size()) && texAmmo[static_cast<size_t>(idx)].id != 0) {
+        return &texAmmo[static_cast<size_t>(idx)];
+    }
+    return (texProjectile.id != 0) ? &texProjectile : nullptr;
 }
 
 Texture2D* Game::ResolveCannonTexture(int rosterSlot) {
@@ -279,10 +298,11 @@ void Game::ApplyEquippedCosmetics() {
         const bool aiSlot = (mode == GameMode::PvAI) && roster.IsAISlot(i, mode);
         if (aiSlot) {
             ApplyCannonCosmetics(roster.At(i), kDefaultCannonColorId,
-                                 kDefaultCannonSkinId, kDefaultCannonEffectId);
+                                 kDefaultCannonSkinId, kDefaultCannonEffectId, kDefaultAmmoId);
         } else {
             ApplyCannonCosmetics(roster.At(i), wallet.EquippedCannonColor(),
-                                 wallet.EquippedCannonSkin(), wallet.EquippedCannonEffect());
+                                 wallet.EquippedCannonSkin(), wallet.EquippedCannonEffect(),
+                                 wallet.EquippedAmmo());
         }
     }
 }
@@ -293,7 +313,8 @@ void Game::ApplyOnlineCannonCosmetics() {
         ApplyCannonCosmetics(roster.At(i),
                              onlineEquippedCannonColors[static_cast<size_t>(i)],
                              onlineEquippedCannonSkins[static_cast<size_t>(i)],
-                             onlineEquippedCannonEffects[static_cast<size_t>(i)]);
+                             onlineEquippedCannonEffects[static_cast<size_t>(i)],
+                             onlineEquippedAmmo[static_cast<size_t>(i)]);
     }
 }
 

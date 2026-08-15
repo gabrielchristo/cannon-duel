@@ -4,7 +4,7 @@
 #include "Localization.h"
 
 // Catálogo estático da loja — puramente cosmético (sem dano/defesa).
-enum class ShopCategory { CannonColor, CannonSkin, CannonEffect, NameEffect };
+enum class ShopCategory { CannonColor, CannonSkin, CannonEffect, NameEffect, Ammo };
 
 // Efeitos de canhão — partículas + shader líquido nos tiers premium.
 enum class CannonEffectStyle {
@@ -12,6 +12,9 @@ enum class CannonEffectStyle {
     LiquidInferno, LiquidFrost, LiquidVoid, AuraCunt, SixSeven, Kyuubi
 };
 enum class NameEffectStyle { Plain, Flame, DarkSmoke, PurpleGlow, Cunt, OceanWave, Sakura };
+enum class AmmoStyle {
+    Default, Ice, Rasengan, Chidori, Shuriken, Kuromi, Pride, SixSeven, Tomato, Duck, Nuclear
+};
 
 struct ShopItem {
     const char* id;
@@ -24,12 +27,44 @@ struct ShopItem {
     int skinOverlayIndex = 0;  // 1+ → kCannonSkinFiles
     CannonEffectStyle cannonEffect = CannonEffectStyle::None;
     NameEffectStyle nameEffect = NameEffectStyle::Plain;
+    AmmoStyle ammoStyle = AmmoStyle::Default;
 };
 
 inline constexpr const char* kDefaultCannonColorId = "color_default";
 inline constexpr const char* kDefaultCannonSkinId = "skin_default";
 inline constexpr const char* kDefaultCannonEffectId = "effect_default";
 inline constexpr const char* kDefaultNameEffectId = "name_default";
+inline constexpr const char* kDefaultAmmoId = "ammo_default";
+
+inline constexpr const char* kAmmoSpriteFiles[] = {
+    "sprites/ammo_ice.png",
+    "sprites/ammo_rasengan.png",
+    "sprites/ammo_chidori.png",
+    "sprites/ammo_shuriken.png",
+    "sprites/ammo_kuromi.png",
+    "sprites/ammo_pride.png",
+    "sprites/ammo_67.png",
+    "sprites/ammo_tomato.png",
+    "sprites/ammo_duck.png",
+    "sprites/ammo_nuclear.png",
+};
+inline constexpr int kAmmoSpriteFileCount = sizeof(kAmmoSpriteFiles) / sizeof(kAmmoSpriteFiles[0]);
+
+inline int AmmoSpriteIndex(AmmoStyle style) {
+    switch (style) {
+        case AmmoStyle::Ice: return 0;
+        case AmmoStyle::Rasengan: return 1;
+        case AmmoStyle::Chidori: return 2;
+        case AmmoStyle::Shuriken: return 3;
+        case AmmoStyle::Kuromi: return 4;
+        case AmmoStyle::Pride: return 5;
+        case AmmoStyle::SixSeven: return 6;
+        case AmmoStyle::Tomato: return 7;
+        case AmmoStyle::Duck: return 8;
+        case AmmoStyle::Nuclear: return 9;
+        default: return -1;
+    }
+}
 
 inline constexpr int kCannonColorPrice = 25;
 
@@ -148,6 +183,41 @@ inline constexpr ShopItem kShopCatalog[] = {
     { "name_cunt", ShopCategory::NameEffect, 85,
       TK::ShopItemCuntName, Color{255, 60, 120, 255}, Color{80, 160, 255, 255},
       0, 0, CannonEffectStyle::None, NameEffectStyle::Cunt },
+
+    // --- Munição (visual do tiro; nuclear também amplia cratera/área) ---
+    { kDefaultAmmoId, ShopCategory::Ammo, 0,
+      TK::ShopAmmoDefault, WHITE, WHITE, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Default },
+    { "ammo_ice", ShopCategory::Ammo, 40,
+      TK::ShopAmmoIce, WHITE, Color{140, 210, 255, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Ice },
+    { "ammo_tomato", ShopCategory::Ammo, 35,
+      TK::ShopAmmoTomato, WHITE, Color{220, 40, 40, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Tomato },
+    { "ammo_duck", ShopCategory::Ammo, 45,
+      TK::ShopAmmoDuck, WHITE, Color{255, 220, 70, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Duck },
+    { "ammo_shuriken", ShopCategory::Ammo, 55,
+      TK::ShopAmmoShuriken, WHITE, Color{180, 185, 195, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Shuriken },
+    { "ammo_67", ShopCategory::Ammo, 67,
+      TK::ShopAmmoSixSeven, WHITE, Color{255, 220, 70, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::SixSeven },
+    { "ammo_kuromi", ShopCategory::Ammo, 70,
+      TK::ShopAmmoKuromi, WHITE, Color{200, 80, 220, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Kuromi },
+    { "ammo_rasengan", ShopCategory::Ammo, 80,
+      TK::ShopAmmoRasengan, WHITE, Color{80, 170, 255, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Rasengan },
+    { "ammo_chidori", ShopCategory::Ammo, 80,
+      TK::ShopAmmoChidori, WHITE, Color{120, 210, 255, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Chidori },
+    { "ammo_pride", ShopCategory::Ammo, 85,
+      TK::ShopAmmoPride, WHITE, Color{255, 90, 180, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Pride },
+    { "ammo_nuclear", ShopCategory::Ammo, 10000,
+      TK::ShopAmmoNuclear, WHITE, Color{255, 220, 40, 255}, 0, 0, CannonEffectStyle::None, NameEffectStyle::Plain,
+      AmmoStyle::Nuclear },
 };
 
 inline constexpr int kShopCatalogCount = sizeof(kShopCatalog) / sizeof(kShopCatalog[0]);
@@ -166,6 +236,7 @@ inline const char* EquippedColumnForCategory(ShopCategory cat) {
         case ShopCategory::CannonSkin: return "equipped_cannon_skin";
         case ShopCategory::CannonEffect: return "equipped_cannon_effect";
         case ShopCategory::NameEffect: return "equipped_name_effect";
+        case ShopCategory::Ammo: return "equipped_ammo";
     }
     return nullptr;
 }

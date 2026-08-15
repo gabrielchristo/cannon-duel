@@ -1,6 +1,7 @@
 #include "Game.h"
 #include "Config.h"
 #include "ShopCatalog.h"
+#include "AmmoVisuals.h"
 #include "Cannon.h"
 #include "CosmeticShaders.h"
 #include "ScrollList.h"
@@ -18,7 +19,7 @@ constexpr float kCardH = 200.0f;
 constexpr float kGapX = 30.0f;
 constexpr float kGapY = 26.0f;
 constexpr float kGridTop = 190.0f;
-constexpr int kTabCount = 4;
+constexpr int kTabCount = 5;
 
 struct ShopGridLayout {
     ScrollListLayout scroll{};
@@ -38,8 +39,8 @@ Rectangle ShopBackBtnRect() {
 }
 
 Rectangle ShopTabRect(int tabIndex) {
-    constexpr float tabW = 130.0f;
-    constexpr float tabGap = 8.0f;
+    constexpr float tabW = 118.0f;
+    constexpr float tabGap = 6.0f;
     float totalW = kTabCount * tabW + (kTabCount - 1) * tabGap;
     float startX = cfg::SCREEN_WIDTH / 2.0f - totalW / 2.0f;
     return { startX + tabIndex * (tabW + tabGap), 128, tabW, 40 };
@@ -75,6 +76,7 @@ bool IsEquipped(const PlayerWallet& wallet, const ShopItem* item) {
         case ShopCategory::CannonSkin: return wallet.EquippedCannonSkin() == item->id;
         case ShopCategory::CannonEffect: return wallet.EquippedCannonEffect() == item->id;
         case ShopCategory::NameEffect: return wallet.EquippedNameEffect() == item->id;
+        case ShopCategory::Ammo: return wallet.EquippedAmmo() == item->id;
     }
     return false;
 }
@@ -130,6 +132,9 @@ void Game::DrawShopItemCard(const ShopItem* item, Rectangle card, Vector2 mouse)
             ? playerName.c_str()
             : T(TK::ShopNamePreviewSample, language);
         DrawNameEffectPreview(sampleText, card, item->nameEffect, item->primary, item->accent);
+    } else if (item->category == ShopCategory::Ammo) {
+        const Texture2D* ammoTex = ResolveAmmoTexture(item->ammoStyle);
+        DrawAmmoShopPreview(previewCenter, item->ammoStyle, ammoTex);
     } else {
         Texture2D* baseTex = const_cast<Texture2D*>(&texCannonLeft);
         if (item->category == ShopCategory::CannonColor && item->colorIndex > 0
@@ -212,7 +217,7 @@ void Game::UpdateShop() {
 
     const ShopCategory tabs[kTabCount] = {
         ShopCategory::CannonColor, ShopCategory::CannonSkin,
-        ShopCategory::CannonEffect, ShopCategory::NameEffect
+        ShopCategory::CannonEffect, ShopCategory::NameEffect, ShopCategory::Ammo
     };
     for (int t = 0; t < kTabCount; ++t) {
         if (CheckCollisionPointRec(m, ShopTabRect(t))) {
@@ -264,10 +269,10 @@ void Game::DrawShop() {
 
     const ShopCategory tabs[kTabCount] = {
         ShopCategory::CannonColor, ShopCategory::CannonSkin,
-        ShopCategory::CannonEffect, ShopCategory::NameEffect
+        ShopCategory::CannonEffect, ShopCategory::NameEffect, ShopCategory::Ammo
     };
     const TK tabKeys[kTabCount] = {
-        TK::ShopTabColors, TK::ShopTabSkins, TK::ShopTabEffects, TK::ShopTabNames
+        TK::ShopTabColors, TK::ShopTabSkins, TK::ShopTabEffects, TK::ShopTabNames, TK::ShopTabAmmo
     };
     for (int t = 0; t < kTabCount; ++t) {
         Rectangle r = ShopTabRect(t);

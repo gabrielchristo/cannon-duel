@@ -466,9 +466,7 @@ void Game::Update(float dt) {
     }
 #endif
 
-    // No-op fora do build web (lá a fila de rede roda numa thread de
-    // fundo de verdade); no web, drena um job de HTTP por frame já que
-    // não há thread bloqueante disponível (ver NetWorker::Tick).
+    // Desktop/Android: 2 threads HTTP. Web: drena até 2 jobs por frame.
     GlobalNetWorker().Tick();
 
     // Precisa ser chamado todo frame pro streaming da música avançar (e
@@ -567,7 +565,7 @@ void Game::Update(float dt) {
 
             if (opponentAimHasLiveTarget && opponentAimPlayer != 0) {
                 // Follow exponencial — elimina “degraus” dos broadcasts ~12 Hz.
-                const float follow = 1.0f - std::exp(-dt * 22.0f);
+                const float follow = 1.0f - std::exp(-dt * 36.0f);
                 opponentAimAngle += (opponentAimTargetAngle - opponentAimAngle) * follow;
                 opponentAimPower += (opponentAimTargetPower - opponentAimPower) * follow;
             }

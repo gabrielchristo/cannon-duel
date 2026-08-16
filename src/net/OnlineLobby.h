@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <atomic>
+#include <mutex>
 #include "PlayerIdentity.h"
 #include "SupabaseClient.h"
 #include "RealtimeClient.h"
@@ -117,10 +118,10 @@ public:
     void EnterTeamRoomForRematch();
     void AbandonActiveMatch(const std::string& matchId, int winnerPlayer);
 
-    const std::vector<LobbyPlayerCard>& Players() const { return players; }
-    const std::vector<IncomingChallenge>& IncomingChallenges() const { return incoming; }
-    const std::vector<IncomingTeamInvite>& IncomingTeamInvites() const { return incomingTeamInvites; }
-    const TeamRoomView* ActiveTeamRoom() const { return inTeamRoom_ ? &teamRoom_ : nullptr; }
+    std::vector<LobbyPlayerCard> Players() const;
+    std::vector<IncomingChallenge> IncomingChallenges() const;
+    std::vector<IncomingTeamInvite> IncomingTeamInvites() const;
+    bool CopyActiveTeamRoom(TeamRoomView& out) const;
 
     void SendChallenge(const LobbyPlayerCard& target, GameVersion ver);
     void AcceptChallenge(const IncomingChallenge& challenge);
@@ -149,8 +150,8 @@ public:
     void ReportMatchResult(bool won);
     bool UpdateDisplayName(const std::string& rawName, std::string& outSanitized);
 
-    int MyWins() const { return myWins_; }
-    int MyLosses() const { return myLosses_; }
+    int MyWins() const { return myWins_.load(); }
+    int MyLosses() const { return myLosses_.load(); }
 
 private:
     PlayerIdentity* identity = nullptr;
@@ -177,7 +178,7 @@ private:
     static constexpr float TEAM_POLL_SEC = 1.5f;
     static constexpr float TEAM_PRESENCE_HEARTBEAT_SEC = 2.5f;
 
-    bool lobbyActive_ = false;
+    std::atomic<bool> lobbyActive_{false};
     bool teamRoomActive_ = false;
     bool needsBootstrap_ = false;
     bool wasRealtimeConnected_ = false;
@@ -196,10 +197,12 @@ private:
     std::string challengeResultOpponent_;
     float challengeResultTimer_ = 0.0f;
 
-    int myWins_ = 0;
-    int myLosses_ = 0;
+    std::atomic<int> myWins_{0};
+    std::atomic<int> myLosses_{0};
+    std::atomic<bool> registeredPlayer{false};
+    std::atomic<bool> registerInFlight_{false};
 
-    bool registeredPlayer = false;
+    mutable std::mutex dataMu_;
     bool realtimeStarted_ = false;
     bool teamRealtimeStarted_ = false;
 
@@ -220,24 +223,27 @@ private:
     void EnsurePlayerRegistered();
     void EnsureRealtime();
     void EnsureTeamRealtime();
-    void UpsertPresenceWithStatus(const char* status, const std::string& matchId = "");
+    void UpsertPresenceWithStatus(SupabaseClient& http, const char* status,
+                                  const std::string& matchId = "");
     void PostPresenceUpsert(const char* status, const std::string& matchId);
     void UpsertPresence();
-    void RefreshPlayerList();
-    void EnrichPlayersFromTeamRooms();
-    void RefreshIncomingChallenges();
-    void RefreshIncomingTeamInvites();
-    void RefreshTeamRoom();
-    bool LoadTeamRoom(const std::string& roomId, TeamRoomView& out);
+    void ScheduleLobbySync(bool upsertPresence);
+    void ScheduleTeamSync();
+    void RefreshPlayerList(SupabaseClient& http);
+    void EnrichPlayersFromTeamRooms(SupabaseClient& http, std::vector<LobbyPlayerCard>& dest);
+    void RefreshIncomingChallenges(SupabaseClient& http);
+    void RefreshIncomingTeamInvites(SupabaseClient& http);
+    void RefreshTeamRoom(SupabaseClient& http);
+    bool LoadTeamRoom(SupabaseClient& http, const std::string& roomId, TeamRoomView& out);
     void TickPendingChallenge(float dt);
     void ExpirePendingChallenge();
-    void TryResolveAcceptedChallenge();
+    void TryResolveAcceptedChallenge(SupabaseClient& http);
     void ClearPendingChallengeState();
     void NotifyChallengeResult(OutgoingChallengeResult result);
     void TickChallengeResultDisplay(float dt);
-    void TryResolveTeamRoomMatchStart();
+    void TryResolveTeamRoomMatchStart(SupabaseClient& http);
     void MaybeCleanupGhostPresence();
-    void SyncLobbyData(bool upsertPresence);
+    void SyncLobbyData(SupabaseClient& http, bool upsertPresence);
     float PollIntervalSec() const;
     int MyPlayerNumberInRoom(const TeamRoomView& room) const;
     void BuildMatchStartFromRow(const nlohmann::json& mrow, const TeamRoomView& room);

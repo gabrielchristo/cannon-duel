@@ -239,7 +239,7 @@ private:
     static constexpr float POLL_INTERVAL_AWAITING_SEC = 0.4f;
     static constexpr float LIVE_AIM_PUBLISH_INTERVAL_SEC = 0.05f;
     static constexpr float LIVE_AIM_HTTP_INTERVAL_SEC = 0.35f;
-    static constexpr float PROJ_PUBLISH_INTERVAL_SEC = 0.04f; // ~25 Hz
+    static constexpr float PROJ_PUBLISH_INTERVAL_SEC = 0.02f; // ~50 Hz
     static constexpr int PARTICIPANT_STALE_SEC = 8;
     static constexpr float MATCH_START_PRESENCE_GRACE_SEC = 20.0f;
     static constexpr size_t MAX_LIVE_SAMPLES = 256;

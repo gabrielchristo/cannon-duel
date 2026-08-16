@@ -190,11 +190,12 @@ void Game::UpdateOnlineTeamRoom() {
         return;
     }
 
-    const TeamRoomView* room = onlineLobby.ActiveTeamRoom();
-    if (!room) {
+    TeamRoomView roomStorage;
+    if (!onlineLobby.CopyActiveTeamRoom(roomStorage)) {
         state = GameState::OnlineLobby;
         return;
     }
+    const TeamRoomView* room = &roomStorage;
 
     Vector2 m = ::GetVirtualMouse();
     const int slotsA = DisplaySlotCount(room->TeamACount());
@@ -223,21 +224,20 @@ void Game::UpdateOnlineTeamRoom() {
             onlineLobby.StartTeamMatch();
             return;
         }
+    }
 
-        if (MyTeamCanInvite(*room)) {
-            const auto candidates = BuildInviteCandidates(onlineLobby.Players(), *room);
-            ScrollListLayout inviteLayout = TeamInviteListLayout(inviteTop, static_cast<int>(candidates.size()));
-
-            if (ScrollListPointInViewport(inviteLayout, m)
-                && !CheckCollisionPointRec(m, ScrollListTrack(inviteLayout))) {
-                for (int i = 0; i < static_cast<int>(candidates.size()); ++i) {
-                    Rectangle row = ScrollListRowRect(inviteLayout, onlineTeamInviteScroll_, i);
-                    if (!ScrollListRowVisible(inviteLayout, row)) continue;
-                    Rectangle card = InviteCardRect(row);
-                    if (CheckCollisionPointRec(m, InviteBtnRect(card))) {
-                        onlineLobby.SendTeamInvite(*candidates[static_cast<size_t>(i)]);
-                        break;
-                    }
+    if (MyTeamCanInvite(*room) && ScrollListTapReleased(onlineTeamInviteScroll_)) {
+        const auto candidates = BuildInviteCandidates(onlineLobby.Players(), *room);
+        ScrollListLayout inviteLayout = TeamInviteListLayout(inviteTop, static_cast<int>(candidates.size()));
+        if (ScrollListPointInViewport(inviteLayout, m)
+            && !CheckCollisionPointRec(m, ScrollListTrack(inviteLayout))) {
+            for (int i = 0; i < static_cast<int>(candidates.size()); ++i) {
+                Rectangle row = ScrollListRowRect(inviteLayout, onlineTeamInviteScroll_, i);
+                if (!ScrollListRowVisible(inviteLayout, row)) continue;
+                Rectangle card = InviteCardRect(row);
+                if (CheckCollisionPointRec(m, InviteBtnRect(card))) {
+                    onlineLobby.SendTeamInvite(*candidates[static_cast<size_t>(i)]);
+                    break;
                 }
             }
         }
@@ -248,8 +248,9 @@ void Game::DrawOnlineTeamRoom() {
     ClearBackground(Color{ 235, 214, 190, 255 });
     Vector2 m = ::GetVirtualMouse();
 
-    const TeamRoomView* room = onlineLobby.ActiveTeamRoom();
-    if (!room) return;
+    TeamRoomView roomStorage;
+    if (!onlineLobby.CopyActiveTeamRoom(roomStorage)) return;
+    const TeamRoomView* room = &roomStorage;
 
     DrawHeader(*room, language);
 

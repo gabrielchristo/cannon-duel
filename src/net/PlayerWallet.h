@@ -3,6 +3,7 @@
 #include "PlayerIdentity.h"
 #include "SupabaseClient.h"
 
+#include <atomic>
 #include <set>
 #include <string>
 
@@ -28,6 +29,7 @@ private:
     SupabaseClient client_;
 
     static constexpr int kStartingCoins = 300;
+    std::atomic<bool> refreshInFlight_{false};
     int coins_ = kStartingCoins;
     std::set<std::string> ownedItems_;
     std::string equippedCannonColor_;

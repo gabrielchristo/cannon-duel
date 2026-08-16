@@ -35,8 +35,9 @@ void OnlineLobby::Init(PlayerIdentity* id) {
     identity = id;
     pollTimer = 0.0f;
     ghostCleanupTimer = 0.0f;
-    registeredPlayer = false;
-    lobbyActive_ = false;
+    registeredPlayer.store(false);
+    registerInFlight_.store(false);
+    lobbyActive_.store(false);
     needsBootstrap_ = false;
     wasRealtimeConnected_ = false;
     hasReadyMatch = false;
@@ -64,62 +65,61 @@ void OnlineLobby::EnterLobby() {
 }
 
 void OnlineLobby::EnsurePlayerRegistered() {
-    if (registeredPlayer || !identity) return;
+    if (registeredPlayer.load() || !identity) return;
     if (!net_validation::IsValidPlayerUuid(identity->Id())) {
         DebugLogf(LOG_WARNING, "LOBBY: player_id inválido — abortando registro");
         return;
     }
+    if (registerInFlight_.exchange(true)) return;
 
-    // Upsert na tabela players — cria na primeira vez, ou só confirma que
-    // já existe nas próximas (o id é sempre o mesmo, gerado localmente).
-    json body = {
-        { "id", identity->Id() },
-        { "display_name", identity->DisplayName() }
-    };
-    client.Upsert("players", body, "id");
-
-    // Só marca como registrado se a requisição de fato deu certo — senão,
-    // a linha em "players" nunca chega a existir, e toda tentativa futura
-    // de registrar presença falha em silêncio (lobby_presence.player_id
-    // tem uma foreign key pra players(id)). Sem essa checagem, os dois
-    // lados ficavam "conectados" mas nenhum via o outro no lobby.
-    if (client.LastRequestOk()) {
-        registeredPlayer = true;
-        DebugLogf(LOG_INFO, "LOBBY: jogador registrado com sucesso em 'players'");
-    } else {
-        DebugLogf(LOG_WARNING, "LOBBY: falha ao registrar jogador em 'players' — tentando de novo no próximo ciclo");
-    }
+    const std::string playerId = identity->Id();
+    const std::string displayName = identity->DisplayName();
+    GlobalNetWorker().Post([this, playerId, displayName](SupabaseClient& http) {
+        json body = {
+            { "id", playerId },
+            { "display_name", displayName }
+        };
+        http.Upsert("players", body, "id");
+        if (http.LastRequestOk()) {
+            registeredPlayer.store(true);
+            DebugLogf(LOG_INFO, "LOBBY: jogador registrado com sucesso em 'players'");
+        } else {
+            registerInFlight_.store(false);
+            DebugLogf(LOG_WARNING, "LOBBY: falha ao registrar jogador em 'players' — tentando de novo no próximo ciclo");
+        }
+    });
 }
 
-void OnlineLobby::UpsertPresenceWithStatus(const char* status, const std::string& matchId) {
+void OnlineLobby::UpsertPresenceWithStatus(SupabaseClient& http, const char* status,
+                                           const std::string& matchId) {
     if (!identity) return;
 
-    json me = client.Select("players", "select=wins,losses&id=eq." + identity->Id());
-    int myWins = 0, myLosses = 0;
+    json me = http.Select("players", "select=wins,losses&id=eq." + identity->Id());
+    int wins = 0, losses = 0;
     if (me.is_array() && !me.empty()) {
-        myWins = json_helpers::Int(me[0], "wins", 0);
-        myLosses = json_helpers::Int(me[0], "losses", 0);
+        wins = json_helpers::Int(me[0], "wins", 0);
+        losses = json_helpers::Int(me[0], "losses", 0);
     }
-    myWins_ = myWins;
-    myLosses_ = myLosses;
+    myWins_.store(wins);
+    myLosses_.store(losses);
 
     json body = {
         { "player_id", identity->Id() },
         { "display_name", identity->DisplayName() },
-        { "wins", myWins },
-        { "losses", myLosses },
+        { "wins", wins },
+        { "losses", losses },
         { "status", status },
         { "last_seen", UtcNowIso8601() },
         { "match_id", matchId.empty() ? json(nullptr) : json(matchId) }
     };
-    client.Upsert("lobby_presence", body, "player_id");
-    DebugLogf(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
+    http.Upsert("lobby_presence", body, "player_id");
+    DebugLogf(http.LastRequestOk() ? LOG_INFO : LOG_WARNING,
              "LOBBY: upsert de presença (%s) %s", status,
-             client.LastRequestOk() ? "OK" : "FALHOU");
+             http.LastRequestOk() ? "OK" : "FALHOU");
 }
 
 void OnlineLobby::UpsertPresence() {
-    UpsertPresenceWithStatus("idle");
+    PostPresenceUpsert("idle", "");
 }
 
 void OnlineLobby::PostPresenceUpsert(const char* status, const std::string& matchId) {
@@ -145,6 +145,8 @@ void OnlineLobby::PostPresenceUpsert(const char* status, const std::string& matc
             { "match_id", matchCopy.empty() ? json(nullptr) : json(matchCopy) }
         };
         client.Upsert("lobby_presence", body, "player_id");
+        myWins_.store(myWins);
+        myLosses_.store(myLosses);
     });
 }
 
@@ -158,13 +160,13 @@ void OnlineLobby::HeartbeatInMatch(float dt) {
 void OnlineLobby::MarkInMatch(const std::string& matchId) {
     matchHeartbeatTimer = 0.0f;
     currentMatchId_ = matchId;
-    if (registeredPlayer) UpsertPresenceWithStatus("in_match", currentMatchId_);
+    if (registeredPlayer.load()) PostPresenceUpsert("in_match", currentMatchId_);
 }
 
 void OnlineLobby::MarkIdle() {
     currentMatchId_.clear();
     matchHeartbeatTimer = 0.0f;
-    if (registeredPlayer) UpsertPresenceWithStatus("idle", "");
+    if (registeredPlayer.load()) PostPresenceUpsert("idle", "");
 }
 
 void OnlineLobby::SnapshotRematchRoom() {
@@ -220,17 +222,17 @@ void OnlineLobby::EnterTeamRoomForRematch() {
 void OnlineLobby::AbandonActiveMatch(const std::string& matchId, int winnerPlayer) {
     if (matchId.empty() || winnerPlayer == 0) return;
 
-    json rows = client.Select("matches", "select=status&id=eq." + matchId);
-    if (!rows.is_array() || rows.empty()) return;
-
-    if (json_helpers::Str(rows[0], "status") != "active") return;
-
-    client.Update("matches", "id=eq." + matchId, {
-        { "status", "abandoned" },
-        { "winner_player", winnerPlayer }
+    GlobalNetWorker().Post([matchId, winnerPlayer](SupabaseClient& http) {
+        json rows = http.Select("matches", "select=status&id=eq." + matchId);
+        if (!rows.is_array() || rows.empty()) return;
+        if (json_helpers::Str(rows[0], "status") != "active") return;
+        http.Update("matches", "id=eq." + matchId, {
+            { "status", "abandoned" },
+            { "winner_player", winnerPlayer }
+        });
+        DebugLogf(http.LastRequestOk() ? LOG_INFO : LOG_WARNING,
+                  "LOBBY: abandonou partida %s", matchId.c_str());
     });
-    DebugLogf(client.LastRequestOk() ? LOG_INFO : LOG_WARNING,
-              "LOBBY: abandonou partida %s (sync)", matchId.c_str());
 }
 
 void OnlineLobby::LeaveLobby() {
@@ -241,7 +243,10 @@ void OnlineLobby::LeaveLobby() {
     wasRealtimeConnected_ = false;
     realtime_.Stop();
     realtimeStarted_ = false;
-    client.Delete("lobby_presence", "player_id=eq." + identity->Id());
+    const std::string playerId = identity->Id();
+    GlobalNetWorker().Post([playerId](SupabaseClient& http) {
+        http.Delete("lobby_presence", "player_id=eq." + playerId);
+    });
     client.Close();
     matchHeartbeatTimer = 0.0f;
     players.clear();
@@ -287,15 +292,17 @@ void OnlineLobby::EnsureRealtime() {
     DebugLogf(LOG_INFO, "LOBBY: Realtime iniciado");
 }
 
-void OnlineLobby::TryResolveAcceptedChallenge() {
-    if (!identity || pendingChallengeId.empty() || hasReadyMatch) return;
+void OnlineLobby::TryResolveAcceptedChallenge(SupabaseClient& http) {
+    if (!identity || pendingChallengeId.empty() || pendingChallengeId == "sending" || hasReadyMatch) {
+        return;
+    }
 
-    json mine = client.Select("challenges", "select=status,match_id&id=eq." + pendingChallengeId);
+    json mine = http.Select("challenges", "select=status,match_id&id=eq." + pendingChallengeId);
     if (!mine.is_array() || mine.empty()) return;
 
     const std::string status = mine[0].value("status", "pending");
     if (status == "accepted") {
-        json rooms = client.Select("team_rooms",
+        json rooms = http.Select("team_rooms",
             "select=id&challenge_id=eq." + pendingChallengeId + "&limit=1");
         if (rooms.is_array() && !rooms.empty()) {
             enterTeamRoomId_ = json_helpers::Str(rooms[0], "id");
@@ -349,22 +356,65 @@ void OnlineLobby::MaybeCleanupGhostPresence() {
 #endif
     std::ostringstream cutoffOss;
     cutoffOss << std::put_time(&t, "%Y-%m-%dT%H:%M:%SZ");
-    client.Delete("lobby_presence", "last_seen=lt." + cutoffOss.str());
+    GlobalNetWorker().Post([cutoff = cutoffOss.str()](SupabaseClient& http) {
+        http.Delete("lobby_presence", "last_seen=lt." + cutoff);
+    });
 }
 
-void OnlineLobby::SyncLobbyData(bool upsertPresence) {
-    if (upsertPresence) UpsertPresence();
-    RefreshPlayerList();
-    RefreshIncomingChallenges();
+void OnlineLobby::SyncLobbyData(SupabaseClient& http, bool upsertPresence) {
+    if (!lobbyActive_.load()) return;
+    if (upsertPresence) UpsertPresenceWithStatus(http, "idle");
+    RefreshPlayerList(http);
+    RefreshIncomingChallenges(http);
+    RefreshIncomingTeamInvites(http);
 }
 
-void OnlineLobby::RefreshPlayerList() {
+void OnlineLobby::ScheduleLobbySync(bool upsertPresence) {
+    if (!identity || !lobbyActive_.load()) return;
+    GlobalNetWorker().PostCoalesced("lobby_sync", [this, upsertPresence](SupabaseClient& http) {
+        SyncLobbyData(http, upsertPresence);
+    });
+}
+
+void OnlineLobby::ScheduleTeamSync() {
+    if (!identity || !teamRoomActive_) return;
+    GlobalNetWorker().PostCoalesced("team_sync", [this](SupabaseClient& http) {
+        RefreshTeamRoom(http);
+        RefreshPlayerList(http);
+        RefreshIncomingTeamInvites(http);
+        TryResolveTeamRoomMatchStart(http);
+    });
+}
+
+std::vector<LobbyPlayerCard> OnlineLobby::Players() const {
+    std::lock_guard lock(dataMu_);
+    return players;
+}
+
+std::vector<IncomingChallenge> OnlineLobby::IncomingChallenges() const {
+    std::lock_guard lock(dataMu_);
+    return incoming;
+}
+
+std::vector<IncomingTeamInvite> OnlineLobby::IncomingTeamInvites() const {
+    std::lock_guard lock(dataMu_);
+    return incomingTeamInvites;
+}
+
+bool OnlineLobby::CopyActiveTeamRoom(TeamRoomView& out) const {
+    std::lock_guard lock(dataMu_);
+    if (!inTeamRoom_) return false;
+    out = teamRoom_;
+    return true;
+}
+
+void OnlineLobby::RefreshPlayerList(SupabaseClient& http) {
     if (!identity) return;
 
-    json rows = client.Select("lobby_presence",
+    json rows = http.Select("lobby_presence",
         "select=player_id,display_name,wins,losses,last_seen,status,match_id&order=player_id.asc&limit=30");
 
-    players.clear();
+    std::vector<LobbyPlayerCard> built;
     if (!rows.is_array()) {
         DebugLogf(LOG_WARNING, "LOBBY: RefreshPlayerList não recebeu um array (requisição falhou?)");
         return;
@@ -458,7 +508,7 @@ void OnlineLobby::RefreshPlayerList() {
             if (i > 0) inList += ",";
             inList += candidateMatchIds[i];
         }
-        json matchRows = client.Select("matches",
+        json matchRows = http.Select("matches",
             "select=id,player1_id,player2_id,player3_id,player4_id,match_format,version,current_turn_player,status,updated_at"
             "&id=in.(" + inList + ")&status=eq.active&updated_at=gte." + matchCutoffIso);
 
@@ -491,7 +541,7 @@ void OnlineLobby::RefreshPlayerList() {
                 if (i > 0) pidList += ",";
                 pidList += playerIds[i];
             }
-            json prows = client.Select("players", "select=id,display_name&id=in.(" + pidList + ")");
+            json prows = http.Select("players", "select=id,display_name&id=in.(" + pidList + ")");
             if (prows.is_array()) {
                 for (const auto& p : prows) {
                     names[json_helpers::Str(p, "id")] = json_helpers::Str(p, "display_name", "???");
@@ -552,29 +602,36 @@ void OnlineLobby::RefreshPlayerList() {
             card.teamRoomId = pr.matchId;
         }
 
-        players.push_back(card);
+        built.push_back(card);
     }
 
-    EnrichPlayersFromTeamRooms();
+    EnrichPlayersFromTeamRooms(http, built);
 
-    std::sort(players.begin(), players.end(),
+    std::sort(built.begin(), built.end(),
               [](const LobbyPlayerCard& a, const LobbyPlayerCard& b) {
                   return a.playerId < b.playerId;
               });
 
+    const int onlineCount = static_cast<int>(built.size());
+    {
+        std::lock_guard lock(dataMu_);
+        players.swap(built);
+    }
+
     DebugLogf(LOG_INFO, "LOBBY: eu=%s | %d online (filtrado)",
-              identity->Id().c_str(), static_cast<int>(players.size()));
+              identity->Id().c_str(), onlineCount);
 }
 
-void OnlineLobby::EnrichPlayersFromTeamRooms() {
+void OnlineLobby::EnrichPlayersFromTeamRooms(SupabaseClient& http,
+                                             std::vector<LobbyPlayerCard>& dest) {
     if (!identity) return;
 
-    json rooms = client.Select("team_rooms",
+    json rooms = http.Select("team_rooms",
         "select=id,status&status=eq.recruiting&limit=30");
     if (!rooms.is_array() || rooms.empty()) return;
 
     std::unordered_set<std::string> known;
-    for (const auto& p : players) known.insert(p.playerId);
+    for (const auto& p : dest) known.insert(p.playerId);
 
     struct PendingCard {
         std::string playerId;
@@ -585,7 +642,7 @@ void OnlineLobby::EnrichPlayersFromTeamRooms() {
 
     for (const auto& row : rooms) {
         const std::string roomId = json_helpers::Str(row, "id");
-        json members = client.Select("team_room_members",
+        json members = http.Select("team_room_members",
             "select=player_id&room_id=eq." + roomId);
         if (!members.is_array()) continue;
         for (const auto& m : members) {
@@ -607,7 +664,7 @@ void OnlineLobby::EnrichPlayersFromTeamRooms() {
         if (i > 0) inList += ",";
         inList += missingIds[i];
     }
-    json prows = client.Select("players", "select=id,display_name,wins,losses&id=in.(" + inList + ")");
+    json prows = http.Select("players", "select=id,display_name,wins,losses&id=in.(" + inList + ")");
     std::unordered_map<std::string, std::pair<int, int>> records;
     if (prows.is_array()) {
         for (const auto& p : prows) {
@@ -627,51 +684,55 @@ void OnlineLobby::EnrichPlayersFromTeamRooms() {
         }
         card.inTeamRoom = true;
         card.teamRoomId = pc.roomId;
-        players.push_back(card);
+        dest.push_back(card);
     }
 }
 
-void OnlineLobby::RefreshIncomingChallenges() {
+void OnlineLobby::RefreshIncomingChallenges(SupabaseClient& http) {
     if (!identity) return;
 
-    json rows = client.Select("challenges",
+    json rows = http.Select("challenges",
         "select=id,from_player_id,from_display_name,format,version,status"
         "&to_player_id=eq." + identity->Id() +
         "&status=eq.pending&order=created_at.desc&limit=5");
 
-    incoming.clear();
-    if (!rows.is_array()) return;
-
-    for (auto& row : rows) {
-        IncomingChallenge c;
-        c.challengeId = row.value("id", "");
-        c.fromPlayerId = row.value("from_player_id", "");
-        c.fromDisplayName = row.value("from_display_name", "???");
-        c.challengeVersion = (json_helpers::Str(row, "version", "classic") == "plus")
-            ? GameVersion::Plus : GameVersion::Classic;
-        incoming.push_back(c);
+    std::vector<IncomingChallenge> built;
+    if (rows.is_array()) {
+        for (auto& row : rows) {
+            IncomingChallenge c;
+            c.challengeId = row.value("id", "");
+            c.fromPlayerId = row.value("from_player_id", "");
+            c.fromDisplayName = row.value("from_display_name", "???");
+            c.challengeVersion = (json_helpers::Str(row, "version", "classic") == "plus")
+                ? GameVersion::Plus : GameVersion::Classic;
+            built.push_back(c);
+        }
+    }
+    {
+        std::lock_guard lock(dataMu_);
+        incoming.swap(built);
     }
 
-    TryResolveAcceptedChallenge();
+    TryResolveAcceptedChallenge(http);
 }
 
 void OnlineLobby::TickPendingChallenge(float dt) {
     TickChallengeResultDisplay(dt);
-    if (pendingChallengeId.empty()) return;
+    if (pendingChallengeId.empty() || pendingChallengeId == "sending") return;
     pendingChallengeTimer_ += dt;
-    TryResolveAcceptedChallenge();
-    if (pendingChallengeId.empty()) return;
     if (pendingChallengeTimer_ >= CHALLENGE_TIMEOUT_SEC) {
         ExpirePendingChallenge();
     }
 }
 
 void OnlineLobby::ExpirePendingChallenge() {
-    if (pendingChallengeId.empty()) return;
+    if (pendingChallengeId.empty() || pendingChallengeId == "sending") return;
     const std::string id = pendingChallengeId;
     DebugLogf(LOG_INFO, "LOBBY: desafio %s expirou (timeout)", id.c_str());
     NotifyChallengeResult(OutgoingChallengeResult::Expired);
-    client.Update("challenges", "id=eq." + id, json{ { "status", "expired" } });
+    GlobalNetWorker().Post([id](SupabaseClient& http) {
+        http.Update("challenges", "id=eq." + id, json{ { "status", "expired" } });
+    });
 }
 
 void OnlineLobby::Update(float dt) {
@@ -694,16 +755,16 @@ void OnlineLobby::Update(float dt) {
     if (rtConnected && !wasRealtimeConnected_) {
         wasRealtimeConnected_ = true;
         DebugLogf(LOG_INFO, "LOBBY: Realtime conectado — sync imediato");
-        SyncLobbyData(true);
+        ScheduleLobbySync(true);
     } else if (!rtConnected) {
         wasRealtimeConnected_ = false;
     }
 
-    if (needsBootstrap_ && registeredPlayer) {
+    if (needsBootstrap_ && registeredPlayer.load()) {
         needsBootstrap_ = false;
         pollTimer = 0.0f;
         DebugLogf(LOG_INFO, "LOBBY: bootstrap — presença + lista");
-        SyncLobbyData(true);
+        ScheduleLobbySync(true);
     }
 
     ghostCleanupTimer += dt;
@@ -719,12 +780,17 @@ void OnlineLobby::Update(float dt) {
     if (!duePoll && !dirty) return;
     if (duePoll) pollTimer = 0.0f;
 
-    SyncLobbyData(duePoll);
-    RefreshIncomingTeamInvites();
+    ScheduleLobbySync(duePoll);
 }
 
 void OnlineLobby::SendChallenge(const LobbyPlayerCard& target, GameVersion ver) {
     if (!identity) return;
+
+    pendingChallengeId = "sending";
+    pendingChallengeOpponentId = target.playerId;
+    pendingChallengeOpponentName = target.displayName;
+    pendingChallengeVersion_ = ver;
+    pendingChallengeTimer_ = 0.0f;
 
     json body = {
         { "from_player_id", identity->Id() },
@@ -734,14 +800,15 @@ void OnlineLobby::SendChallenge(const LobbyPlayerCard& target, GameVersion ver) 
         { "format", "composition" },
         { "version", ver == GameVersion::Plus ? "plus" : "classic" }
     };
-    json created = client.Insert("challenges", body);
-    if (created.is_array() && !created.empty()) {
-        pendingChallengeId = created[0].value("id", "");
-        pendingChallengeOpponentId = target.playerId;
-        pendingChallengeOpponentName = target.displayName;
-        pendingChallengeVersion_ = ver;
-        pendingChallengeTimer_ = 0.0f;
-    }
+    GlobalNetWorker().Post([this, body](SupabaseClient& http) {
+        json created = http.Insert("challenges", body);
+        if (created.is_array() && !created.empty()) {
+            const std::string id = created[0].value("id", "");
+            if (pendingChallengeId == "sending") pendingChallengeId = id;
+        } else if (pendingChallengeId == "sending") {
+            NotifyChallengeResult(OutgoingChallengeResult::Expired);
+        }
+    });
 }
 
 void OnlineLobby::AcceptChallenge(const IncomingChallenge& challenge) {
@@ -797,18 +864,20 @@ void OnlineLobby::ReportMatchResult(bool won) {
     if (!identity) return;
     if (!net_validation::IsValidPlayerUuid(identity->Id())) return;
 
-    json me = client.Select("players", "select=wins,losses&id=eq." + identity->Id());
-    int wins = 0, losses = 0;
-    if (me.is_array() && !me.empty()) {
-        wins = me[0].value("wins", 0);
-        losses = me[0].value("losses", 0);
-    }
-    if (won) wins++; else losses++;
-    myWins_ = wins;
-    myLosses_ = losses;
+    if (won) myWins_.fetch_add(1);
+    else myLosses_.fetch_add(1);
 
-    json body = { { "wins", wins }, { "losses", losses } };
-    client.Update("players", "id=eq." + identity->Id(), body);
+    const std::string playerId = identity->Id();
+    GlobalNetWorker().Post([playerId, won](SupabaseClient& http) {
+        json me = http.Select("players", "select=wins,losses&id=eq." + playerId);
+        int wins = 0, losses = 0;
+        if (me.is_array() && !me.empty()) {
+            wins = me[0].value("wins", 0);
+            losses = me[0].value("losses", 0);
+        }
+        if (won) wins++; else losses++;
+        http.Update("players", "id=eq." + playerId, json{ { "wins", wins }, { "losses", losses } });
+    });
 }
 
 bool OnlineLobby::UpdateDisplayName(const std::string& rawName, std::string& outSanitized) {
@@ -820,15 +889,12 @@ bool OnlineLobby::UpdateDisplayName(const std::string& rawName, std::string& out
 
     identity->SetDisplayName(outSanitized);
 
-    json body = { { "display_name", outSanitized } };
-    client.Update("players", "id=eq." + identity->Id(), body);
-    if (!client.LastRequestOk()) {
-        DebugLogf(LOG_WARNING, "LOBBY: falha ao atualizar display_name em players");
-        return false;
-    }
-
-    if (lobbyActive_ && registeredPlayer) {
-        UpsertPresenceWithStatus("idle");
+    const std::string playerId = identity->Id();
+    GlobalNetWorker().Post([playerId, outSanitized](SupabaseClient& http) {
+        http.Update("players", "id=eq." + playerId, json{ { "display_name", outSanitized } });
+    });
+    if (lobbyActive_.load() && registeredPlayer.load()) {
+        PostPresenceUpsert("idle", "");
     }
 
     DebugLogf(LOG_INFO, "LOBBY: display_name atualizado para '%s'", outSanitized.c_str());

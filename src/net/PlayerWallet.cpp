@@ -107,41 +107,51 @@ int PlayerWallet::FetchServerCoins() {
 
 void PlayerWallet::RefreshFromServer() {
     if (!identity_) return;
-    EnsurePlayerRow();
+    if (refreshInFlight_.exchange(true)) return;
 
-    json rows = client_.Select("players",
-        "select=coins,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect,equipped_ammo&id=eq."
-        + identity_->Id());
-    if (client_.LastRequestOk() && rows.is_array() && !rows.empty()) {
-        coins_ = json_helpers::Int(rows[0], "coins", coins_);
-        if (coins_ <= 0) {
-            json grant = { { "coins", kStartingCoins } };
-            client_.Update("players", "id=eq." + identity_->Id(), grant);
-            if (client_.LastRequestOk()) coins_ = kStartingCoins;
+    const std::string playerId = identity_->Id();
+    GlobalNetWorker().Post([this, playerId](SupabaseClient& http) {
+        json body = {
+            { "id", playerId },
+            { "display_name", identity_ ? identity_->DisplayName() : std::string() }
+        };
+        http.Upsert("players", body, "id");
+
+        json rows = http.Select("players",
+            "select=coins,equipped_cannon_color,equipped_cannon_skin,equipped_cannon_effect,equipped_name_effect,equipped_ammo&id=eq."
+            + playerId);
+        if (http.LastRequestOk() && rows.is_array() && !rows.empty()) {
+            int coins = json_helpers::Int(rows[0], "coins", coins_);
+            if (coins <= 0) {
+                http.Update("players", "id=eq." + playerId, json{ { "coins", kStartingCoins } });
+                if (http.LastRequestOk()) coins = kStartingCoins;
+            }
+            coins_ = coins;
+            equippedCannonColor_ = json_helpers::Str(rows[0], "equipped_cannon_color", equippedCannonColor_);
+            equippedCannonSkin_ = json_helpers::Str(rows[0], "equipped_cannon_skin", equippedCannonSkin_);
+            equippedCannonEffect_ = json_helpers::Str(rows[0], "equipped_cannon_effect", equippedCannonEffect_);
+            equippedNameEffect_ = json_helpers::Str(rows[0], "equipped_name_effect", equippedNameEffect_);
+            equippedAmmo_ = json_helpers::Str(rows[0], "equipped_ammo", equippedAmmo_);
+        } else {
+            DebugLogf(LOG_WARNING, "WALLET: falha ao buscar saldo no servidor — mantendo cache local");
         }
-        equippedCannonColor_ = json_helpers::Str(rows[0], "equipped_cannon_color", equippedCannonColor_);
-        equippedCannonSkin_ = json_helpers::Str(rows[0], "equipped_cannon_skin", equippedCannonSkin_);
-        equippedCannonEffect_ = json_helpers::Str(rows[0], "equipped_cannon_effect", equippedCannonEffect_);
-        equippedNameEffect_ = json_helpers::Str(rows[0], "equipped_name_effect", equippedNameEffect_);
-        equippedAmmo_ = json_helpers::Str(rows[0], "equipped_ammo", equippedAmmo_);
-    } else {
-        DebugLogf(LOG_WARNING, "WALLET: falha ao buscar saldo no servidor — mantendo cache local");
-    }
 
-    json items = client_.Select("player_items", "select=item_id&player_id=eq." + identity_->Id());
-    if (client_.LastRequestOk() && items.is_array()) {
-        ownedItems_.clear();
-        ownedItems_.insert(kDefaultCannonColorId);
-        ownedItems_.insert(kDefaultCannonSkinId);
-        ownedItems_.insert(kDefaultCannonEffectId);
-        ownedItems_.insert(kDefaultNameEffectId);
-        ownedItems_.insert(kDefaultAmmoId);
-        for (const auto& row : items) {
-            ownedItems_.insert(json_helpers::Str(row, "item_id", ""));
+        json items = http.Select("player_items", "select=item_id&player_id=eq." + playerId);
+        if (http.LastRequestOk() && items.is_array()) {
+            ownedItems_.clear();
+            ownedItems_.insert(kDefaultCannonColorId);
+            ownedItems_.insert(kDefaultCannonSkinId);
+            ownedItems_.insert(kDefaultCannonEffectId);
+            ownedItems_.insert(kDefaultNameEffectId);
+            ownedItems_.insert(kDefaultAmmoId);
+            for (const auto& row : items) {
+                ownedItems_.insert(json_helpers::Str(row, "item_id", ""));
+            }
         }
-    }
 
-    SaveDisplayCache();
+        SaveDisplayCache();
+        refreshInFlight_.store(false);
+    });
 }
 
 void PlayerWallet::AwardCoins(int amount) {

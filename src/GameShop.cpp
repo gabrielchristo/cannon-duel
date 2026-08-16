@@ -208,27 +208,28 @@ void Game::UpdateShop() {
     ShopGridLayout grid = BuildShopGridLayout(static_cast<int>(items.size()));
     UpdateScrollList(shopScroll_, grid.scroll, m);
 
-    if (!IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) return;
-
-    if (CheckCollisionPointRec(m, ShopBackBtnRect())) {
-        state = GameState::MainMenu;
-        return;
-    }
-
-    const ShopCategory tabs[kTabCount] = {
-        ShopCategory::CannonColor, ShopCategory::CannonSkin,
-        ShopCategory::CannonEffect, ShopCategory::NameEffect, ShopCategory::Ammo
-    };
-    for (int t = 0; t < kTabCount; ++t) {
-        if (CheckCollisionPointRec(m, ShopTabRect(t))) {
-            if (shopCategory != tabs[t]) {
-                shopCategory = tabs[t];
-                shopScroll_.scrollY = 0.0f;
-            }
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(m, ShopBackBtnRect())) {
+            state = GameState::MainMenu;
             return;
+        }
+
+        const ShopCategory tabs[kTabCount] = {
+            ShopCategory::CannonColor, ShopCategory::CannonSkin,
+            ShopCategory::CannonEffect, ShopCategory::NameEffect, ShopCategory::Ammo
+        };
+        for (int t = 0; t < kTabCount; ++t) {
+            if (CheckCollisionPointRec(m, ShopTabRect(t))) {
+                if (shopCategory != tabs[t]) {
+                    shopCategory = tabs[t];
+                    shopScroll_.scrollY = 0.0f;
+                }
+                return;
+            }
         }
     }
 
+    if (!ScrollListTapReleased(shopScroll_)) return;
     if (!ScrollListPointInViewport(grid.scroll, m)) return;
 
     for (size_t i = 0; i < items.size(); ++i) {

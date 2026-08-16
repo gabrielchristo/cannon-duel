@@ -237,7 +237,7 @@ void Game::BeginRemoteShotReplay(const RemoteTurnResult& remote) {
     Vector2 start = shooter.MuzzlePosition();
     remoteReplayPos = start;
     remoteReplayT = 0.0f;
-    remoteReplayAimTimer = 0.25f;
+    remoteReplayAimTimer = 0.08f;
     prevProjectilePos = start;
     guidedPathT = 0.0f;
 
@@ -264,6 +264,11 @@ void Game::BeginRemoteProjectileLive(const LiveShotStart& shot) {
     shooter.SetAim(shot.angleDeg, shot.power01);
     windForce = shot.wind;
     currentPlayer = ClampPlayerNum(shot.shooterPlayer);
+    {
+        Vector2 dir = shooter.DirectionAtAngle(shot.angleDeg);
+        const float speed = cfg::MIN_POWER + shot.power01 * (cfg::MAX_POWER - cfg::MIN_POWER);
+        remoteLivePredVel = { dir.x * speed * cfg::PPM, dir.y * speed * cfg::PPM };
+    }
     opponentAimPlayer = 0;
     opponentAimSimActive = false;
     opponentAimHasLiveTarget = false;
@@ -301,19 +306,16 @@ void Game::UpdateRemoteProjectileLive(float dt) {
             const auto& r = pendingRemoteTurn;
             ProjSample fin;
             fin.seq = remoteLiveLastSeq + 1;
-            fin.t = 0.35f;
+            fin.t = std::max(0.12f, remoteLiveWatchTimer);
             fin.x = r.impactX;
             fin.y = r.impactY;
             remoteLiveSamples.push_back(fin);
             remoteLiveLastSeq = fin.seq;
         } else if (remoteLiveWatchTimer > 6.0f) {
-            // Stream nunca veio — desiste e espera poll do turno (fallback).
             DebugLogf(LOG_WARNING, "GAME: stream live timeout sem amostras — volta a Aiming");
             remoteLiveActive = false;
             netMatch.ClearLiveShot();
             state = GameState::Aiming;
-            return;
-        } else {
             return;
         }
     }
@@ -328,20 +330,36 @@ void Game::UpdateRemoteProjectileLive(float dt) {
 
     float endX = 0, endY = 0;
     const bool streamEnded = netMatch.PeekShotEnded(endX, endY);
-    // Com resultado autoritativo (ou shot_end), NÃO segurar buffer delay —
-    // senão playT nunca alcança o fim e deadlocks o adversário.
     const bool canFinishPath = streamEnded || remoteLiveHasPendingResult;
-    if (!canFinishPath) {
+    if (!canFinishPath && remoteLiveSamples.size() >= 2) {
         const float cap = std::max(0.0f, maxT - remoteLiveBufferDelay);
         if (targetPlay > cap) targetPlay = cap;
-    } else if (targetPlay > maxT) {
+    } else if (canFinishPath && targetPlay > maxT) {
         targetPlay = maxT;
     }
     remoteLivePlayT = targetPlay;
 
+    const auto stepPrediction = [&](float stepDt) {
+        remoteLivePredVel.x += windForce * cfg::PPM * stepDt;
+        remoteLivePredVel.y += cfg::GRAVITY_MPS2 * cfg::PPM * stepDt;
+        remoteLivePos.x += remoteLivePredVel.x * stepDt;
+        remoteLivePos.y += remoteLivePredVel.y * stepDt;
+    };
+
     Vector2 prev = remoteLivePos;
-    if (remoteLivePlayT <= remoteLiveSamples.front().t) {
+    if (remoteLiveSamples.size() < 2) {
+        stepPrediction(dt);
+    } else if (remoteLivePlayT <= remoteLiveSamples.front().t) {
         remoteLivePos = { remoteLiveSamples.front().x, remoteLiveSamples.front().y };
+    } else if (remoteLivePlayT >= remoteLiveSamples.back().t && !canFinishPath) {
+        if (remoteLiveSamples.size() >= 2) {
+            const auto& a = remoteLiveSamples[remoteLiveSamples.size() - 2];
+            const auto& b = remoteLiveSamples.back();
+            const float span = std::max(1e-4f, b.t - a.t);
+            remoteLivePredVel.x = (b.x - a.x) / span;
+            remoteLivePredVel.y = (b.y - a.y) / span;
+        }
+        stepPrediction(dt);
     } else if (remoteLivePlayT >= remoteLiveSamples.back().t) {
         remoteLivePos = { remoteLiveSamples.back().x, remoteLiveSamples.back().y };
     } else {
@@ -354,6 +372,8 @@ void Game::UpdateRemoteProjectileLive(float dt) {
                 u = u * u * (3.0f - 2.0f * u);
                 remoteLivePos.x = a.x + (b.x - a.x) * u;
                 remoteLivePos.y = a.y + (b.y - a.y) * u;
+                remoteLivePredVel.x = (b.x - a.x) / span;
+                remoteLivePredVel.y = (b.y - a.y) / span;
                 break;
             }
         }
@@ -404,7 +424,7 @@ void Game::UpdateRemoteShotReplay(float dt) {
     }
     opponentAimPlayer = 0;
 
-    constexpr float kDuration = 0.85f;
+    constexpr float kDuration = 0.55f;
     remoteReplayT += dt / kDuration;
     float t = std::clamp(remoteReplayT, 0.0f, 1.0f);
 

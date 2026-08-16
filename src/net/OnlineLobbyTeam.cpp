@@ -51,10 +51,10 @@ void OnlineLobby::InsertRoomCaptains(const std::string& roomId, const std::strin
     });
 }
 
-bool OnlineLobby::LoadTeamRoom(const std::string& roomId, TeamRoomView& out) {
+bool OnlineLobby::LoadTeamRoom(SupabaseClient& http, const std::string& roomId, TeamRoomView& out) {
     if (!identity || roomId.empty()) return false;
 
-    json rows = client.Select("team_rooms", "select=*&id=eq." + roomId);
+    json rows = http.Select("team_rooms", "select=*&id=eq." + roomId);
     if (!rows.is_array() || rows.empty()) return false;
 
     const json& r = rows[0];
@@ -65,7 +65,7 @@ bool OnlineLobby::LoadTeamRoom(const std::string& roomId, TeamRoomView& out) {
     out.teamA.clear();
     out.teamB.clear();
 
-    json members = client.Select("team_room_members",
+    json members = http.Select("team_room_members",
         "select=team,slot,player_id&room_id=eq." + roomId + "&order=slot.asc");
     if (members.is_array() && !members.empty()) {
         for (const auto& m : members) {
@@ -102,7 +102,7 @@ bool OnlineLobby::LoadTeamRoom(const std::string& roomId, TeamRoomView& out) {
             if (i > 0) inList += ",";
             inList += ids[i];
         }
-        json prows = client.Select("players", "select=id,display_name&id=in.(" + inList + ")");
+        json prows = http.Select("players", "select=id,display_name&id=in.(" + inList + ")");
         if (prows.is_array()) {
             for (const auto& p : prows) {
                 names[json_helpers::Str(p, "id")] = json_helpers::Str(p, "display_name", "???");
@@ -135,26 +135,31 @@ bool OnlineLobby::LoadTeamRoom(const std::string& roomId, TeamRoomView& out) {
     return true;
 }
 
-void OnlineLobby::RefreshTeamRoom() {
+void OnlineLobby::RefreshTeamRoom(SupabaseClient& http) {
     if (activeTeamRoomId_.empty()) return;
     TeamRoomView loaded;
-    if (!LoadTeamRoom(activeTeamRoomId_, loaded)) return;
-    teamRoom_ = loaded;
+    if (!LoadTeamRoom(http, activeTeamRoomId_, loaded)) return;
+    std::lock_guard lock(dataMu_);
+    teamRoom_ = std::move(loaded);
 }
 
-void OnlineLobby::RefreshIncomingTeamInvites() {
+void OnlineLobby::RefreshIncomingTeamInvites(SupabaseClient& http) {
     if (!identity) return;
 
-    json rows = client.Select("team_invites",
+    json rows = http.Select("team_invites",
         "select=id,room_id,from_player_id,team,status"
         "&to_player_id=eq." + identity->Id() +
         "&status=eq.pending&order=created_at.desc&limit=5");
 
-    incomingTeamInvites.clear();
-    if (!rows.is_array()) return;
+    std::vector<IncomingTeamInvite> built;
+    if (!rows.is_array()) {
+        std::lock_guard lock(dataMu_);
+        incomingTeamInvites.clear();
+        return;
+    }
 
     std::unordered_set<std::string> myRoomIds;
-    json memberRows = client.Select("team_room_members",
+    json memberRows = http.Select("team_room_members",
         "select=room_id&player_id=eq." + identity->Id());
     if (memberRows.is_array()) {
         for (const auto& mrow : memberRows) {
@@ -177,7 +182,7 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
             if (ridx++ > 0) roomInList += ",";
             roomInList += rid;
         }
-        json roomRows = client.Select("team_rooms", "select=id,version,status&id=in.(" + roomInList + ")");
+        json roomRows = http.Select("team_rooms", "select=id,version,status&id=in.(" + roomInList + ")");
         if (roomRows.is_array()) {
             for (const auto& rr : roomRows) {
                 const std::string rid = json_helpers::Str(rr, "id");
@@ -200,7 +205,7 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
             if (idx++ > 0) inList += ",";
             inList += id;
         }
-        json prows = client.Select("players", "select=id,display_name&id=in.(" + inList + ")");
+        json prows = http.Select("players", "select=id,display_name&id=in.(" + inList + ")");
         if (prows.is_array()) {
             for (const auto& p : prows) {
                 fromNames[json_helpers::Str(p, "id")] = json_helpers::Str(p, "display_name", "???");
@@ -213,7 +218,7 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
         if (myRoomIds.count(roomId) > 0) {
             const std::string inviteId = json_helpers::Str(row, "id");
             if (!inviteId.empty()) {
-                client.Update("team_invites", "id=eq." + inviteId, json{ { "status", "accepted" } });
+                http.Update("team_invites", "id=eq." + inviteId, json{ { "status", "accepted" } });
             }
             continue;
         }
@@ -234,8 +239,10 @@ void OnlineLobby::RefreshIncomingTeamInvites() {
         const auto vit = roomVersions.find(inv.roomId);
         inv.roomVersion = (vit != roomVersions.end() && vit->second == "plus")
             ? GameVersion::Plus : GameVersion::Classic;
-        incomingTeamInvites.push_back(inv);
+        built.push_back(inv);
     }
+    std::lock_guard lock(dataMu_);
+    incomingTeamInvites.swap(built);
 }
 
 void OnlineLobby::EnsureTeamRealtime() {
@@ -266,9 +273,9 @@ void OnlineLobby::EnterTeamRoom(const std::string& roomId) {
     teamRoomActive_ = true;
     teamPollTimer = 0.0f;
     teamPresenceTimer_ = 0.0f;
-    RefreshTeamRoom();
+    ScheduleTeamSync();
     EnsureTeamRealtime();
-    if (registeredPlayer) UpsertPresenceWithStatus("team_room", roomId);
+    if (registeredPlayer.load()) PostPresenceUpsert("team_room", roomId);
     DebugLogf(LOG_INFO, "LOBBY: entrou na sala de composicao %s", roomId.c_str());
 }
 
@@ -281,7 +288,7 @@ void OnlineLobby::LeaveTeamRoom() {
     teamRealtime_.Stop();
     teamRealtimeStarted_ = false;
     teamRoom_ = {};
-    if (registeredPlayer && lobbyActive_) UpsertPresenceWithStatus("idle", "");
+    if (registeredPlayer.load() && lobbyActive_.load()) PostPresenceUpsert("idle", "");
 }
 
 void OnlineLobby::UpdateTeamRoom(float dt) {
@@ -308,17 +315,13 @@ void OnlineLobby::UpdateTeamRoom(float dt) {
     if (!dirty && teamPollTimer < TEAM_POLL_SEC) return;
     teamPollTimer = 0.0f;
 
-    RefreshTeamRoom();
-    RefreshPlayerList();
-    RefreshIncomingTeamInvites();
+    ScheduleTeamSync();
 
-    if (teamRoom_.status == "cancelled") {
+    TeamRoomView roomSnap;
+    if (CopyActiveTeamRoom(roomSnap) && roomSnap.status == "cancelled") {
         DebugLogf(LOG_INFO, "LOBBY: sala cancelada");
         LeaveTeamRoom();
-        return;
     }
-
-    TryResolveTeamRoomMatchStart();
 }
 
 int OnlineLobby::MyPlayerNumberInRoom(const TeamRoomView& room) const {
@@ -468,10 +471,10 @@ void OnlineLobby::FillMatchStartCosmetics(const json& mrow, int totalPlayers) {
     }
 }
 
-void OnlineLobby::TryResolveTeamRoomMatchStart() {
+void OnlineLobby::TryResolveTeamRoomMatchStart(SupabaseClient& http) {
     if (!inTeamRoom_ || hasReadyMatch || activeTeamRoomId_.empty()) return;
 
-    json rows = client.Select("team_rooms",
+    json rows = http.Select("team_rooms",
         "select=match_id,status&id=eq." + activeTeamRoomId_);
     if (!rows.is_array() || rows.empty()) return;
 
@@ -481,17 +484,19 @@ void OnlineLobby::TryResolveTeamRoomMatchStart() {
     const std::string matchId = json_helpers::Str(rows[0], "match_id");
     if (matchId.empty()) return;
 
-    RefreshTeamRoom();
-    const int myNum = MyPlayerNumberInRoom(teamRoom_);
+    RefreshTeamRoom(http);
+    TeamRoomView roomSnap;
+    if (!CopyActiveTeamRoom(roomSnap)) return;
+    const int myNum = MyPlayerNumberInRoom(roomSnap);
     if (myNum == 0) {
         DebugLogf(LOG_WARNING, "LOBBY: partida pronta mas jogador nao mapeado na sala");
         return;
     }
 
-    json matchRows = client.Select("matches", "select=*&id=eq." + matchId);
+    json matchRows = http.Select("matches", "select=*&id=eq." + matchId);
     if (!matchRows.is_array() || matchRows.empty()) return;
 
-    BuildMatchStartFromRow(matchRows[0], teamRoom_);
+    BuildMatchStartFromRow(matchRows[0], roomSnap);
     hasReadyMatch = true;
     DebugLogf(LOG_INFO, "LOBBY: partida pronta match=%s eu=P%d (%dx%d)",
               matchId.c_str(), readyMatch.myPlayerNumber,
@@ -499,10 +504,11 @@ void OnlineLobby::TryResolveTeamRoomMatchStart() {
 }
 
 void OnlineLobby::SendTeamInvite(const LobbyPlayerCard& target) {
-    if (!identity || !teamRoom_.amCaptain || activeTeamRoomId_.empty()) return;
-    if (!teamRoom_.CanInvite(teamRoom_.myTeam)) return;
+    TeamRoomView room;
+    if (!identity || !CopyActiveTeamRoom(room) || activeTeamRoomId_.empty()) return;
+    if (!room.amCaptain || !room.CanInvite(room.myTeam)) return;
 
-    const char* teamStr = (teamRoom_.myTeam == 'b') ? "b" : "a";
+    const char* teamStr = (room.myTeam == 'b') ? "b" : "a";
     json body = {
         { "room_id", activeTeamRoomId_ },
         { "from_player_id", identity->Id() },
@@ -516,9 +522,8 @@ void OnlineLobby::SendTeamInvite(const LobbyPlayerCard& target) {
 void OnlineLobby::AcceptTeamInvite(const IncomingTeamInvite& invite) {
     if (!identity) return;
 
-    RefreshTeamRoom();
     TeamRoomView room;
-    if (!LoadTeamRoom(invite.roomId, room)) return;
+    if (!LoadTeamRoom(client, invite.roomId, room)) return;
 
     const char* teamStr = (invite.team == 'b') ? "b" : "a";
     const std::vector<TeamRoomMember>& teamMembers = (invite.team == 'b') ? room.teamB : room.teamA;
@@ -586,18 +591,24 @@ void OnlineLobby::LeaveTeamAsPartner() {
 }
 
 void OnlineLobby::StartTeamMatch() {
-    if (!identity || !teamRoom_.amCaptain || activeTeamRoomId_.empty()) return;
+    TeamRoomView room;
+    if (!CopyActiveTeamRoom(room)) return;
+    if (!identity || !room.amCaptain || activeTeamRoomId_.empty()) return;
 
-    RefreshTeamRoom();
-    if (teamRoom_.teamA.empty() || teamRoom_.teamB.empty()) return;
+    if (!LoadTeamRoom(client, activeTeamRoomId_, room)) return;
+    {
+        std::lock_guard lock(dataMu_);
+        teamRoom_ = room;
+    }
+    if (room.teamA.empty() || room.teamB.empty()) return;
 
     json check = client.Select("team_rooms", "select=status&id=eq." + activeTeamRoomId_);
     if (!check.is_array() || check.empty()) return;
     if (json_helpers::Str(check[0], "status") != "recruiting") return;
 
-    const MatchComposition comp = teamRoom_.Composition();
+    const MatchComposition comp = room.Composition();
     const unsigned int seed = static_cast<unsigned int>(rand()) ^ static_cast<unsigned int>(time(nullptr));
-    const bool isPlus = (teamRoom_.version == GameVersion::Plus);
+    const bool isPlus = (room.version == GameVersion::Plus);
 
     json matchBody = {
         { "terrain_seed", static_cast<long long>(seed) },
@@ -611,12 +622,12 @@ void OnlineLobby::StartTeamMatch() {
     };
 
     int playerIdx = 1;
-    for (const TeamRoomMember& m : teamRoom_.teamA) {
+    for (const TeamRoomMember& m : room.teamA) {
         if (playerIdx > MatchRoster::kMaxCannons) break;
         matchBody["player" + std::to_string(playerIdx) + "_id"] = m.playerId;
         ++playerIdx;
     }
-    for (const TeamRoomMember& m : teamRoom_.teamB) {
+    for (const TeamRoomMember& m : room.teamB) {
         if (playerIdx > MatchRoster::kMaxCannons) break;
         matchBody["player" + std::to_string(playerIdx) + "_id"] = m.playerId;
         ++playerIdx;
@@ -636,7 +647,7 @@ void OnlineLobby::StartTeamMatch() {
     json matchRows = client.Select("matches", "select=*&id=eq." + matchId);
     if (!matchRows.is_array() || matchRows.empty()) return;
 
-    BuildMatchStartFromRow(matchRows[0], teamRoom_);
+    BuildMatchStartFromRow(matchRows[0], room);
     if (readyMatch.myPlayerNumber == 0) {
         DebugLogf(LOG_WARNING, "LOBBY: capitao nao mapeado ao iniciar partida");
         hasReadyMatch = false;

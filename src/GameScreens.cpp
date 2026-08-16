@@ -465,7 +465,7 @@ void Game::UpdateOnlineLobby() {
     ScrollListLayout listLayout = OnlineLobbyListLayout(listStartY, static_cast<int>(players.size()));
     UpdateScrollList(onlineLobbyScroll_, listLayout, m);
 
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && ScrollListPointInViewport(listLayout, m)
+    if (ScrollListTapReleased(onlineLobbyScroll_) && ScrollListPointInViewport(listLayout, m)
         && !CheckCollisionPointRec(m, ScrollListTrack(listLayout))) {
         for (int i = 0; i < static_cast<int>(players.size()); ++i) {
             Rectangle row = ScrollListRowRect(listLayout, onlineLobbyScroll_, i);

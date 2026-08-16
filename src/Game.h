@@ -267,12 +267,13 @@ private:
     int remoteLiveShotId = 0;
     int remoteLiveLastSeq = -1;
     float remoteLivePlayT = 0.0f;
-    float remoteLiveBufferDelay = 0.03f;
+    float remoteLiveBufferDelay = 0.012f;
     bool remoteLivePlayStarted = false;
     bool remoteLiveHasPendingResult = false;
     float remoteLiveWatchTimer = 0.0f;
     std::vector<ProjSample> remoteLiveSamples;
     Vector2 remoteLivePos{};
+    Vector2 remoteLivePredVel{};
     int opponentAimPlayer = 0;
     float opponentAimAngle = 45.0f;
     float opponentAimPower = 0.5f;

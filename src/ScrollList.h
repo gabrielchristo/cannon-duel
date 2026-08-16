@@ -3,10 +3,13 @@
 #include <raylib.h>
 
 #include <algorithm>
+#include <cmath>
 
 struct ScrollListState {
     float scrollY = 0.0f;
     bool dragging = false;
+    bool draggingContent = false;
+    bool dragMoved = false;
     float dragStartY = 0.0f;
     float dragStartScroll = 0.0f;
 };
@@ -53,6 +56,12 @@ inline bool ScrollListPointInViewport(const ScrollListLayout& layout, Vector2 p)
     return CheckCollisionPointRec(p, layout.viewport);
 }
 
+inline constexpr float kScrollDragSlopPx = 12.0f;
+
+inline bool ScrollListTapReleased(const ScrollListState& state) {
+    return IsMouseButtonReleased(MOUSE_LEFT_BUTTON) && !state.dragMoved;
+}
+
 inline void UpdateScrollList(ScrollListState& state, const ScrollListLayout& layout, Vector2 mouse) {
     const float maxScroll = ScrollListMaxScroll(layout);
     state.scrollY = std::clamp(state.scrollY, 0.0f, maxScroll);
@@ -67,20 +76,39 @@ inline void UpdateScrollList(ScrollListState& state, const ScrollListLayout& lay
             state.scrollY = std::clamp(state.scrollY - wheel * layout.rowHeight * 0.75f, 0.0f, maxScroll);
         }
     }
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && overScroll && maxScroll > 0.0f) {
-        state.dragging = true;
-        state.dragStartY = mouse.y;
-        state.dragStartScroll = state.scrollY;
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        state.dragMoved = false;
+        state.dragging = false;
+        state.draggingContent = false;
+        if (maxScroll > 0.0f && overScroll) {
+            state.dragging = true;
+            state.draggingContent = false;
+            state.dragStartY = mouse.y;
+            state.dragStartScroll = state.scrollY;
+        } else if (maxScroll > 0.0f && overViewport) {
+            state.dragging = true;
+            state.draggingContent = true;
+            state.dragStartY = mouse.y;
+            state.dragStartScroll = state.scrollY;
+        }
     }
+
     if (state.dragging && IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
-        const float thumbH = std::max(24.0f, track.height * (layout.viewport.height / ScrollListContentHeight(layout)));
-        const float thumbTravel = std::max(1.0f, track.height - thumbH);
         const float deltaY = mouse.y - state.dragStartY;
-        state.scrollY = std::clamp(
-            state.dragStartScroll + (deltaY / thumbTravel) * maxScroll, 0.0f, maxScroll);
+        if (std::fabs(deltaY) >= kScrollDragSlopPx) state.dragMoved = true;
+        if (state.draggingContent) {
+            state.scrollY = std::clamp(state.dragStartScroll - deltaY, 0.0f, maxScroll);
+        } else {
+            const float thumbH = std::max(24.0f, track.height * (layout.viewport.height / ScrollListContentHeight(layout)));
+            const float thumbTravel = std::max(1.0f, track.height - thumbH);
+            state.scrollY = std::clamp(
+                state.dragStartScroll + (deltaY / thumbTravel) * maxScroll, 0.0f, maxScroll);
+        }
     }
     if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
         state.dragging = false;
+        state.draggingContent = false;
     }
 }
 
@@ -96,17 +124,25 @@ inline void UpdateInvisibleScroll(ScrollListState& state, const ScrollListLayout
             state.scrollY = std::clamp(state.scrollY - wheel * layout.rowHeight, 0.0f, maxScroll);
         }
     }
-    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && overViewport && maxScroll > 0.0f) {
-        state.dragging = true;
-        state.dragStartY = mouse.y;
-        state.dragStartScroll = state.scrollY;
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        state.dragMoved = false;
+        state.dragging = false;
+        state.draggingContent = false;
+        if (overViewport && maxScroll > 0.0f) {
+            state.dragging = true;
+            state.draggingContent = true;
+            state.dragStartY = mouse.y;
+            state.dragStartScroll = state.scrollY;
+        }
     }
     if (state.dragging && IsMouseButtonDown(MOUSE_LEFT_BUTTON)) {
         const float deltaY = mouse.y - state.dragStartY;
+        if (std::fabs(deltaY) >= kScrollDragSlopPx) state.dragMoved = true;
         state.scrollY = std::clamp(state.dragStartScroll - deltaY, 0.0f, maxScroll);
     }
     if (IsMouseButtonReleased(MOUSE_LEFT_BUTTON)) {
         state.dragging = false;
+        state.draggingContent = false;
     }
 }
 

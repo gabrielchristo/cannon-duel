@@ -173,6 +173,13 @@ void Game::DrawMainMenu() {
     drawButton(btnShop, T(TK::ShopButton, language));
     drawButton(btnInstructions, T(TK::InstructionsButton, language));
     drawButton(btnAbout, T(TK::AboutButton, language));
+
+    char verBuf[32];
+    std::snprintf(verBuf, sizeof(verBuf), "v%s", cfg::GAME_VERSION);
+    const int vfs = 20;
+    const int vw = MeasureText(verBuf, vfs);
+    DrawText(verBuf, cfg::SCREEN_WIDTH - vw - 18, cfg::SCREEN_HEIGHT - 30, vfs,
+             Color{110, 95, 75, 255});
 }
 
 void Game::UpdateFormatSelect() {

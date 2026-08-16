@@ -114,14 +114,11 @@ endif()
 target_link_libraries(CannonDuel PRIVATE raylib box2d nlohmann_json::nlohmann_json)
 
 if(EMSCRIPTEN)
-    # -sASYNCIFY: deixa EM_ASYNC_JS (fetch síncrono-aparente no
-    #   SupabaseClient web) suspender/retomar a pilha C++ sem precisar de
-    #   pthreads/SharedArrayBuffer (GitHub Pages não seta os headers
-    #   COOP/COEP que pthreads exigiriam). Também é o que permite montar o
-    #   backend OPFS (WebOpfs.cpp) na thread principal: sem Asyncify (nem
-    #   JSPI, nem pthreads) o wasmfs_create_opfs_backend() do WASMFS
-    #   trava/assert, porque não tem como suspender a call stack C++
-    #   enquanto a Promise do OPFS resolve no event loop do browser.
+    # -sASYNCIFY: ainda necessário pro OPFS (WebOpfs.cpp) na thread
+    #   principal e pra alguns cliques HTTP síncronos. O NetWorker web
+    #   não usa mais Asyncify no fetch — o frame continua enquanto a
+    #   resposta não chega. Sem pthreads/SharedArrayBuffer (GitHub Pages
+    #   não seta COOP/COEP).
     # -sWASMFS: filesystem layer usado por WebOpfs.cpp (backend OPFS) —
     #   substituiu o IDBFS antigo (que exigia FS.syncfs manual em volta de
     #   toda leitura/escrita). Compatível com --preload-file abaixo.
@@ -134,9 +131,11 @@ if(EMSCRIPTEN)
     #   fica mudo (fire/explosion/music), sem erro visível fora do console.
     # --preload-file: empacota assets/ no mesmo prefixo "assets/" usado por
     #   AssetPath.h no desktop, então esse arquivo não precisa mudar.
+    target_compile_options(CannonDuel PRIVATE -fexceptions)
     target_link_options(CannonDuel PRIVATE
         -sUSE_GLFW=3
         -sASYNCIFY
+        -fexceptions
         -sWASMFS
         -sALLOW_MEMORY_GROWTH=1
         -sFORCE_FILESYSTEM=1

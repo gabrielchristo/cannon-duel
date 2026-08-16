@@ -27,7 +27,7 @@ HTTP simples, incluindo GitHub Pages.
 | Área | Desktop/Android | Web |
 |------|------------------|-----|
 | Rede | libcurl (`src/net/SupabaseClient.cpp`, `RealtimeClient.cpp`) | `fetch()`/`emscripten_websocket` (`web/net/*.web.cpp`) |
-| Concorrência de rede | thread de fundo real | `-sASYNCIFY` (sem pthreads — GitHub Pages não seta COOP/COEP) |
+| Concorrência de rede | 2 threads HTTP | `fetch()` async no `NetWorker` (sem pausar o frame); Asyncify só pra OPFS/cliques |
 | Persistência (`player_identity.txt`) | filesystem nativo | WASMFS + backend OPFS, montado em `/opfs` (`web/WebOpfs.cpp/h`) |
 | Assets | copiados pro diretório de build | empacotados em `.data` via `--preload-file assets@assets` |
 | Áudio | miniaudio nativo | miniaudio via Web Audio (`ScriptProcessorNode`) — exige `-sEXPORTED_RUNTIME_METHODS=HEAPF32` |
@@ -73,9 +73,10 @@ qualquer outro caminho.
 
 ## Limitações conhecidas
 
-- Sem pthreads reais (ver tabela acima): uma requisição HTTP em andamento
-  pode pausar a renderização por um frame ou dois. Aceitável pra um jogo
-  por turnos.
+- Sem pthreads reais (ver tabela acima). O `NetWorker` na web dispara
+  `fetch()` sem pausar o frame (replay do job quando a resposta chega).
+  Cliques que ainda falam HTTP direto no loop (aceitar desafio, iniciar
+  partida) podem hitch um instante.
 - `fetch()`/WebSocket exigem `http://`/`https://`; abrir o `.html` como
   `file://` não funciona (rodar com `./run_web.sh release` ou `debug`).
 - Canvas HiDPI: backing store = CSS × `devicePixelRatio` (teto 3×). O

@@ -2,6 +2,8 @@
 
 namespace cfg {
 
+constexpr const char* GAME_VERSION = "1.0";
+
 // ---- Mundo lógico ----
 // Física, terreno, mira e acertos vivem sempre em HD. A janela/dispositivo
 // pode ser maior: o VirtualScreen escala o render target (mesmo princípio

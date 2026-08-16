@@ -2,6 +2,7 @@
 #include "../Platform.h"
 
 #include <string>
+#include <vector>
 #include <nlohmann/json.hpp>
 
 // Wrapper fino sobre a API REST automática do Supabase (PostgREST). Cada
@@ -30,6 +31,15 @@ public:
     static void ProbeCaBundle();
     void Close();
 
+#if CANNON_DUEL_WEB_BUILD
+    // NetWorker web: HTTP sem pausar o frame (fetch no browser, replay do job).
+    struct WebHttpYield {};
+    void WebEnableAsyncReplay(bool enable);
+    bool WebPollInFlight();
+    void WebResetReplay();
+    void WebClearJob();
+#endif
+
 private:
     bool lastOk = true;
     void* curl_ = nullptr;
@@ -38,4 +48,17 @@ private:
     void ResetCurlOptions();
     nlohmann::json Request(const std::string& method, const std::string& urlSuffix,
                             const nlohmann::json* body, const char* preferHeader);
+
+#if CANNON_DUEL_WEB_BUILD
+    bool webAsyncReplay_ = false;
+    int webReplayIndex_ = 0;
+    int webInFlightId_ = 0;
+    struct WebCachedResult {
+        bool ok = false;
+        nlohmann::json json;
+    };
+    std::vector<WebCachedResult> webCache_;
+    nlohmann::json WebStartOrReplay(const std::string& method, const std::string& url,
+                                    const std::string& headersStr, const char* bodyArg);
+#endif
 };

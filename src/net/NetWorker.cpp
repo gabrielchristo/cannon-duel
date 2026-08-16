@@ -32,6 +32,11 @@ std::function<void(SupabaseClient&)> NetWorker::PopCoalesced() {
 
 #if CANNON_DUEL_WEB_BUILD
 
+namespace {
+SupabaseClient gWebClient;
+std::function<void(SupabaseClient&)> gWebJob;
+}
+
 void NetWorker::EnsureThread() {}
 void NetWorker::ThreadMainHigh() {}
 void NetWorker::ThreadMainCoalesced() {}
@@ -40,6 +45,8 @@ void NetWorker::Stop() {
     std::lock_guard lock(mu_);
     highQueue_.clear();
     coalesced_.clear();
+    gWebJob = nullptr;
+    gWebClient.WebClearJob();
 }
 
 void NetWorker::Post(std::function<void(SupabaseClient&)> job) {
@@ -65,16 +72,35 @@ void NetWorker::CloseConnections() {
 }
 
 void NetWorker::Tick() {
-    static SupabaseClient client;
-    std::function<void(SupabaseClient&)> high;
-    std::function<void(SupabaseClient&)> low;
-    {
-        std::lock_guard lock(mu_);
-        high = PopHigh();
-        low = PopCoalesced();
+    gWebClient.WebEnableAsyncReplay(true);
+
+    if (gWebJob) {
+        if (gWebClient.WebPollInFlight()) return;
+        gWebClient.WebResetReplay();
+        try {
+            gWebJob(gWebClient);
+        } catch (const SupabaseClient::WebHttpYield&) {
+            return;
+        }
+        gWebJob = nullptr;
+        gWebClient.WebClearJob();
     }
-    if (high) high(client);
-    if (low) low(client);
+
+    if (!gWebJob) {
+        std::lock_guard lock(mu_);
+        gWebJob = PopHigh();
+        if (!gWebJob) gWebJob = PopCoalesced();
+    }
+    if (!gWebJob) return;
+
+    gWebClient.WebClearJob();
+    try {
+        gWebJob(gWebClient);
+    } catch (const SupabaseClient::WebHttpYield&) {
+        return;
+    }
+    gWebJob = nullptr;
+    gWebClient.WebClearJob();
 }
 
 #else

@@ -5,6 +5,8 @@ build/
 build-*/
 cmake-build-*/
 android/build/
+web/build/
+web/dist/
 
 # ---------------------------------------------------------------------------
 # CMake
@@ -47,6 +49,10 @@ Thumbs.db
 *.keystore
 *.jks
 
+# Chave de assinatura Android (debug e release usam a mesma — não commitar)
+android/cannon-duel.keystore
+android/keystore.properties
+
 # Executável do jogo no desktop (nome do alvo do CMake)
 /CannonDuel
 /cannon_duel.zip
@@ -55,3 +61,21 @@ Thumbs.db
 # Logs / temporários
 # ---------------------------------------------------------------------------
 *.log
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+
+# ---------------------------------------------------------------------------
+# Identidade local (UUID do jogador — não commitar)
+# ---------------------------------------------------------------------------
+player_identity.txt
+wallet_cache.txt
+
+# ---------------------------------------------------------------------------
+# Guias offline de desenvolvimento (não commitar)
+# ---------------------------------------------------------------------------
+/TODO.md
+/docs/current-state.md

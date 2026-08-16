@@ -1,0 +1,47 @@
+#pragma once
+#include "../Platform.h"
+#include "PlayerIdentity.h"
+#include "SupabaseClient.h"
+
+#include <atomic>
+#include <set>
+#include <string>
+
+class PlayerWallet {
+public:
+    void Init(PlayerIdentity* identity);
+
+    int Coins() const { return coins_; }
+    bool Owns(const std::string& itemId) const;
+    const std::string& EquippedCannonColor() const { return equippedCannonColor_; }
+    const std::string& EquippedCannonSkin() const { return equippedCannonSkin_; }
+    const std::string& EquippedCannonEffect() const { return equippedCannonEffect_; }
+    const std::string& EquippedNameEffect() const { return equippedNameEffect_; }
+    const std::string& EquippedAmmo() const { return equippedAmmo_; }
+
+    void RefreshFromServer();
+    void AwardCoins(int amount);
+    bool TryPurchase(const std::string& itemId);
+    bool Equip(const std::string& itemId);
+
+private:
+    PlayerIdentity* identity_ = nullptr;
+    SupabaseClient client_;
+
+    static constexpr int kStartingCoins = 300;
+    std::atomic<bool> refreshInFlight_{false};
+    int coins_ = kStartingCoins;
+    std::set<std::string> ownedItems_;
+    std::string equippedCannonColor_;
+    std::string equippedCannonSkin_;
+    std::string equippedCannonEffect_;
+    std::string equippedNameEffect_;
+    std::string equippedAmmo_;
+
+    static std::string CachePath();
+    void LoadDisplayCache();
+    void SaveDisplayCache() const;
+
+    void EnsurePlayerRow();
+    int FetchServerCoins();
+};

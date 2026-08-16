@@ -11,8 +11,9 @@
 
 class SupabaseClient;
 
-// Fila HTTP com prioridade: turnos/disparos na frente; mira ao vivo coalescida
-// (só o último estado) para não acumular centenas de PATCH atrás de polls.
+// Duas filas HTTP em paralelo:
+//   high  — turnos, polls, disparos
+//   coalesced — presença / mira / loja / sync de lobby (só o último por slot)
 class NetWorker {
 public:
     NetWorker();
@@ -21,21 +22,26 @@ public:
     NetWorker(const NetWorker&) = delete;
     NetWorker& operator=(const NetWorker&) = delete;
 
-    // Turnos, polls, disparos — processados antes de qualquer job de baixa prioridade.
     void Post(std::function<void(SupabaseClient&)> job);
-
-    // Heartbeat / limpeza de mira — descarta jobs antigos do mesmo slot.
     void PostCoalesced(const std::string& slot, std::function<void(SupabaseClient&)> job);
     void ClearCoalesced();
     void CloseConnections();
 
     void Stop();
 
+    // Web: drena até 2 jobs por frame (1 high + 1 coalescido). No-op no desktop.
+    void Tick();
+
 private:
     void EnsureThread();
-    void ThreadMain();
+    void ThreadMainHigh();
+    void ThreadMainCoalesced();
 
-    std::thread thread_;
+    std::function<void(SupabaseClient&)> PopHigh();
+    std::function<void(SupabaseClient&)> PopCoalesced();
+
+    std::thread highThread_;
+    std::thread coalescedThread_;
     std::mutex mu_;
     std::condition_variable cv_;
     std::deque<std::function<void(SupabaseClient&)>> highQueue_;

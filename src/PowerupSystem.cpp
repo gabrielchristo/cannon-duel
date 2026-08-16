@@ -6,15 +6,37 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
+
+namespace {
+bool SegmentNearPowerup(const Powerup& pu, const Terrain& terrain,
+                        Vector2 projFrom, Vector2 seg, float segLenSq, float hitRadius) {
+    if (!pu.active) return false;
+    const float y = terrain.HeightAt(pu.x);
+    const Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f };
+    float t = 0.0f;
+    if (segLenSq > 0.0001f) {
+        t = ((center.x - projFrom.x) * seg.x + (center.y - projFrom.y) * seg.y) / segLenSq;
+        t = std::clamp(t, 0.0f, 1.0f);
+    }
+    const Vector2 closest = { projFrom.x + seg.x * t, projFrom.y + seg.y * t };
+    const float dist = std::sqrt(std::pow(closest.x - center.x, 2) + std::pow(closest.y - center.y, 2));
+    return dist <= hitRadius;
+}
+} // namespace
 
 void PowerupSystem::Reset() {
     active_.clear();
     turnsSinceSpawnCheck_ = 0;
     shotPickedType_ = -1;
     shotPickedX_ = 0.0f;
+    shotPickups_.clear();
+    remotePickupsAppliedThisShot_ = false;
     remoteEffectApplied_ = false;
     messageTimer_ = 0.0f;
     messageText_ = nullptr;
+    pinnedTooltipIndex_ = -1;
+    pinnedTooltipTimer_ = 0.0f;
 }
 
 void PowerupSystem::TickSpawnCounter() {
@@ -23,6 +45,10 @@ void PowerupSystem::TickSpawnCounter() {
 
 void PowerupSystem::ResetSpawnCounter() {
     turnsSinceSpawnCheck_ = 0;
+}
+
+void PowerupSystem::SetSpawnEveryTurns(int turns) {
+    spawnEveryTurns_ = std::max(1, turns);
 }
 
 PowerupType PowerupSystem::RollWeightedType(float roll01) const {
@@ -52,28 +78,170 @@ void PowerupSystem::PushSpawn(float x, PowerupType type) {
     active_.push_back(p);
 }
 
-void PowerupSystem::MaybeSpawnRandom() {
+int PowerupSystem::CountActivePowerups() const {
+    int n = 0;
+    for (const auto& pu : active_) {
+        if (pu.active) ++n;
+    }
+    return n;
+}
+
+void PowerupSystem::EvictLowestXActive() {
+    int bestIdx = -1;
+    float bestX = 1e9f;
+    for (int i = 0; i < static_cast<int>(active_.size()); ++i) {
+        if (!active_[i].active) continue;
+        if (active_[i].x < bestX) {
+            bestX = active_[i].x;
+            bestIdx = i;
+        }
+    }
+    if (bestIdx >= 0) {
+        active_[bestIdx].active = false;
+        CompactInactive();
+    }
+}
+
+void PowerupSystem::ClearShotPickups() {
+    shotPickedType_ = -1;
+    shotPickedX_ = 0.0f;
+    shotPickups_.clear();
+}
+
+bool PowerupSystem::CollectPowerupAt(Powerup& pu, Cannon& shooter, Lang lang,
+                                     const std::function<void(int type, float x)>& onOnlinePickup) {
+    if (!pu.active) return false;
+
+    const PowerupType type = pu.type;
+    const float px = pu.x;
+    pu.active = false;
+
+    shotPickups_.push_back({ static_cast<int>(type), px });
+    shotPickedType_ = static_cast<int>(type);
+    shotPickedX_ = px;
+
+    if (onOnlinePickup) {
+        onOnlinePickup(shotPickedType_, shotPickedX_);
+    }
+
+    ApplyEffect(shooter, type, lang);
+    return true;
+}
+
+void PowerupSystem::CompactInactive() {
+    active_.erase(std::remove_if(active_.begin(), active_.end(),
+                                 [](const Powerup& p) { return !p.active; }),
+                  active_.end());
+}
+
+float PowerupSystem::MinClearanceFromCannons() const {
+    return cfg::CANNON_BODY_RADIUS_PX + cfg::POWERUP_RADIUS_PX + cfg::POWERUP_SPAWN_CANNON_CLEARANCE_PX;
+}
+
+bool PowerupSystem::IsClearOfCannons(float x, const MatchRoster& roster) const {
+    const float minDist = MinClearanceFromCannons();
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        if (std::fabs(x - roster.At(i).x) < minDist) return false;
+    }
+    return true;
+}
+
+float PowerupSystem::ResolveSpawnX(float preferredX, const MatchRoster& roster,
+                                   const std::function<float(int attempt)>& candidateFn) const {
+    constexpr float margin = 160.0f;
+    const float minX = margin;
+    const float maxX = cfg::SCREEN_WIDTH - margin;
+    const float minDist = MinClearanceFromCannons();
+
+    auto clampX = [&](float x) { return std::clamp(x, minX, maxX); };
+
+    if (IsClearOfCannons(preferredX, roster)) return clampX(preferredX);
+
+    int nearestSlot = 0;
+    float nearestDx = 1e9f;
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        const float dx = std::fabs(preferredX - roster.At(i).x);
+        if (dx < nearestDx) {
+            nearestDx = dx;
+            nearestSlot = i;
+        }
+    }
+    const float cannonX = roster.At(nearestSlot).x;
+    float shifted = (preferredX >= cannonX) ? (cannonX + minDist) : (cannonX - minDist);
+    if (IsClearOfCannons(shifted, roster)) return clampX(shifted);
+    shifted = (preferredX >= cannonX) ? (cannonX - minDist) : (cannonX + minDist);
+    if (IsClearOfCannons(shifted, roster)) return clampX(shifted);
+
+    for (int attempt = 0; attempt < 16; ++attempt) {
+        const float x = candidateFn(attempt);
+        if (IsClearOfCannons(x, roster)) return clampX(x);
+    }
+
+    float bestX = cfg::SCREEN_WIDTH * 0.5f;
+    float bestScore = -1.0f;
+    for (int sample = 0; sample < 32; ++sample) {
+        const float x = minX + (maxX - minX) * static_cast<float>(sample) / 31.0f;
+        float score = 1e9f;
+        for (int i = 0; i < roster.CannonCount(); ++i) {
+            score = std::min(score, std::fabs(x - roster.At(i).x));
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            bestX = x;
+        }
+    }
+    return clampX(bestX);
+}
+
+void PowerupSystem::MaybeSpawnRandom(const MatchRoster& roster) {
     if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
-    if (turnsSinceSpawnCheck_ < cfg::POWERUP_SPAWN_EVERY_TURNS) return;
+    if (turnsSinceSpawnCheck_ < spawnEveryTurns_) return;
     turnsSinceSpawnCheck_ = 0;
 
-    float margin = 160.0f;
-    float x = RandF(margin, cfg::SCREEN_WIDTH - margin);
+    constexpr float margin = 160.0f;
+    const float preferred = RandF(margin, cfg::SCREEN_WIDTH - margin);
+    const float x = ResolveSpawnX(preferred, roster, [&](int attempt) {
+        (void)attempt;
+        return RandF(margin, cfg::SCREEN_WIDTH - margin);
+    });
     PushSpawn(x, RollWeightedType(RandF(0.0f, 1.0f)));
 }
 
-void PowerupSystem::SpawnAt(float x, PowerupType type) {
+void PowerupSystem::SpawnAt(float x, PowerupType type, const MatchRoster& roster) {
+    if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
+    const float resolved = ResolveSpawnX(x, roster, [&](int attempt) {
+        return x + static_cast<float>(attempt - 8) * (MinClearanceFromCannons() * 0.5f);
+    });
+    PushSpawn(resolved, type);
+}
+
+void PowerupSystem::SpawnAtExact(float x, PowerupType type) {
     if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
     PushSpawn(x, type);
 }
 
-void PowerupSystem::MaybeSpawnSeeded(unsigned seed, int completedTurns) {
-    if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) return;
+void PowerupSystem::MaybeSpawnSeeded(unsigned seed, int completedTurns, const MatchRoster& roster,
+                                     int* outType, float* outX, bool forceOnlineSpawn) {
+    if (completedTurns <= 0 || (completedTurns % spawnEveryTurns_) != 0) return;
+    if (forceOnlineSpawn) {
+        while (CountActivePowerups() >= cfg::POWERUP_MAX_ACTIVE) {
+            EvictLowestXActive();
+        }
+    } else if (static_cast<int>(active_.size()) >= cfg::POWERUP_MAX_ACTIVE) {
+        return;
+    }
 
-    unsigned salt = static_cast<unsigned>(completedTurns * 104729u + 17u);
-    float margin = 160.0f;
-    float x = margin + SeededUnitFloat(seed, salt) * (cfg::SCREEN_WIDTH - 2.0f * margin);
-    PushSpawn(x, RollWeightedType(SeededUnitFloat(seed, salt + 1u)));
+    const unsigned salt = static_cast<unsigned>(completedTurns * 104729u + 17u);
+    constexpr float margin = 160.0f;
+    const float span = cfg::SCREEN_WIDTH - 2.0f * margin;
+    const float preferred = margin + SeededUnitFloat(seed, salt) * span;
+    const float x = ResolveSpawnX(preferred, roster, [&](int attempt) {
+        return margin + SeededUnitFloat(seed, salt + 2u + static_cast<unsigned>(attempt)) * span;
+    });
+    const PowerupType type = RollWeightedType(SeededUnitFloat(seed, salt + 1u));
+    PushSpawn(x, type);
+    if (outType) *outType = static_cast<int>(type);
+    if (outX) *outX = x;
 }
 
 void PowerupSystem::Draw(const Terrain& terrain) const {
@@ -98,33 +266,76 @@ void PowerupSystem::Draw(const Terrain& terrain) const {
     }
 }
 
-void PowerupSystem::DrawTooltip(const Terrain& terrain, Vector2 mouse, Lang lang) const {
-    for (const auto& pu : active_) {
+void PowerupSystem::DrawTooltipForPowerup(const Powerup& pu, Vector2 anchor, Lang lang) const {
+    const char* desc = PowerupDescription(pu.type, lang);
+    int fs = 15;
+    int tw = MeasureText(desc, fs);
+    float boxW = tw + 16.0f, boxH = fs + 12.0f;
+
+    float bx = anchor.x + 16.0f;
+    float by = anchor.y - boxH - 10.0f;
+    bx = std::clamp(bx, 4.0f, static_cast<float>(cfg::SCREEN_WIDTH) - boxW - 4.0f);
+    by = std::clamp(by, 4.0f, static_cast<float>(cfg::SCREEN_HEIGHT) - boxH - 4.0f);
+
+    DrawRectangle(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
+                  Fade(Color{20, 20, 20, 255}, 0.9f));
+    DrawRectangleLines(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
+                       PowerupColor(pu.type));
+    DrawText(desc, static_cast<int>(bx + 8), static_cast<int>(by + 6), fs, WHITE);
+}
+
+bool PowerupSystem::PointerOverPowerup(const Terrain& terrain, Vector2 point, int* outIndex) const {
+    for (size_t i = 0; i < active_.size(); ++i) {
+        const Powerup& pu = active_[i];
         if (!pu.active) continue;
 
         float y = terrain.HeightAt(pu.x);
         float bob = std::sin(static_cast<float>(GetTime()) * 3.0f + pu.x) * 4.0f;
         Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f + bob };
 
-        float dist = std::sqrt(std::pow(mouse.x - center.x, 2) + std::pow(mouse.y - center.y, 2));
+        float dist = std::sqrt(std::pow(point.x - center.x, 2) + std::pow(point.y - center.y, 2));
         if (dist > cfg::POWERUP_RADIUS_PX + 10.0f) continue;
 
-        const char* desc = PowerupDescription(pu.type, lang);
-        int fs = 15;
-        int tw = MeasureText(desc, fs);
-        float boxW = tw + 16.0f, boxH = fs + 12.0f;
+        if (outIndex) *outIndex = static_cast<int>(i);
+        return true;
+    }
+    return false;
+}
 
-        float bx = mouse.x + 16.0f;
-        float by = mouse.y - boxH - 10.0f;
-        bx = std::clamp(bx, 4.0f, static_cast<float>(cfg::SCREEN_WIDTH) - boxW - 4.0f);
-        by = std::clamp(by, 4.0f, static_cast<float>(cfg::SCREEN_HEIGHT) - boxH - 4.0f);
+void PowerupSystem::DrawTooltip(const Terrain& terrain, Vector2 mouse, Lang lang) const {
+    int hoverIndex = -1;
+    if (PointerOverPowerup(terrain, mouse, &hoverIndex)) {
+        DrawTooltipForPowerup(active_[static_cast<size_t>(hoverIndex)], mouse, lang);
+        return;
+    }
 
-        DrawRectangle(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
-                      Fade(Color{20, 20, 20, 255}, 0.9f));
-        DrawRectangleLines(static_cast<int>(bx), static_cast<int>(by), static_cast<int>(boxW), static_cast<int>(boxH),
-                           PowerupColor(pu.type));
-        DrawText(desc, static_cast<int>(bx + 8), static_cast<int>(by + 6), fs, WHITE);
-        break;
+    if (pinnedTooltipIndex_ >= 0 &&
+        pinnedTooltipIndex_ < static_cast<int>(active_.size()) &&
+        active_[static_cast<size_t>(pinnedTooltipIndex_)].active) {
+        const Powerup& pu = active_[static_cast<size_t>(pinnedTooltipIndex_)];
+        float y = terrain.HeightAt(pu.x);
+        float bob = std::sin(static_cast<float>(GetTime()) * 3.0f + pu.x) * 4.0f;
+        Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f + bob };
+        DrawTooltipForPowerup(pu, center, lang);
+    }
+}
+
+bool PowerupSystem::ConsumesPointerPress(const Terrain& terrain, Vector2 point, Lang lang) {
+    int hitIndex = -1;
+    if (!PointerOverPowerup(terrain, point, &hitIndex)) return false;
+
+    pinnedTooltipIndex_ = hitIndex;
+    pinnedTooltipTimer_ = 2.5f;
+    (void)lang;
+    return true;
+}
+
+void PowerupSystem::UpdatePinnedTooltip(float dt) {
+    if (pinnedTooltipTimer_ > 0.0f) {
+        pinnedTooltipTimer_ = std::max(0.0f, pinnedTooltipTimer_ - dt);
+        if (pinnedTooltipTimer_ <= 0.0f) {
+            pinnedTooltipIndex_ = -1;
+        }
     }
 }
 
@@ -172,7 +383,7 @@ void PowerupSystem::ApplyEffect(Cannon& picker, PowerupType type, Lang lang) {
             picker.queuedTrajectoryPreviewTurns = cfg::POWERUP_TRAJECTORY_TURNS;
             break;
         case PowerupType::Guided:
-            picker.pendingGuided = true;
+            picker.queuedGuided = true;
             break;
         case PowerupType::Heal: {
             float amount = RandF(cfg::POWERUP_HEAL_MIN_RATIO, cfg::POWERUP_HEAL_MAX_RATIO) * cfg::CANNON_MAX_HEALTH;
@@ -181,6 +392,7 @@ void PowerupSystem::ApplyEffect(Cannon& picker, PowerupType type, Lang lang) {
         }
         case PowerupType::Shield:
             picker.shieldTurnsLeft = cfg::POWERUP_SHIELD_TURNS;
+            picker.shieldPickedThisTurn = true;
             break;
         default: break;
     }
@@ -189,8 +401,8 @@ void PowerupSystem::ApplyEffect(Cannon& picker, PowerupType type, Lang lang) {
     ShowMessage(PowerupDescription(type, lang), base);
 }
 
-void PowerupSystem::TickTurnEffects(Cannon& startingTurnCannon) {
-    startingTurnCannon.OnTurnStarted();
+void PowerupSystem::TickTurnEffects(Cannon& finishingTurnCannon) {
+    finishingTurnCannon.OnTurnEnded();
 }
 
 bool PowerupSystem::CheckProjectileCollision(Vector2 projFrom, Vector2 projTo, int currentPlayer,
@@ -200,48 +412,94 @@ bool PowerupSystem::CheckProjectileCollision(Vector2 projFrom, Vector2 projTo, i
     Vector2 seg = { projTo.x - projFrom.x, projTo.y - projFrom.y };
     float segLenSq = seg.x * seg.x + seg.y * seg.y;
     float hitRadius = cfg::POWERUP_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + cfg::POWERUP_HIT_TOLERANCE_PX;
-
-    bool picked = false;
-    for (auto& pu : active_) {
-        if (!pu.active) continue;
-
-        float y = terrain.HeightAt(pu.x);
-        Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f };
-
-        float t = 0.0f;
-        if (segLenSq > 0.0001f) {
-            t = ((center.x - projFrom.x) * seg.x + (center.y - projFrom.y) * seg.y) / segLenSq;
-            t = std::clamp(t, 0.0f, 1.0f);
-        }
-        Vector2 closest = { projFrom.x + seg.x * t, projFrom.y + seg.y * t };
-        float dist = std::sqrt(std::pow(closest.x - center.x, 2) + std::pow(closest.y - center.y, 2));
-
-        if (dist > hitRadius) continue;
-
-        Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
-        PowerupType type = pu.type;
-        float px = pu.x;
-        pu.active = false;
-        picked = true;
-
-        if (onOnlinePickup) {
-            shotPickedType_ = static_cast<int>(type);
-            shotPickedX_ = px;
-            onOnlinePickup(shotPickedType_, shotPickedX_);
-        }
-
-        ApplyEffect(shooter, type, lang);
-        break;
+    const float segLen = std::sqrt(segLenSq);
+    Cannon& shooter = (currentPlayer == 1) ? player1 : player2;
+    if (segLen < cfg::POWERUP_MIN_PICKUP_TRAVEL_PX) {
+        return TryPickupAtImpact(projTo, shooter, terrain, lang, onOnlinePickup);
     }
 
-    active_.erase(std::remove_if(active_.begin(), active_.end(),
-                                 [](const Powerup& p) { return !p.active; }),
-                  active_.end());
+    bool picked = false;
+    std::vector<size_t> hitIndices;
+    hitIndices.reserve(active_.size());
+    for (size_t i = 0; i < active_.size(); ++i) {
+        if (SegmentNearPowerup(active_[i], terrain, projFrom, seg, segLenSq, hitRadius)) {
+            hitIndices.push_back(i);
+        }
+    }
+    for (size_t idx : hitIndices) {
+        if (idx < active_.size() && active_[idx].active &&
+            CollectPowerupAt(active_[idx], shooter, lang, onOnlinePickup)) {
+            picked = true;
+        }
+    }
+    CompactInactive();
+
+    if (TryPickupAtImpact(projTo, shooter, terrain, lang, onOnlinePickup)) {
+        picked = true;
+    }
     return picked;
 }
 
-bool PowerupSystem::ApplyRemotePickup(int type, float x, int shooterPlayer,
-                                      Cannon& player1, Cannon& player2,
+bool PowerupSystem::CheckProjectileCollisionRoster(Vector2 projFrom, Vector2 projTo, int currentPlayer,
+                                                 MatchRoster& roster, const Terrain& terrain, Lang lang,
+                                                 const std::function<void(int type, float x)>& onOnlinePickup) {
+    Vector2 seg = { projTo.x - projFrom.x, projTo.y - projFrom.y };
+    float segLenSq = seg.x * seg.x + seg.y * seg.y;
+    float hitRadius = cfg::POWERUP_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + cfg::POWERUP_HIT_TOLERANCE_PX;
+    const float segLen = std::sqrt(segLenSq);
+    Cannon& shooter = roster.AtPlayerNum(currentPlayer);
+    if (segLen < cfg::POWERUP_MIN_PICKUP_TRAVEL_PX) {
+        return TryPickupAtImpact(projTo, shooter, terrain, lang, onOnlinePickup);
+    }
+
+    bool picked = false;
+    std::vector<size_t> hitIndices;
+    hitIndices.reserve(active_.size());
+    for (size_t i = 0; i < active_.size(); ++i) {
+        if (SegmentNearPowerup(active_[i], terrain, projFrom, seg, segLenSq, hitRadius)) {
+            hitIndices.push_back(i);
+        }
+    }
+    for (size_t idx : hitIndices) {
+        if (idx < active_.size() && active_[idx].active &&
+            CollectPowerupAt(active_[idx], shooter, lang, onOnlinePickup)) {
+            picked = true;
+        }
+    }
+    CompactInactive();
+
+    if (TryPickupAtImpact(projTo, shooter, terrain, lang, onOnlinePickup)) {
+        picked = true;
+    }
+    return picked;
+}
+
+bool PowerupSystem::TryPickupAtImpact(Vector2 impactPos, Cannon& shooter, const Terrain& terrain,
+                                      Lang lang,
+                                      const std::function<void(int type, float x)>& onOnlinePickup) {
+    const float hitRadius = cfg::POWERUP_RADIUS_PX + cfg::PROJECTILE_RADIUS_PX + cfg::POWERUP_HIT_TOLERANCE_PX;
+    bool picked = false;
+    std::vector<size_t> hitIndices;
+    hitIndices.reserve(active_.size());
+    for (size_t i = 0; i < active_.size(); ++i) {
+        const Powerup& pu = active_[i];
+        if (!pu.active) continue;
+        const float y = terrain.HeightAt(pu.x);
+        const Vector2 center = { pu.x, y - cfg::POWERUP_RADIUS_PX - 6.0f };
+        const float dist = std::sqrt(std::pow(impactPos.x - center.x, 2) + std::pow(impactPos.y - center.y, 2));
+        if (dist <= hitRadius) hitIndices.push_back(i);
+    }
+    for (size_t idx : hitIndices) {
+        if (idx < active_.size() && active_[idx].active &&
+            CollectPowerupAt(active_[idx], shooter, lang, onOnlinePickup)) {
+            picked = true;
+        }
+    }
+    CompactInactive();
+    return picked;
+}
+
+bool PowerupSystem::ApplyRemotePickup(int type, float x, Cannon& shooter,
                                       Lang lang, bool applyEffect, bool& remoteEffectApplied) {
     if (type < 0 || type >= static_cast<int>(PowerupType::COUNT)) return false;
 
@@ -270,15 +528,12 @@ bool PowerupSystem::ApplyRemotePickup(int type, float x, int shooterPlayer,
         }
     }
 
-    active_.erase(std::remove_if(active_.begin(), active_.end(),
-                                 [](const Powerup& p) { return !p.active; }),
-                  active_.end());
-
-    if (applyEffect && !remoteEffectApplied) {
-        Cannon& shooter = (shooterPlayer == 1) ? player1 : player2;
+    if (applyEffect) {
         ApplyEffect(shooter, puType, lang);
-        remoteEffectApplied = true;
+        remotePickupsAppliedThisShot_ = true;
     }
+
+    CompactInactive();
 
     if (removed) {
         DebugLogf(LOG_INFO, "GAME: power-up remoto removido type=%d x=%.1f effect=%d",

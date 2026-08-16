@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="screen-orientation" content="landscape">
+  <title>Cannon Duel</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      /* Mesma cor do céu/menu (VirtualScreen letterbox) */
+      background: #ebd6be;
+      color: #e8e8e8;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      overflow: hidden;
+    }
+    #wrap {
+      position: fixed;
+      inset: 0;
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+    }
+    canvas#canvas {
+      display: block;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #ebd6be;
+      image-rendering: auto;
+      outline: none;
+      touch-action: none;
+    }
+    #rotate-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      background: #0c0e14;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 20px;
+      padding: 24px;
+      text-align: center;
+    }
+    #rotate-overlay.visible { display: flex; }
+    #rotate-overlay .icon {
+      font-size: 48px;
+      line-height: 1;
+      animation: rotate-hint 2s ease-in-out infinite;
+    }
+    #rotate-overlay p {
+      margin: 0;
+      max-width: 280px;
+      color: #9aa0ad;
+      font-size: 15px;
+    }
+    @keyframes rotate-hint {
+      0%, 100% { transform: rotate(0deg); }
+      50% { transform: rotate(90deg); }
+    }
+    #loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      justify-content: center;
+      pointer-events: none;
+      background: #0c0e14;
+    }
+    #loading.hidden { display: none; }
+    #loading-title {
+      font-size: 20px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #ffb347;
+    }
+    #progress-track {
+      width: 280px;
+      height: 8px;
+      border-radius: 4px;
+      background: #232733;
+      overflow: hidden;
+    }
+    #progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #ffb347;
+      transition: width 0.15s ease-out;
+    }
+    #status-text {
+      font-size: 13px;
+      color: #9aa0ad;
+    }
+  </style>
+</head>
+<body>
+  <div id="rotate-overlay" aria-live="polite">
+    <div class="icon" aria-hidden="true">📱</div>
+    <p>Gire o aparelho para o modo <strong>paisagem</strong> para jogar.</p>
+  </div>
+  <div id="wrap">
+    <canvas id="canvas" tabindex="-1"></canvas>
+  </div>
+  <div id="loading">
+    <div id="loading-title">Cannon Duel</div>
+    <div id="progress-track"><div id="progress-fill"></div></div>
+    <div id="status-text">carregando…</div>
+  </div>
+
+  <script>
+    var statusText = document.getElementById('status-text');
+    var progressFill = document.getElementById('progress-fill');
+    var loadingBox = document.getElementById('loading');
+
+    function viewportSize() {
+      var vv = window.visualViewport;
+      return {
+        w: Math.max(1, Math.floor(vv ? vv.width : window.innerWidth)),
+        h: Math.max(1, Math.floor(vv ? vv.height : window.innerHeight))
+      };
+    }
+
+    function applyViewportLayout() {
+      var size = viewportSize();
+      document.documentElement.style.height = size.h + 'px';
+      document.body.style.height = size.h + 'px';
+      var wrap = document.getElementById('wrap');
+      if (wrap) {
+        wrap.style.width = size.w + 'px';
+        wrap.style.height = size.h + 'px';
+      }
+    }
+
+    function devicePixelRatioClamped() {
+      var d = window.devicePixelRatio || 1;
+      if (d < 1) d = 1;
+      if (d > 3) d = 3;
+      return d;
+    }
+
+    function resizeCanvasToWindow() {
+      applyViewportLayout();
+      var canvas = (typeof Module !== 'undefined' && Module.canvas)
+        ? Module.canvas
+        : document.getElementById('canvas');
+      if (!canvas) return;
+      var size = viewportSize();
+      var dpr = devicePixelRatioClamped();
+      var fbW = Math.max(1, Math.round(size.w * dpr));
+      var fbH = Math.max(1, Math.round(size.h * dpr));
+      canvas.style.width = size.w + 'px';
+      canvas.style.height = size.h + 'px';
+      if (canvas.width !== fbW || canvas.height !== fbH) {
+        canvas.width = fbW;
+        canvas.height = fbH;
+      }
+      if (typeof Module !== 'undefined' && Module.setCanvasSize) {
+        Module.setCanvasSize(fbW, fbH, false);
+      }
+    }
+
+    document.getElementById('canvas').addEventListener('contextmenu', function (e) {
+      e.preventDefault();
+    });
+
+    (function () {
+      var overlay = document.getElementById('rotate-overlay');
+      var canvas = document.getElementById('canvas');
+
+      function isMobileLayout() {
+        return window.matchMedia('(pointer: coarse), (max-width: 900px)').matches;
+      }
+
+      function updateRotateOverlay() {
+        if (!overlay) return;
+        var portrait = window.matchMedia('(orientation: portrait)').matches;
+        var show = isMobileLayout() && portrait;
+        overlay.classList.toggle('visible', show);
+        if (canvas) {
+          canvas.style.visibility = show ? 'hidden' : 'visible';
+        }
+      }
+
+      function tryLockLandscape() {
+        if (!isMobileLayout()) return;
+        var o = screen.orientation;
+        if (!o || !o.lock) return;
+        o.lock('landscape-primary').catch(function () {});
+      }
+
+      function onViewportChange() {
+        resizeCanvasToWindow();
+        updateRotateOverlay();
+      }
+
+      window.addEventListener('orientationchange', onViewportChange);
+      window.addEventListener('resize', onViewportChange);
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', onViewportChange);
+        window.visualViewport.addEventListener('scroll', onViewportChange);
+      }
+      updateRotateOverlay();
+      resizeCanvasToWindow();
+
+      canvas.addEventListener('pointerdown', tryLockLandscape, { once: true });
+      canvas.addEventListener('touchstart', tryLockLandscape, { once: true, passive: true });
+    })();
+
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      setStatus: function (text) {
+        if (!text) {
+          loadingBox.classList.add('hidden');
+          return;
+        }
+        statusText.textContent = text;
+      },
+      totalDependencies: 0,
+      monitorRunDependencies: function (left) {
+        this.totalDependencies = Math.max(this.totalDependencies, left);
+        var done = this.totalDependencies - left;
+        var pct = this.totalDependencies ? Math.round((done / this.totalDependencies) * 100) : 0;
+        progressFill.style.width = pct + '%';
+        Module.setStatus(left ? 'carregando… (' + done + '/' + this.totalDependencies + ')' : 'iniciando…');
+        if (left === 0) {
+          setTimeout(function () { loadingBox.classList.add('hidden'); }, 300);
+        }
+      },
+      print: function (text) { console.log(text); },
+      printErr: function (text) { console.error(text); },
+      onRuntimeInitialized: function () {
+        resizeCanvasToWindow();
+      },
+    };
+
+    window.onerror = function (msg) {
+      Module.setStatus('Erro: ' + msg);
+    };
+  </script>
+  {{{ SCRIPT }}}
+</body>
+</html>

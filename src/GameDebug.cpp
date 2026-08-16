@@ -187,8 +187,16 @@ struct DevPanelItem {
     bool isSection = false;
 };
 
+const char* ScenarioDevLabel(Scenario scenario) {
+    switch (scenario) {
+        case Scenario::Night: return "Cenario: NOITE";
+        case Scenario::ValleyOfTheEnd: return "Cenario: VALE DO FIM";
+        default: return "Cenario: DIA";
+    }
+}
+
 void CollectDevPanelItems(bool inMatch, bool isMainMenu, bool isAiming,
-                          GameVersion version, bool nightMode,
+                          GameVersion version, Scenario scenario,
                           std::vector<DevPanelItem>& out) {
     out.clear();
     auto button = [&](DevAction act, const char* label, bool enabled, bool highlight = false,
@@ -205,7 +213,7 @@ void CollectDevPanelItems(bool inMatch, bool isMainMenu, bool isAiming,
     button(DevAction::SkipTurn, "Pular turno", inMatch && isAiming);
     button(DevAction::ToggleVersion,
            version == GameVersion::Plus ? "Versao: PLUS" : "Versao: CLASSIC", true);
-    button(DevAction::ToggleNight, nightMode ? "Cenario: NOITE" : "Cenario: DIA", true);
+    button(DevAction::ToggleNight, ScenarioDevLabel(scenario), true);
     button(DevAction::QuickMatch, "Iniciar partida rapida (1J)", isMainMenu);
 
     section("Power-up -> Jogador 1:");
@@ -233,19 +241,20 @@ void Game::ApplyDevCommand(const DevCommand& cmd) {
     if (!cmd.valid || cmd.action.empty()) return;
 
     if (cmd.action == "heal_all") {
-        player1.health = cfg::CANNON_MAX_HEALTH;
-        player2.health = cfg::CANNON_MAX_HEALTH;
+        for (int i = 0; i < roster.CannonCount(); ++i) {
+            roster.At(i).health = cfg::CANNON_MAX_HEALTH;
+        }
     } else if (cmd.action == "wind_zero") {
         windForce = 0.0f;
     } else if (cmd.action == "spawn_powerup") {
         if (version != GameVersion::Plus) version = GameVersion::Plus;
         if (cmd.type >= 0 && cmd.type < static_cast<int>(PowerupType::COUNT)) {
-            powerups.SpawnAt(cmd.x, static_cast<PowerupType>(cmd.type));
+            powerups.SpawnAt(cmd.x, static_cast<PowerupType>(cmd.type), roster);
         }
     } else if (cmd.action == "grant_powerup") {
         if (version != GameVersion::Plus) version = GameVersion::Plus;
         if (cmd.type < 0 || cmd.type >= static_cast<int>(PowerupType::COUNT)) return;
-        Cannon& target = (cmd.player == 2) ? player2 : player1;
+        Cannon& target = GetCannon(cmd.player > 0 ? cmd.player : 1);
         powerups.ApplyEffect(target, static_cast<PowerupType>(cmd.type), language);
     } else if (cmd.action == "skip_turn") {
         if (cmd.player == 1 || cmd.player == 2) {
@@ -257,13 +266,17 @@ void Game::ApplyDevCommand(const DevCommand& cmd) {
             state = GameState::TurnTransition;
         }
     } else if (cmd.action == "night_mode") {
-        nightMode = cmd.value >= 0.5f;
+        ApplyScenario(cmd.value >= 0.5f ? Scenario::Night : Scenario::Day, true);
+    } else if (cmd.action == "scenario") {
+        const int idx = std::clamp(static_cast<int>(cmd.value), 0, kScenarioCount - 1);
+        ApplyScenario(static_cast<Scenario>(idx), true);
     }
 }
 
 void Game::DevHealAll() {
-    player1.health = cfg::CANNON_MAX_HEALTH;
-    player2.health = cfg::CANNON_MAX_HEALTH;
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        roster.At(i).health = cfg::CANNON_MAX_HEALTH;
+    }
     DevBroadcastCommand("heal_all");
 }
 
@@ -294,13 +307,13 @@ void Game::DevForceSpawnPowerup() {
         if (roll < e.w) { type = e.t; break; }
         roll -= e.w;
     }
-    powerups.SpawnAt(x, type);
+    powerups.SpawnAt(x, type, roster);
     DevBroadcastCommand("spawn_powerup", 0, static_cast<int>(type), x);
 }
 
 void Game::DevGrantPowerup(int playerNumber, PowerupType type) {
     if (version != GameVersion::Plus) version = GameVersion::Plus;
-    Cannon& target = (playerNumber == 2) ? player2 : player1;
+    Cannon& target = GetCannon(playerNumber > 0 ? playerNumber : 1);
     powerups.ApplyEffect(target, type, language);
     DevBroadcastCommand("grant_powerup", playerNumber, static_cast<int>(type));
 }
@@ -364,7 +377,7 @@ bool Game::UpdateDevPanel() {
 
     std::vector<DevPanelItem> items;
     CollectDevPanelItems(inMatch, state == GameState::MainMenu, state == GameState::Aiming,
-                         version, nightMode, items);
+                         version, scenario, items);
 
     const float bw = panel.width - 20.0f - scrollBarW;
     float y = contentTop - devPanelScrollY;
@@ -385,10 +398,12 @@ bool Game::UpdateDevPanel() {
                     case DevAction::ToggleVersion:
                         version = (version == GameVersion::Classic) ? GameVersion::Plus : GameVersion::Classic;
                         break;
-                    case DevAction::ToggleNight:
-                        nightMode = !nightMode;
-                        DevBroadcastCommand("night_mode", 0, -1, 0.0f, nightMode ? 1.0f : 0.0f);
+                    case DevAction::ToggleNight: {
+                        const int next = (static_cast<int>(scenario) + 1) % kScenarioCount;
+                        ApplyScenario(static_cast<Scenario>(next), true);
+                        DevBroadcastCommand("scenario", 0, -1, 0.0f, static_cast<float>(next));
                         break;
+                    }
                     case DevAction::QuickMatch: StartMatch(GameMode::PvAI); break;
                     case DevAction::GrantP1: DevGrantPowerup(1, item.powerType); break;
                     case DevAction::GrantP2: DevGrantPowerup(2, item.powerType); break;
@@ -431,7 +446,7 @@ void Game::DrawDevPanel() const {
 
     std::vector<DevPanelItem> items;
     CollectDevPanelItems(inMatch, state == GameState::MainMenu, state == GameState::Aiming,
-                         version, nightMode, items);
+                         version, scenario, items);
 
     Vector2 m = ::GetVirtualMouse();
     const float bw = panel.width - 20.0f - scrollBarW;

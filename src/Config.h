@@ -2,9 +2,23 @@
 
 namespace cfg {
 
-// ---- Janela ----
+constexpr const char* GAME_VERSION = "1.0";
+
+// ---- Mundo lógico ----
+// Física, terreno, mira e acertos vivem sempre em HD. A janela/dispositivo
+// pode ser maior: o VirtualScreen escala o render target (mesmo princípio
+// do Android/Web). Debug e release jogam igual.
 constexpr int   SCREEN_WIDTH   = 1280;
 constexpr int   SCREEN_HEIGHT  = 720;
+
+// ---- Janela desktop ----
+#if CANNON_DUEL_DEBUG_MODE
+constexpr int   WINDOW_WIDTH   = 1280;
+constexpr int   WINDOW_HEIGHT  = 720;
+#else
+constexpr int   WINDOW_WIDTH   = 1920;
+constexpr int   WINDOW_HEIGHT  = 1080;
+#endif
 constexpr int   TARGET_FPS     = 60;
 
 // ---- Escala física (pixels por metro) ----
@@ -19,10 +33,18 @@ constexpr float TERRAIN_MIN_HEIGHT   = 120.0f;        // altura mínima (px a pa
 constexpr float TERRAIN_MAX_HEIGHT   = 380.0f;
 constexpr float CRATER_RADIUS_PX     = 42.0f;         // raio da cratera de explosão
 
+// Online: crateras menores conforme mais jogadores (2→100%, 10→55%).
+inline float OnlineCraterRadiusMult(int playerCount) {
+    const int n = (playerCount < 2) ? 2 : (playerCount > 10 ? 10 : playerCount);
+    const float t = static_cast<float>(n - 2) / 8.0f;
+    return 1.0f - t * 0.45f;
+}
+
 // ---- Canhão ----
 constexpr float CANNON_MAX_HEALTH    = 180.0f; // = 3x EXPLOSION_DAMAGE_MAX (3 acertos diretos derrubam o canhão)
 constexpr float CANNON_BODY_RADIUS_PX = 18.0f;
 constexpr float CANNON_MARGIN_PX     = 70.0f;   // distância mínima da borda da tela
+constexpr float TEAM_CANNON_PAIR_SPACING_PX = 110.0f; // parceiros de equipe lado a lado
 
 // ---- Projétil ----
 constexpr float PROJECTILE_RADIUS_PX = 5.0f;
@@ -31,6 +53,10 @@ constexpr float MIN_POWER            = 2.0f;    // m/s — bem baixo, pra dar ti
 constexpr float MAX_POWER            = 24.0f;   // m/s — teto da barra de força (power01=1)
 constexpr float EXPLOSION_DAMAGE_MAX = 60.0f;   // dano no impacto direto
 constexpr float EXPLOSION_RADIUS_PX  = 60.0f;   // raio de dano em área
+constexpr float NUCLEAR_CRATER_RADIUS_PX = 148.0f;
+constexpr float NUCLEAR_EXPLOSION_RADIUS_PX = 200.0f;
+constexpr float NUCLEAR_SHAKE_MAGNITUDE_PX = 28.0f;
+constexpr float NUCLEAR_SHAKE_DURATION_SEC = 0.85f;
 
 // ---- Mira (mecanismo original) ----
 // Fase 1: uma linha oscila continuamente entre 0° e 90° na direção do
@@ -44,13 +70,18 @@ constexpr float POWERUP_TRAJECTORY_AIM_SLOWDOWN = 5.0f;
 // ---- Power-ups (versão Plus) ----
 constexpr float POWERUP_RADIUS_PX          = 16.0f;
 constexpr float POWERUP_HIT_TOLERANCE_PX   = 14.0f; // folga extra pra facilitar o acerto
+constexpr float POWERUP_MIN_PICKUP_TRAVEL_PX = 12.0f; // evita coleta fantasma no spawn do projetil
 constexpr int   POWERUP_MAX_ACTIVE         = 6;     // limite pra não acumular infinitamente
-constexpr int   POWERUP_SPAWN_EVERY_TURNS  = 4;    // ~2 rodadas completas (2 jogadores)
+constexpr int   POWERUP_SPAWN_EVERY_TURNS  = 4;    // a cada N turnos de jogador (tiros)
+constexpr float POWERUP_AI_MISS_CHANCE     = 0.68f; // IA erra o power-up na maioria das tentativas
+constexpr float POWERUP_AI_MISS_OFFSET_MIN_PX = 42.0f;
+constexpr float POWERUP_AI_MISS_OFFSET_MAX_PX = 88.0f;
+constexpr float POWERUP_SPAWN_CANNON_CLEARANCE_PX = 40.0f; // folga extra além dos raios do canhão/power-up
 constexpr float POWERUP_HEAL_MIN_RATIO     = 0.25f;
 constexpr float POWERUP_HEAL_MAX_RATIO     = 0.5f;
-constexpr int   POWERUP_SHIELD_TURNS       = 2;
-constexpr int   POWERUP_TRAJECTORY_TURNS   = 2;
-constexpr float POWERUP_GUIDED_DAMAGE_MULT = 0.5f;
+constexpr int   POWERUP_SHIELD_TURNS       = 1;
+constexpr int   POWERUP_TRAJECTORY_TURNS   = 1;
+constexpr float POWERUP_GUIDED_DAMAGE_MULT = 0.7f;
 constexpr float POWERUP_GUIDED_MIN_ANGLE_DEG = 75.0f;    // evita disparo para baixo no teleguiado
 constexpr float POWERUP_GUIDED_FLIGHT_SEC    = 1.85f;    // duração do arco cinemático (sempre acerta)
 constexpr float POWERUP_GUIDED_ASCENT_FRAC   = 0.45f;    // fração do tempo subindo até o ápice
@@ -64,7 +95,7 @@ constexpr float POWERUP_GUIDED_SNAP_HORIZ_PX     = 120.0f;
 constexpr float POWERUP_DOUBLE_DAMAGE_MULT = 2.0f;
 // pesos relativos de sorteio (Guiado é mais raro, conforme pedido)
 constexpr float POWERUP_WEIGHT_DOUBLE_DMG  = 1.0f;
-constexpr float POWERUP_WEIGHT_TRAJECTORY  = 1.0f;
+constexpr float POWERUP_WEIGHT_TRAJECTORY  = 0.55f;
 constexpr float POWERUP_WEIGHT_GUIDED      = 0.4f;
 constexpr float POWERUP_WEIGHT_HEAL        = 1.0f;
 constexpr float POWERUP_WEIGHT_SHIELD      = 1.0f;
@@ -87,6 +118,10 @@ constexpr float WIND_MAX_ACCEL       = 1.7f;
 constexpr int   DUST_MOTE_COUNT           = 45;
 constexpr float DUST_BASE_DRIFT_SPEED_PX  = 6.0f;   // deriva mínima mesmo sem vento
 constexpr float DUST_WIND_SPEED_SCALE_PX  = 90.0f;  // px/s por unidade de aceleração de vento
+
+// ---- Moedas ----
+constexpr int COINS_ROUND_WIN  = 50;
+constexpr int COINS_ROUND_LOSS = 5;
 
 // ---- Física ----
 constexpr float GRAVITY_MPS2         = 9.8f;

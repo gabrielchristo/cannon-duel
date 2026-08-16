@@ -1,0 +1,3 @@
+# Dependências dos geradores de assets (gen_sprites.py, gen_icon.py).
+# gen_sounds.py usa apenas a stdlib do Python.
+Pillow>=10.0.0

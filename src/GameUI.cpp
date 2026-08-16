@@ -1,15 +1,18 @@
 #include "Game.h"
 #include "AssetPath.h"
 #include "Config.h"
+#include "CosmeticShaders.h"
 #include "DebugLog.h"
 #include "GameRand.h"
+#include "MenuLayout.h"
+#include "ShopCatalog.h"
 #include "VirtualScreen.h"
 #include "net/NetWorker.h"
 #include "net/SupabaseClient.h"
 
+#include <cstdio>
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <ctime>
 #include <string>
@@ -31,8 +34,7 @@ Rectangle DevPanelButtonRect() {
 } // namespace
 
 void Game::UpdateVersionSwitch(Vector2 mouse) {
-    float cx = cfg::SCREEN_WIDTH / 2.0f;
-    Rectangle full = { cx - 150, 175, 300, 50 };
+    Rectangle full = menu_layout::VersionToggleRect();
     Rectangle leftHalf  = { full.x, full.y, full.width / 2, full.height };
     Rectangle rightHalf = { full.x + full.width / 2, full.y, full.width / 2, full.height };
 
@@ -43,8 +45,7 @@ void Game::UpdateVersionSwitch(Vector2 mouse) {
 }
 
 void Game::DrawVersionSwitch(Vector2 mouse) {
-    float cx = cfg::SCREEN_WIDTH / 2.0f;
-    Rectangle full = { cx - 150, 175, 300, 50 };
+    Rectangle full = menu_layout::VersionToggleRect();
     Rectangle leftHalf  = { full.x, full.y, full.width / 2, full.height };
     Rectangle rightHalf = { full.x + full.width / 2, full.y, full.width / 2, full.height };
 
@@ -54,6 +55,7 @@ void Game::DrawVersionSwitch(Vector2 mouse) {
     DrawRectangleRec(leftHalf, classicSel ? Color{230, 180, 90, 255} : Color{90, 75, 55, 255});
     DrawRectangleRec(rightHalf, !classicSel ? Color{230, 130, 60, 255} : Color{90, 75, 55, 255});
     DrawRectangleLinesEx(full, 2, Color{30, 22, 12, 255});
+    const float cx = full.x + full.width / 2.0f;
     DrawLineEx({cx, full.y}, {cx, full.y + full.height}, 2, Color{30, 22, 12, 255});
 
     int fs = 20;
@@ -77,9 +79,6 @@ void Game::DrawVersionSwitch(Vector2 mouse) {
 // de nenhum arquivo de imagem, sempre nítidas em qualquer resolução.
 // ---------------------------------------------------------------------------
 namespace {
-Rectangle BrazilFlagRect() { return { cfg::SCREEN_WIDTH - 180.0f, 20.0f, 64.0f, 44.0f }; }
-Rectangle UsaFlagRect()    { return { cfg::SCREEN_WIDTH - 100.0f, 20.0f, 64.0f, 44.0f }; }
-
 void DrawBrazilFlag(Rectangle r) {
     DrawRectangleRec(r, Color{0, 155, 58, 255}); // verde
     Vector2 c = { r.x + r.width / 2, r.y + r.height / 2 };
@@ -117,14 +116,14 @@ void DrawUsaFlag(Rectangle r) {
 
 void Game::UpdateLanguageFlags(Vector2 mouse) {
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-        if (CheckCollisionPointRec(mouse, BrazilFlagRect())) language = Lang::PT_BR;
-        else if (CheckCollisionPointRec(mouse, UsaFlagRect())) language = Lang::EN;
+        if (CheckCollisionPointRec(mouse, menu_layout::BrazilFlagRect())) language = Lang::PT_BR;
+        else if (CheckCollisionPointRec(mouse, menu_layout::UsaFlagRect())) language = Lang::EN;
     }
 }
 
 void Game::DrawLanguageFlags(Vector2 mouse) {
-    Rectangle br = BrazilFlagRect();
-    Rectangle us = UsaFlagRect();
+    Rectangle br = menu_layout::BrazilFlagRect();
+    Rectangle us = menu_layout::UsaFlagRect();
 
     bool brSel = (language == Lang::PT_BR);
     bool usSel = (language == Lang::EN);
@@ -142,19 +141,21 @@ void Game::DrawLanguageFlags(Vector2 mouse) {
 
 void Game::DrawMainMenu() {
     const char* title = T(TK::Title, language);
-    int fs = 64;
+    int fs = menu_layout::kTitleFontSize;
     int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 95, fs, Color{40, 30, 20, 255});
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, static_cast<int>(menu_layout::kTitleY), fs,
+             Color{40, 30, 20, 255});
 
     Vector2 m = ::GetVirtualMouse();
     DrawVersionSwitch(m);
     DrawLanguageFlags(m);
 
-    Rectangle btn1P = { cfg::SCREEN_WIDTH / 2.0f - 140, 265, 280, 56 };
-    Rectangle btn2P = { cfg::SCREEN_WIDTH / 2.0f - 140, 341, 280, 56 };
-    Rectangle btnOnline = { cfg::SCREEN_WIDTH / 2.0f - 140, 417, 280, 56 };
-    Rectangle btnInstructions = { cfg::SCREEN_WIDTH / 2.0f - 140, 493, 280, 56 };
-    Rectangle btnAbout = { cfg::SCREEN_WIDTH / 2.0f - 140, 569, 280, 56 };
+    Rectangle btn1P = menu_layout::MainMenuButtonRect(0);
+    Rectangle btn2P = menu_layout::MainMenuButtonRect(1);
+    Rectangle btnOnline = menu_layout::MainMenuButtonRect(2);
+    Rectangle btnShop = menu_layout::MainMenuButtonRect(3);
+    Rectangle btnInstructions = menu_layout::MainMenuButtonRect(4);
+    Rectangle btnAbout = menu_layout::MainMenuButtonRect(5);
 
     auto drawButton = [&](Rectangle r, const char* label) {
         bool hover = CheckCollisionPointRec(m, r);
@@ -169,75 +170,156 @@ void Game::DrawMainMenu() {
     drawButton(btn1P, T(TK::OnePlayer, language));
     drawButton(btn2P, T(TK::TwoPlayers, language));
     drawButton(btnOnline, T(TK::OnlineButton, language));
-    drawButton(btnAbout, T(TK::AboutButton, language));
+    drawButton(btnShop, T(TK::ShopButton, language));
     drawButton(btnInstructions, T(TK::InstructionsButton, language));
+    drawButton(btnAbout, T(TK::AboutButton, language));
+
+    char verBuf[32];
+    std::snprintf(verBuf, sizeof(verBuf), "v%s", cfg::GAME_VERSION);
+    const int vfs = 20;
+    const int vw = MeasureText(verBuf, vfs);
+    DrawText(verBuf, cfg::SCREEN_WIDTH - vw - 18, cfg::SCREEN_HEIGHT - 30, vfs,
+             Color{110, 95, 75, 255});
 }
 
-void Game::DrawInstructions() {
+void Game::UpdateFormatSelect() {
+    Vector2 m = ::GetVirtualMouse();
+    UpdateVersionSwitch(m);
+    UpdateLanguageFlags(m);
+
+    Rectangle btn1v1 = { cfg::SCREEN_WIDTH / 2.0f - 140, 320, 280, 56 };
+    Rectangle btn2v2 = { cfg::SCREEN_WIDTH / 2.0f - 140, 396, 280, 56 };
+    Rectangle btnBack = { cfg::SCREEN_WIDTH / 2.0f - 100, 500, 200, 52 };
+
+    if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
+        if (CheckCollisionPointRec(m, btn1v1)) {
+            StartMatch(pendingMatchMode, MatchFormat::Duel1v1);
+        } else if (CheckCollisionPointRec(m, btn2v2)) {
+            StartMatch(pendingMatchMode, MatchFormat::Team2v2);
+        } else if (CheckCollisionPointRec(m, btnBack)) {
+            state = GameState::MainMenu;
+        }
+    }
+}
+
+void Game::DrawFormatSelect() {
     ClearBackground(Color{ 235, 214, 190, 255 });
 
-    const char* title = T(TK::InstructionsTitle, language);
+    const char* title = T(TK::FormatSelectTitle, language);
     int fs = 40;
     int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 40, fs, Color{40, 30, 20, 255});
-
-    int lineCount = 0;
-    const char** lines = TextSplit(T(TK::InstructionsBody, language), '\n', &lineCount);
-
-    int y = 108;
-    int fs2 = 17;
-    for (int i = 0; i < lineCount; ++i) {
-        if (lines[i][0] != '\0') {
-            int lw = MeasureText(lines[i], fs2);
-            DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, y, fs2, Color{60, 45, 30, 255});
-        }
-        y += 24;
-    }
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 95, fs, Color{40, 30, 20, 255});
 
     Vector2 m = ::GetVirtualMouse();
-    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 60.0f, 200, 52 };
-    bool hover = CheckCollisionPointRec(m, backBtn);
+    DrawVersionSwitch(m);
+    DrawLanguageFlags(m);
+
+    Rectangle btn1v1 = { cfg::SCREEN_WIDTH / 2.0f - 140, 320, 280, 56 };
+    Rectangle btn2v2 = { cfg::SCREEN_WIDTH / 2.0f - 140, 396, 280, 56 };
+    Rectangle btnBack = { cfg::SCREEN_WIDTH / 2.0f - 100, 500, 200, 52 };
+
+    auto drawButton = [&](Rectangle r, const char* label) {
+        bool hover = CheckCollisionPointRec(m, r);
+        Color fill = hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255};
+        DrawRectangleRec(r, fill);
+        DrawRectangleLinesEx(r, 2, Color{60, 40, 20, 255});
+        int fs2 = 22;
+        int tw2 = MeasureText(label, fs2);
+        DrawText(label, static_cast<int>(r.x + r.width / 2 - tw2 / 2),
+                 static_cast<int>(r.y + r.height / 2 - fs2 / 2), fs2, Color{40, 25, 10, 255});
+    };
+
+    drawButton(btn1v1, T(TK::FormatDuel1v1, language));
+    drawButton(btn2v2, T(TK::FormatTeam2v2, language));
+
+    bool backHover = CheckCollisionPointRec(m, btnBack);
+    DrawRectangleRec(btnBack, backHover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
+    DrawRectangleLinesEx(btnBack, 2, Color{60, 40, 20, 255});
+    const char* backLbl = T(TK::FormatBack, language);
+    int bw = MeasureText(backLbl, 20);
+    DrawText(backLbl, static_cast<int>(btnBack.x + btnBack.width / 2 - bw / 2),
+             static_cast<int>(btnBack.y + btnBack.height / 2 - 10), 20, Color{40, 25, 10, 255});
+}
+
+namespace {
+
+void DrawInfoBackButton(Lang language, TK backKey, Vector2 mouse) {
+    Rectangle backBtn = menu_layout::InfoPageBackBtn();
+    bool hover = CheckCollisionPointRec(mouse, backBtn);
     DrawRectangleRec(backBtn, hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
     DrawRectangleLinesEx(backBtn, 2, Color{60, 40, 20, 255});
-    const char* backLabel = T(TK::InstructionsBack, language);
+    const char* backLabel = T(backKey, language);
     int blw = MeasureText(backLabel, 22);
     DrawText(backLabel, static_cast<int>(backBtn.x + backBtn.width / 2 - blw / 2),
              static_cast<int>(backBtn.y + backBtn.height / 2 - 11), 22, Color{40, 25, 10, 255});
+}
+
+void DrawInfoTitle(const char* title) {
+    const int fs = menu_layout::kInfoTitleFont;
+    int tw = MeasureText(title, fs);
+    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2,
+             static_cast<int>(menu_layout::kInfoTitleY), fs, Color{40, 30, 20, 255});
+}
+
+} // namespace
+
+void Game::DrawInstructions() {
+    ClearBackground(Color{ 235, 214, 190, 255 });
+    DrawInfoTitle(T(TK::InstructionsTitle, language));
+
+    int lineCount = 0;
+    const char** lines = TextSplit(T(TK::InstructionsBody, language), '\n', &lineCount);
+    ScrollListLayout layout = menu_layout::InfoPageLayout(lineCount);
+    const int fs2 = menu_layout::kInfoBodyFont;
+
+    BeginScissorMode(static_cast<int>(layout.viewport.x),
+                     static_cast<int>(layout.viewport.y),
+                     static_cast<int>(layout.viewport.width),
+                     static_cast<int>(layout.viewport.height));
+    for (int i = 0; i < lineCount; ++i) {
+        Rectangle row = ScrollListRowRect(layout, instructionsScroll_, i);
+        if (!ScrollListRowVisible(layout, row) || lines[i][0] == '\0') continue;
+        int lw = MeasureText(lines[i], fs2);
+        DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, static_cast<int>(row.y), fs2,
+                 Color{60, 45, 30, 255});
+    }
+    EndScissorMode();
+
+    DrawInfoBackButton(language, TK::InstructionsBack, ::GetVirtualMouse());
 }
 
 void Game::DrawAbout() {
     ClearBackground(Color{ 235, 214, 190, 255 });
-
-    const char* title = T(TK::AboutTitle, language);
-    int fs = 44;
-    int tw = MeasureText(title, fs);
-    DrawText(title, cfg::SCREEN_WIDTH / 2 - tw / 2, 80, fs, Color{40, 30, 20, 255});
+    DrawInfoTitle(T(TK::AboutTitle, language));
 
     int lineCount = 0;
     const char** lines = TextSplit(T(TK::AboutBody, language), '\n', &lineCount);
+    ScrollListLayout layout = menu_layout::InfoPageLayout(lineCount + 2);
+    const int fs2 = menu_layout::kInfoBodyFont;
 
-    int y = 160;
-    int fs2 = 20;
+    BeginScissorMode(static_cast<int>(layout.viewport.x),
+                     static_cast<int>(layout.viewport.y),
+                     static_cast<int>(layout.viewport.width),
+                     static_cast<int>(layout.viewport.height));
     for (int i = 0; i < lineCount; ++i) {
+        Rectangle row = ScrollListRowRect(layout, aboutScroll_, i);
+        if (!ScrollListRowVisible(layout, row) || lines[i][0] == '\0') continue;
         int lw = MeasureText(lines[i], fs2);
-        DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, y, fs2, Color{60, 45, 30, 255});
-        y += 30;
+        DrawText(lines[i], cfg::SCREEN_WIDTH / 2 - lw / 2, static_cast<int>(row.y), fs2,
+                 Color{60, 45, 30, 255});
     }
 
     const char* credit = T(TK::AboutCredit, language);
-    int fsC = 26;
-    int cw = MeasureText(credit, fsC);
-    DrawText(credit, cfg::SCREEN_WIDTH / 2 - cw / 2, y + 20, fsC, Color{200, 120, 40, 255});
+    Rectangle creditRow = ScrollListRowRect(layout, aboutScroll_, lineCount + 1);
+    if (ScrollListRowVisible(layout, creditRow)) {
+        const int fsC = 30;
+        int cw = MeasureText(credit, fsC);
+        DrawText(credit, cfg::SCREEN_WIDTH / 2 - cw / 2, static_cast<int>(creditRow.y), fsC,
+                 Color{200, 120, 40, 255});
+    }
+    EndScissorMode();
 
-    Vector2 m = ::GetVirtualMouse();
-    Rectangle backBtn = { cfg::SCREEN_WIDTH / 2.0f - 100, cfg::SCREEN_HEIGHT - 100.0f, 200, 52 };
-    bool hover = CheckCollisionPointRec(m, backBtn);
-    DrawRectangleRec(backBtn, hover ? Color{230, 180, 90, 255} : Color{200, 150, 70, 255});
-    DrawRectangleLinesEx(backBtn, 2, Color{60, 40, 20, 255});
-    const char* backLabel = T(TK::AboutBack, language);
-    int blw = MeasureText(backLabel, 22);
-    DrawText(backLabel, static_cast<int>(backBtn.x + backBtn.width / 2 - blw / 2),
-             static_cast<int>(backBtn.y + backBtn.height / 2 - 11), 22, Color{40, 25, 10, 255});
+    DrawInfoBackButton(language, TK::AboutBack, ::GetVirtualMouse());
 }
 
 void Game::UpdateMenuConfirmDialog() {
@@ -251,12 +333,17 @@ void Game::UpdateMenuConfirmDialog() {
             showMenuConfirm = false;
             projectile.Destroy();
             if (audioReady) StopMusicStream(musicTracks[currentMusicIndex]);
+            const bool leavingOnline = (mode == GameMode::Online);
             if (mode == GameMode::Online) {
-                if (netMatch.InMatch()) netMatch.AbandonMatch();
-                else netMatch.LeaveMatch();
-                onlineLobby.LeaveLobby();
+                if (netMatch.InMatch() && !isSpectating && netMatch.MyPlayerNumber() != 0) {
+                    onlineLobby.MarkIdle();
+                    onlineLobby.AbandonActiveMatch(netMatch.MatchId(), netMatch.AbandonWinnerPlayer());
+                }
+                netMatch.LeaveMatch();
+                isSpectating = false;
+                onlineLobby.ReturnToLobbyAfterMatch();
             }
-            state = GameState::MainMenu;
+            state = leavingOnline ? GameState::OnlineLobby : GameState::MainMenu;
         } else if (CheckCollisionPointRec(m, noBtn)) {
             showMenuConfirm = false;
         }
@@ -396,7 +483,7 @@ bool Game::HandleResetAngleButtonClick() {
 
 void Game::DrawWindIndicator() const {
     int cx = cfg::SCREEN_WIDTH / 2;
-    int cy = 40;
+    int cy = isSpectating ? 68 : 40;
     DrawText(T(TK::WindLabel, language), cx - 30, cy - 22, 16, HudTextColor());
 
     float ratio = windForce / cfg::WIND_MAX_ACCEL; // -1..1
@@ -415,28 +502,99 @@ void Game::DrawWindIndicator() const {
 void Game::DrawHUD() {
     DrawWindIndicator();
 
-    const char* turnLabel = (mode == GameMode::PvAI && currentPlayer == 2)
-        ? T(TK::TurnAI, language)
-        : (currentPlayer == 1 ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language));
+    const char* turnLabel = nullptr;
+    char turnBuf[64] = {};
+    if (roster.IsAISlot(ActiveSlot(), mode)) {
+        turnLabel = T(TK::TurnAI, language);
+    } else if (IsTeamMode(matchFormat) && mode == GameMode::PvP) {
+        turnLabel = (ActiveSlot() == 0) ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language);
+    } else if (IsTeamGame()) {
+        const int slot = ActiveSlot();
+        const int team = roster.TeamOfSlot(slot);
+        const int teamSlot = (team == 0) ? slot : (slot - roster.PerTeamA());
+        const char* teamLetter = (team == 0) ? "A" : "B";
+        snprintf(turnBuf, sizeof(turnBuf), T(TK::TurnTeamFmt, language), teamLetter, teamSlot + 1);
+        turnLabel = turnBuf;
+    } else {
+        turnLabel = (currentPlayer == 1) ? T(TK::TurnPlayer1, language) : T(TK::TurnPlayer2, language);
+    }
     DrawText(turnLabel, 20, 20, 22, HudTextColor());
 
-    Cannon& active = (currentPlayer == 1) ? player1 : player2;
-    const char* angleForceFmt = (language == Lang::PT_BR) ? "Angulo: %.0f  Forca: %.0f%%" : "Angle: %.0f  Power: %.0f%%";
-    std::string info = TextFormat(angleForceFmt, active.angleDeg, active.power01 * 100.0f);
-    DrawText(info.c_str(), 20, 48, 18, HudTextColorDim());
+    const int hudPlayer = (mode == GameMode::Online && !isSpectating && netMatch.IsMyTurn())
+        ? netMatch.MyPlayerNumber() : currentPlayer;
+    if (hudPlayer >= 1 && hudPlayer <= roster.CannonCount()) {
+        Cannon& active = GetCannon(hudPlayer);
+        const bool pt = (language == Lang::PT_BR);
+        const char* angleLabel = pt ? "Angulo:" : "Angle:";
+        const char* forceLabel = pt ? "Forca:" : "Power:";
+        const int labelFs = 18;
+        const int y = 48;
+        const int angleLabelX = 20;
+        const int angleValueX = angleLabelX + MeasureText(angleLabel, labelFs) + 6;
+        const int forceLabelX = angleValueX + MeasureText("-90.0", labelFs) + 16;
+        const int forceValueX = forceLabelX + MeasureText(forceLabel, labelFs) + 6;
+
+        char angleBuf[16];
+        char forceBuf[16];
+        snprintf(angleBuf, sizeof(angleBuf), "%6.1f", active.angleDeg);
+        snprintf(forceBuf, sizeof(forceBuf), "%6.1f%%", active.power01 * 100.0f);
+
+        DrawText(angleLabel, angleLabelX, y, labelFs, HudTextColorDim());
+        DrawText(angleBuf, angleValueX, y, labelFs, HudTextColorDim());
+        DrawText(forceLabel, forceLabelX, y, labelFs, HudTextColorDim());
+        DrawText(forceBuf, forceValueX, y, labelFs, HudTextColorDim());
+    }
 }
 
-void Game::DrawOnlineCannonLabels() const {
-    auto drawLabel = [&](const Cannon& cannon, const std::string& name) {
+std::string Game::ResolveCannonDisplayName(int slot) const {
+    if (slot < 0 || slot >= roster.CannonCount()) return "";
+
+    if (mode == GameMode::Online) {
+        return onlinePlayerNames[static_cast<size_t>(slot)];
+    }
+
+    if (roster.IsAISlot(slot, mode)) {
+        return (language == Lang::PT_BR) ? "IA" : "AI";
+    }
+    if (mode == GameMode::PvAI) {
+        return playerIdentity.DisplayName();
+    }
+    if (mode == GameMode::PvP) {
+        char buf[32];
+        const char* fmt = (language == Lang::PT_BR) ? "Jogador %d" : "Player %d";
+        std::snprintf(buf, sizeof(buf), fmt, slot + 1);
+        return buf;
+    }
+    return "";
+}
+
+std::string Game::ResolveCannonNameEffectId(int slot) const {
+    if (mode == GameMode::Online) {
+        return onlineEquippedNameEffects[static_cast<size_t>(slot)];
+    }
+    if (!roster.IsAISlot(slot, mode)) {
+        return wallet.EquippedNameEffect();
+    }
+    return kDefaultNameEffectId;
+}
+
+void Game::DrawCannonNameLabels() const {
+    auto drawLabel = [&](const Cannon& cannon, const std::string& name, const std::string& effectId) {
         if (name.empty()) return;
-        const int fs = 12;
+        const ShopItem* item = FindShopItem(effectId);
+        const NameEffectStyle style = item ? item->nameEffect : NameEffectStyle::Plain;
+        const Color primary = item ? item->primary : WHITE;
+        const Color accent = item ? item->accent : WHITE;
+
+        const int fs = 16;
         int tw = MeasureText(name.c_str(), fs);
         int tx = static_cast<int>(cannon.x - tw / 2);
-        int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 50);
-        DrawRectangle(tx - 4, ty - 2, tw + 8, fs + 4, Fade(BLACK, 0.45f));
-        DrawText(name.c_str(), tx, ty, fs, WHITE);
+        int ty = static_cast<int>(cannon.groundY - cfg::CANNON_BODY_RADIUS_PX - 68);
+        gCosmeticShaders.DrawStyledName(name.c_str(), tx, ty, fs, style, primary, accent);
     };
 
-    drawLabel(player1, onlineP1Name);
-    drawLabel(player2, onlineP2Name);
+    const int count = std::min(roster.CannonCount(), MatchRoster::kMaxCannons);
+    for (int i = 0; i < count; ++i) {
+        drawLabel(GetCannon(i + 1), ResolveCannonDisplayName(i), ResolveCannonNameEffectId(i));
+    }
 }

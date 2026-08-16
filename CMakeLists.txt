@@ -8,14 +8,20 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
-# NOTA: este CMakeLists.txt é usado apenas para a build DESKTOP (Linux/macOS/
-# Windows). A build Android usa um pipeline separado (ver android/CMakeLists.txt
-# + build_android.sh) porque o CMakeLists.txt genérico do próprio
-# raylib tem suporte a Android historicamente instável — o caminho oficial e
-# testado pra Android é o Makefile dedicado dele (src/Makefile), não este
-# CMakeLists.txt. Ver ANDROID.md para detalhes.
+# NOTA: este CMakeLists.txt é usado pra build DESKTOP (Linux/macOS/Windows)
+# E pra build Web (Emscripten, ver web/build_web.sh) — o próprio CMake do
+# raylib já sabe compilar pra Web (basta set(PLATFORM Web) antes do
+# FetchContent_MakeAvailable), então não precisou de um pipeline à parte
+# como o do Android (que usa o Makefile dedicado do raylib — ver
+# ANDROID.md). A build Android continua com seu pipeline separado
+# (android/CMakeLists.txt + build_android.sh).
 
 include(FetchContent)
+
+# Emscripten (via emcmake) define esta variável de cache automaticamente.
+if(EMSCRIPTEN)
+    set(PLATFORM Web CACHE STRING "" FORCE)
+endif()
 
 # ---------------------------------------------------------------------------
 # raylib
@@ -35,7 +41,7 @@ FetchContent_Declare(
 FetchContent_Declare(
     box2d
     GIT_REPOSITORY https://github.com/erincatto/box2d.git
-    GIT_TAG        v3.1.0
+    GIT_TAG        v3.1.1
     GIT_SHALLOW    TRUE
 )
 
@@ -52,9 +58,13 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(raylib box2d nlohmann_json)
 
-# libcurl 8.x (FetchContent) — HTTP + WebSocket (Supabase Realtime).
-# Evita depender do curl antigo do sistema (< 7.86 sem curl_ws_*).
-include(${CMAKE_SOURCE_DIR}/cmake/CurlWithWebSocket.cmake)
+if(NOT EMSCRIPTEN)
+    # libcurl 8.x (FetchContent) — HTTP + WebSocket (Supabase Realtime).
+    # Evita depender do curl antigo do sistema (< 7.86 sem curl_ws_*).
+    # No build Web isso não existe: rede é via fetch()/WebSocket do
+    # browser (ver web/net/SupabaseClient.web.cpp e RealtimeClient.web.cpp).
+    include(${CMAKE_SOURCE_DIR}/cmake/CurlWithWebSocket.cmake)
+endif()
 
 # O box2d define -Werror internamente no seu CMakeLists (dependendo da
 # versão/toolchain) e a 3.1.0 dispara falsos-positivos de
@@ -73,6 +83,22 @@ file(GLOB_RECURSE CANNON_DUEL_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_SOURCE_DIR}/src/*.cpp
 )
 
+if(EMSCRIPTEN)
+    # Essas três só existem em cima de libcurl (curl.h, curl_ws_*) — trocadas
+    # pelas versões web/net/*.web.cpp (fetch()/emscripten_websocket). TLS é
+    # responsabilidade do browser, então TlsCaBundle não tem equivalente web.
+    list(REMOVE_ITEM CANNON_DUEL_SOURCES
+        ${CMAKE_SOURCE_DIR}/src/net/SupabaseClient.cpp
+        ${CMAKE_SOURCE_DIR}/src/net/RealtimeClient.cpp
+        ${CMAKE_SOURCE_DIR}/src/net/TlsCaBundle.cpp
+    )
+    list(APPEND CANNON_DUEL_SOURCES
+        ${CMAKE_SOURCE_DIR}/web/net/SupabaseClient.web.cpp
+        ${CMAKE_SOURCE_DIR}/web/net/RealtimeClient.web.cpp
+        ${CMAKE_SOURCE_DIR}/web/WebOpfs.cpp
+    )
+endif()
+
 set(CANNON_DUEL_TARGET CannonDuel)
 include(${CMAKE_SOURCE_DIR}/cmake/DebugMode.cmake)
 
@@ -81,12 +107,50 @@ add_executable(CannonDuel ${CANNON_DUEL_SOURCES})
 cannon_duel_apply_debug_mode(CannonDuel)
 
 target_include_directories(CannonDuel PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(EMSCRIPTEN)
+    target_include_directories(CannonDuel PRIVATE ${CMAKE_SOURCE_DIR}/web)
+endif()
 
-target_link_libraries(CannonDuel PRIVATE
-    raylib box2d nlohmann_json::nlohmann_json
-    libcurl OpenSSL::SSL OpenSSL::Crypto
-    pthread
-)
+target_link_libraries(CannonDuel PRIVATE raylib box2d nlohmann_json::nlohmann_json)
+
+if(EMSCRIPTEN)
+    # -sASYNCIFY: ainda necessário pro OPFS (WebOpfs.cpp) na thread
+    #   principal e pra alguns cliques HTTP síncronos. O NetWorker web
+    #   não usa mais Asyncify no fetch — o frame continua enquanto a
+    #   resposta não chega. Sem pthreads/SharedArrayBuffer (GitHub Pages
+    #   não seta COOP/COEP).
+    # -sWASMFS: filesystem layer usado por WebOpfs.cpp (backend OPFS) —
+    #   substituiu o IDBFS antigo (que exigia FS.syncfs manual em volta de
+    #   toda leitura/escrita). Compatível com --preload-file abaixo.
+    # -lwebsocket.js: API emscripten_websocket usada pelo RealtimeClient web.
+    # -sEXPORTED_RUNTIME_METHODS=HEAPF32: Emscripten recente parou de expor
+    #   Module.HEAPF32 por padrão; o backend Web Audio (ScriptProcessorNode)
+    #   do miniaudio embutido no raylib acessa Module.HEAPF32.buffer
+    #   diretamente (ver miniaudio.h, onaudioprocess), e sem isso o callback
+    #   de áudio lança exceção a cada buffer — o jogo carrega normalmente mas
+    #   fica mudo (fire/explosion/music), sem erro visível fora do console.
+    # --preload-file: empacota assets/ no mesmo prefixo "assets/" usado por
+    #   AssetPath.h no desktop, então esse arquivo não precisa mudar.
+    target_compile_options(CannonDuel PRIVATE -fexceptions)
+    target_link_options(CannonDuel PRIVATE
+        -sUSE_GLFW=3
+        -sASYNCIFY
+        -fexceptions
+        -sWASMFS
+        -sALLOW_MEMORY_GROWTH=1
+        -sFORCE_FILESYSTEM=1
+        -sEXPORTED_RUNTIME_METHODS=HEAPF32
+        -lwebsocket.js
+        --preload-file ${CMAKE_SOURCE_DIR}/assets@assets
+        --shell-file ${CMAKE_SOURCE_DIR}/web/shell.html
+    )
+    set_target_properties(CannonDuel PROPERTIES SUFFIX ".html")
+else()
+    target_link_libraries(CannonDuel PRIVATE
+        libcurl OpenSSL::SSL OpenSSL::Crypto
+        pthread
+    )
+endif()
 
 if(APPLE)
     target_link_libraries(CannonDuel PRIVATE "-framework IOKit" "-framework Cocoa" "-framework OpenGL")
@@ -96,9 +160,12 @@ if(WIN32)
     target_link_libraries(CannonDuel PRIVATE winmm)
 endif()
 
-# Copia assets para a pasta de build
-add_custom_command(TARGET CannonDuel POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${CMAKE_SOURCE_DIR}/assets
-        $<TARGET_FILE_DIR:CannonDuel>/assets
-)
+# Copia assets para a pasta de build (build Web usa --preload-file acima
+# em vez disso — os assets vão embutidos no .data carregado pelo runtime).
+if(NOT EMSCRIPTEN)
+    add_custom_command(TARGET CannonDuel POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            ${CMAKE_SOURCE_DIR}/assets
+            $<TARGET_FILE_DIR:CannonDuel>/assets
+    )
+endif()

@@ -1,4 +1,5 @@
 #include "Game.h"
+#include "AmmoVisuals.h"
 #include "AssetPath.h"
 #include "CannonUILayout.h"
 #include "Config.h"
@@ -19,7 +20,9 @@
 void Game::PresentScreenWithDebug() {
     EndTextureMode();
     BeginDrawing();
+#if !CANNON_DUEL_WEB_BUILD
     ClearBackground(BLACK);
+#endif
     DrawVirtualScreenScaled(virtualScreen);
 #if CANNON_DUEL_DEBUG_MODE
     DrawDebugLogOverlay();
@@ -65,6 +68,16 @@ void Game::Draw() {
         return;
     }
 
+    if (state == GameState::FormatSelect) {
+        DrawFormatSelect();
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
+        if (devMode) DrawDevPanel();
+#endif
+        PresentScreenWithDebug();
+        return;
+    }
+
     if (state == GameState::OnlineLobby) {
         DrawOnlineLobby();
 #if CANNON_DUEL_DEBUG_MODE
@@ -75,10 +88,31 @@ void Game::Draw() {
         return;
     }
 
-    // ---- background (sprite gerado: dia com sol/nuvens, ou noite com estrelas/lua) ----
-    Texture2D& bgTex = nightMode ? texBackgroundNight : texBackground;
-    if (spritesReady && bgTex.id != 0) {
-        DrawTexture(bgTex, 0, 0, WHITE);
+    if (state == GameState::OnlineTeamRoom) {
+        DrawOnlineTeamRoom();
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
+        if (devMode) DrawDevPanel();
+#endif
+        PresentScreenWithDebug();
+        return;
+    }
+
+    if (state == GameState::Shop) {
+        DrawShop();
+#if CANNON_DUEL_DEBUG_MODE
+        DrawDevPanelButton();
+        if (devMode) DrawDevPanel();
+#endif
+        PresentScreenWithDebug();
+        return;
+    }
+
+    Texture2D* bgTex = &texBackground;
+    if (scenario == Scenario::Night) bgTex = &texBackgroundNight;
+    else if (scenario == Scenario::ValleyOfTheEnd) bgTex = &texBackgroundValley;
+    if (spritesReady && bgTex->id != 0) {
+        DrawTexture(*bgTex, 0, 0, WHITE);
     } else {
         DrawCircle(cfg::SCREEN_WIDTH - 140, 110, 60, Color{255, 221, 130, 255});
         DrawRectangle(0, cfg::SCREEN_HEIGHT - 460, cfg::SCREEN_WIDTH, 40, Color{225, 200, 175, 180});
@@ -101,14 +135,16 @@ void Game::Draw() {
     BeginMode2D(shakeCam);
 
     terrain.Draw();
-    player1.Draw(currentPlayer == 1 && state != GameState::RoundOver,
-                 spritesReady ? &texCannonLeft : nullptr);
-    player2.Draw(currentPlayer == 2 && state != GameState::RoundOver,
-                 spritesReady ? &texCannonRight : nullptr);
-
-    if (mode == GameMode::Online) {
-        DrawOnlineCannonLabels();
+    for (int i = 0; i < roster.CannonCount(); ++i) {
+        const int playerNum = i + 1;
+        const bool isActive = (currentPlayer == playerNum && state != GameState::RoundOver &&
+                               roster.At(i).IsAlive());
+        Texture2D* tex = ResolveCannonTexture(i);
+        Texture2D* overlay = ResolveCannonOverlay(i);
+        roster.At(i).Draw(isActive, tex, overlay);
     }
+
+    coinPopups.Draw();
 
     if (version == GameVersion::Plus) {
         powerups.Draw(terrain);
@@ -121,15 +157,14 @@ void Game::Draw() {
     // clara da fumaça, escondendo o preto original do sprite.
     particles.Draw();
 
+    auto drawShot = [&](Vector2 p, Vector2 vel, const Cannon& shooter) {
+        const bool plus = (version == GameVersion::Plus);
+        DrawAmmoProjectile(p, vel, shooter.ammoStyle, ResolveAmmoTexture(shooter.ammoStyle),
+                           plus && shooter.pendingDoubleDamage, plus && shooter.pendingGuided);
+    };
+
     if (projectile.IsActive()) {
-        Vector2 p = projectile.PositionPx();
-        if (spritesReady && texProjectile.id != 0) {
-            float r = cfg::PROJECTILE_RADIUS_PX;
-            DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
-                           {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
-        } else {
-            DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
-        }
+        drawShot(projectile.PositionPx(), projectile.VelocityPx(), GetCannon(currentPlayer));
     }
 
     if (state == GameState::RemoteShotReplay) {
@@ -137,32 +172,20 @@ void Game::Draw() {
             DrawOpponentAim(opponentAimPlayer, opponentAimAngle, opponentAimPower);
         }
         if (remoteReplayAimTimer <= 0.0f) {
-            Vector2 p = remoteReplayPos;
-            if (spritesReady && texProjectile.id != 0) {
-                float r = cfg::PROJECTILE_RADIUS_PX;
-                DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
-                               {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
-            } else {
-                DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
-            }
+            const Cannon& shooter = GetCannon(pendingRemoteTurn.shooterPlayer);
+            drawShot(remoteReplayPos, { 0, 0 }, shooter);
         }
     }
 
     if (state == GameState::RemoteProjectileLive) {
-        Vector2 p = remoteLivePos;
-        if (spritesReady && texProjectile.id != 0) {
-            float r = cfg::PROJECTILE_RADIUS_PX;
-            DrawTexturePro(texProjectile, {0, 0, (float)texProjectile.width, (float)texProjectile.height},
-                           {p.x - r, p.y - r, r * 2, r * 2}, {0, 0}, 0.0f, WHITE);
-        } else {
-            DrawCircleV(p, cfg::PROJECTILE_RADIUS_PX, BLACK);
-        }
+        const Cannon& shooter = GetCannon(currentPlayer);
+        drawShot(remoteLivePos, { 0, 0 }, shooter);
     }
 
     // mecanismo de mira: linha oscilando (fase ângulo) ou barra de força (fase potência)
     if (IsLocalHumanTurn()) {
         int activePlayer = (mode == GameMode::Online) ? netMatch.MyPlayerNumber() : currentPlayer;
-        Cannon& active = (activePlayer == 1) ? player1 : player2;
+        Cannon& active = GetCannon(activePlayer);
         Vector2 base = { active.x, active.groundY - cfg::CANNON_BODY_RADIUS_PX * 0.6f };
 
         // power-up "trajetória prevista": desenha o arco balístico estimado
@@ -229,7 +252,7 @@ void Game::Draw() {
              state != GameState::RemoteShotReplay && state != GameState::RemoteProjectileLive) {
         DrawOpponentAim(opponentAimPlayer, opponentAimAngle, opponentAimPower);
     }
-    else if (mode == GameMode::Online && !netMatch.IsMyTurn() && state == GameState::Aiming) {
+    else if (mode == GameMode::Online && !isSpectating && !netMatch.IsMyTurn() && state == GameState::Aiming) {
         std::string waitMsg = std::string(netMatch.OpponentName()) + T(TK::OnlineWaitingSuffix, language);
         int ww = MeasureText(waitMsg.c_str(), 20);
         DrawText(waitMsg.c_str(), cfg::SCREEN_WIDTH / 2 - ww / 2, 90, 20, HudTextColor());
@@ -241,7 +264,15 @@ void Game::Draw() {
 
     EndMode2D();
 
+    if (mode == GameMode::Online || mode == GameMode::PvAI || mode == GameMode::PvP) {
+        DrawCannonNameLabels();
+    }
+
     DrawHUD();
+
+    if (isSpectating && state != GameState::RoundOver) {
+        DrawSpectatorBanner();
+    }
 
     if (state == GameState::RoundOver) {
         DrawRectangle(0, 0, cfg::SCREEN_WIDTH, cfg::SCREEN_HEIGHT, Fade(BLACK, 0.55f));
@@ -249,9 +280,24 @@ void Game::Draw() {
         int fs = 48;
         int tw = MeasureText(msg, fs);
         DrawText(msg, cfg::SCREEN_WIDTH / 2 - tw / 2, cfg::SCREEN_HEIGHT / 2 - 60, fs, WHITE);
-        const char* hint = T(TK::RoundOverHint, language);
-        int hw = MeasureText(hint, 20);
-        DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 10, 20, LIGHTGRAY);
+        const int coins = RoundEndCoinAmount();
+        if (coins > 0) {
+            char coinBuf[64];
+            snprintf(coinBuf, sizeof(coinBuf), T(TK::RoundCoinsEarned, language), coins);
+            const int coinFs = 22;
+            const int cw = MeasureText(coinBuf, coinFs);
+            DrawText(coinBuf, cfg::SCREEN_WIDTH / 2 - cw / 2, cfg::SCREEN_HEIGHT / 2 - 4, coinFs,
+                     Color{ 255, 210, 60, 255 });
+        }
+        if (mode == GameMode::Online && !isSpectating) {
+            DrawOnlineRoundOverOptions();
+        } else {
+            const char* hint = isSpectating
+                ? T(TK::RoundOverSpectatorHint, language)
+                : T(TK::RoundOverHint, language);
+            int hw = MeasureText(hint, 20);
+            DrawText(hint, cfg::SCREEN_WIDTH / 2 - hw / 2, cfg::SCREEN_HEIGHT / 2 + 28, 20, LIGHTGRAY);
+        }
     }
 
     DrawMenuButton();
